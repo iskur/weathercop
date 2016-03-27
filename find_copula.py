@@ -1,5 +1,5 @@
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from weathercop import copulae, cop_conf
+from weathercop import copulae, cop_conf, stats
 
 
 pool = ProcessPoolExecutor()

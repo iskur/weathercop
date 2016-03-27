@@ -2,6 +2,9 @@
 from abc import ABCMeta, abstractproperty
 import functools
 import warnings
+import os
+import importlib
+from collections import OrderedDict
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,14 +14,10 @@ from sympy.utilities.autowrap import ufuncify
 # from sympy.printing.theanocode import theano_function
 from sympy import ln, exp  # , asin
 from mpmath import mp
-from scipy import stats
 from scipy.optimize import minimize
 
 from weathercop import cop_conf as conf
-
-
-def rel_ranks(data, method="average"):
-    return (stats.rankdata(data, method) - .5) / len(data)
+from weathercop import tools, stats
 
 
 def random_sample(size, bound=1e-12):
@@ -182,7 +181,8 @@ class Copulae(object, metaclass=MetaCop):
                 theta = self.theta
             except AttributeError:
                 theta = self.theta_start
-        uu = vv = rel_ranks(np.arange(1000))
+        uu = vv = stats.rel_ranks(np.arange(1000))
+        # if self.rotation == "90":
         density = self.density(uu[None, :], vv[:, None], *theta)
         # get rid of large values for visualizations sake
         density[density >= np.sort(density.ravel())[-100]] = np.nan
@@ -516,8 +516,8 @@ if __name__ == '__main__':
                                  "vg_data.npz")
     with np.load(data_filepath) as saved:
         data_summer = saved["summer"]
-    ranks_u_tm1 = rel_ranks(data_summer[5, :-1])
-    ranks_rh = rel_ranks(data_summer[4, 1:])
+    ranks_u_tm1 = stats.rel_ranks(data_summer[5, :-1])
+    ranks_rh = stats.rel_ranks(data_summer[4, 1:])
 
     for copula in all_cops.values():
         # copula.plot_cop_dens()

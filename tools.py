@@ -1,4 +1,32 @@
+import contextlib
+import os
+import shelve
 from collections import UserDict
+from hashlib import md5
+
+
+@contextlib.contextmanager
+def shelve_open(filename, *args, **kwds):
+    sh = shelve.open(filename, "c")
+    yield sh
+    sh.close()
+
+
+@contextlib.contextmanager
+def chdir(dirname):
+    """Temporarily change the working directory with a with-statement."""
+    old_dir = os.path.abspath(os.path.curdir)
+    if dirname:  # could be an empty string
+        if not os.path.exists(dirname):
+            os.mkdir(dirname)
+        os.chdir(dirname)
+    yield
+    os.chdir(old_dir)
+
+
+def gen_hash(cls):
+    gen_expr = cls.gen_expr if hasattr(cls, "gen_expr") else cls
+    return md5(gen_expr.__repr__().encode()).hexdigest()
 
 
 class ADict(UserDict):
