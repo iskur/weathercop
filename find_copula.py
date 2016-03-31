@@ -5,7 +5,7 @@ from weathercop import copulae, cop_conf, stats
 pool = ProcessPoolExecutor()
 
 
-def mml(ranks_u, ranks_v, cops):
+def mml(ranks_u, ranks_v, cops=copulae.all_cops):
     with ProcessPoolExecutor() as executor:
         futures = {executor.submit(cop.generate_fitted, ranks_u, ranks_v):
                    cop_name
@@ -22,7 +22,7 @@ def mml(ranks_u, ranks_v, cops):
     return fitted_cops
 
 
-def mml_serial(ranks_u, ranks_v, cops):
+def mml_serial(ranks_u, ranks_v, cops=copulae.all_cops):
     fitted_cops = []
     for cop_name, cop in cops.items():
         try:
@@ -36,7 +36,7 @@ def mml_serial(ranks_u, ranks_v, cops):
     return max(fitted_cops)
 
 
-def mml_kdim(data, cops, k=1):
+def mml_kdim(data, cops=copulae.all_cops, k=1):
     K = len(data)
     fitted_cops = {}
     for i in range(K):
