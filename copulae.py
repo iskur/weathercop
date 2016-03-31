@@ -23,8 +23,8 @@ theta_large = 1e3
 
 
 def ufuncify(cls, name, *args, **kwds):
-    generator_hash = tools.gen_hash(cls)
-    module_name = "%s_%s_%s" % (cls.name, name, generator_hash)
+    copula_hash = tools.hash_cop(cls)
+    module_name = "%s_%s_%s" % (cls.name, name, copula_hash)
     try:
         with tools.chdir(conf.ufunc_tmp_dir):
             ufunc = importlib.import_module("%s_0" % module_name).autofunc_c
@@ -88,10 +88,11 @@ class MetaCop(ABCMeta):
     def __new__(cls, name, bases, cls_dict):
         new_cls = super().__new__(cls, name, bases, cls_dict)
         new_cls.name = name.lower()
-        print("in MetaCop with " + name)
+        # print("in MetaCop with " + name)
         if "cop_expr" in cls_dict:
             new_cls.dens_func = MetaCop.density_from_cop(new_cls)
             new_cls.cdf_given_u = MetaCop.cdf_given_u(new_cls)
+            new_cls.cdf_given_v = MetaCop.cdf_given_v(new_cls)
             new_cls.copula_func = MetaCop.copula_func(new_cls)
         return new_cls
 
@@ -105,26 +106,33 @@ class MetaCop(ABCMeta):
             ufunc = broadcast_2d(ufunc)
         return positive(ufunc)
 
-    def cdf_given_u(cls):
+    def conditional_cdf(cls, conditioning):
         uu, vv, theta = sympy.symbols(("uu", "vv", "theta"))
         with tools.shelve_open(conf.sympy_cache) as sh:
-            key = "%s_cdf_%s" % (cls.name, tools.gen_hash(cls))
+            key = ("%s_cdf_given_%s__%s" %
+                   (cls.name, conditioning, tools.hash_cop(cls)))
             if key not in sh:
                 warnings.warn("Generating conditional %s" % cls.name)
                 # a good cop always stays positive!
                 good_cop = sympy.Piecewise((cls.cop_expr, cls.cop_expr > 0),
                                            (0, True))
-                cdf = sympy.diff(good_cop, uu)
-                sh[key] = sympy.simplify(cdf)
-            cdf = sh[key]
-        # return theano_function([uu, vv, theta], [cdf])
-        ufunc = ufuncify(cls, "cdf_given_u",
-                         [uu, vv, theta], cdf,
+                conditional_cdf = sympy.diff(good_cop, conditioning)
+                sh[key] = sympy.simplify(conditional_cdf)
+            conditional_cdf = sh[key]
+        setattr(cls, "cdf_given_%s_expr", conditional_cdf)
+        ufunc = ufuncify(cls, "conditional_cdf",
+                         [uu, vv, theta], conditional_cdf,
                          backend=MetaCop.backend,
                          tempdir=conf.ufunc_tmp_dir)
         if MetaCop.backend in ("f2py", "cython"):
             ufunc = broadcast_2d(ufunc)
         return positive(ufunc)
+
+    def cdf_given_u(cls):
+        return cls.conditional_cdf(sympy.symbols("uu"))
+
+    def cdf_given_v(cls):
+        return cls.conditional_cdf(sympy.symbols("vv"))
 
     def density_from_cop(cls):
         """Copula density obtained by sympy differentiation compiled to
@@ -132,7 +140,7 @@ class MetaCop(ABCMeta):
         """
         uu, vv, theta = sympy.symbols(("uu", "vv", "theta"))
         with tools.shelve_open(conf.sympy_cache) as sh:
-            key = "%s_density_%s" % (cls.name, tools.gen_hash(cls))
+            key = "%s_density_%s" % (cls.name, tools.hash_cop(cls))
             if key not in sh:
                 warnings.warn("Generating density for %s" % cls.name)
                 dens_expr = sympy.diff(cls.cop_expr, uu, vv)
@@ -140,7 +148,8 @@ class MetaCop(ABCMeta):
                                             (0, True))
                 sh[key] = sympy.simplify(dens_expr)
             dens_expr = sh[key]
-        # return theano_function([uu, vv, theta], [dens_expr])
+        # for outer pleasure
+        cls.dens_expr = dens_expr
         ufunc = ufuncify(cls, "density",
                          [uu, vv, theta], dens_expr,
                          backend=MetaCop.backend,
@@ -153,12 +162,12 @@ class MetaCop(ABCMeta):
 class MetaArch(MetaCop):
 
     def __new__(cls, name, bases, cls_dict):
-        print("in MetaArch with " + name)
+        # print("in MetaArch with " + name)
         if ("gen_expr" in cls_dict) and ("cop_expr" not in cls_dict):
             gen = cls_dict["gen_expr"]
             uu, vv, x, t = sympy.symbols(("uu", "vv", "x", "t"))
             with tools.shelve_open(conf.sympy_cache) as sh:
-                key = "%s_cop_%s" % (name, tools.gen_hash(gen))
+                key = "%s_cop_%s" % (name, tools.hash_cop(gen))
                 if key not in sh:
                     warnings.warn("Generating inv. gen for %s" % name)
                     if "gen_inv" not in cls_dict:
@@ -301,7 +310,7 @@ class Copulae(object, metaclass=MetaCop):
                            facecolor=(0, 0, 0, 0),
                            edgecolor=(0, 0, 0, opacity))
             except ValueError:
-                print("Sampling %s does not work" % self.name)
+                warnings.warn("Sampling %s does not work" % self.name)
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_xticklabels([])
@@ -349,6 +358,9 @@ class Frozen(object):
     def cdf_given_u(self, uu, vv):
         return self.copula.cdf_given_u(uu, vv, *self.theta)
 
+    def cdf_given_v(self, uu, vv):
+        return self.copula.cdf_given_v(uu, vv, *self.theta)
+
 
 @functools.total_ordering
 class Fitted(object):
@@ -376,6 +388,12 @@ class Fitted(object):
     def __repr__(self):
         return ("Fitted(%r, %r, %r, %r)" %
                 (self.copula, self.ranks_u, self.ranks_v, self.theta))
+
+    def cdf_given_u(self, uu, vv):
+        return self.copula.cdf_given_u(uu, vv, *self.theta)
+
+    def cdf_given_v(self, uu, vv):
+        return self.copula.cdf_given_v(uu, vv, *self.theta)
 
 
 class Archimedian(Copulae, metaclass=MetaArch):
@@ -627,6 +645,20 @@ class AliMikailHaqNeg(AliMikailHaqPos):
 alimikailhaqneg = AliMikailHaqNeg()
 
 
+class Independence(Copulae):
+    par_names = "uu", "vv"
+    theta_start = None,
+    uu, vv = sympy.symbols(par_names)
+    cop_expr = uu * vv
+
+    def fit(self, uu, vv, *args, **kwds):
+        return None
+
+    def sample(self, size, *args, **kwds):
+        return random_sample(size), random_sample(size)
+independence = Independence()
+
+
 all_cops = OrderedDict((name, obj) for name, obj
                        in sorted(dict(locals()).items())
                        if isinstance(obj, Copulae))
@@ -657,8 +689,9 @@ if __name__ == '__main__':
         except NoConvergence:
             continue
         fig, axs = plt.subplots(ncols=2, subplot_kw=dict(aspect="equal"))
-        fig.suptitle(copula.name + " " + repr(copula.theta) +
-                     "\n likelihood: %.2f" % copula.likelihood)
+        fig.suptitle(copula.name + " " +
+                     repr(fitted_cop.theta) +
+                     "\n likelihood: %.2f" % fitted_cop.likelihood)
         opacity = .1
         fitted_cop.plot_density(ax=axs[0], opacity=opacity,
                                 scatter=True, sample_size=10000,
