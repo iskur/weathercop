@@ -24,9 +24,9 @@ def chdir(dirname):
     os.chdir(old_dir)
 
 
-def gen_hash(cls):
-    gen_expr = cls.gen_expr if hasattr(cls, "gen_expr") else cls
-    return md5(gen_expr.__repr__().encode()).hexdigest()
+def hash_cop(cls):
+    cop_expr = cls.cop_expr if hasattr(cls, "cop_expr") else cls
+    return md5(cop_expr.__repr__().encode()).hexdigest()
 
 
 class ADict(UserDict):
