@@ -357,24 +357,20 @@ class Copulae(metaclass=MetaCop):
         return axs
 
     def plot_density(self, theta=None, scatter=True, ax=None,
-                     kind="contourf", opacity=.1, sample_size=1000):
+                     kind="contourf", opacity=.1, sample_size=1000,
+                     skwds=None):
         if theta is None:
             try:
                 theta = self.theta
             except AttributeError:
                 theta = self.theta_start
+        if skwds is None:
+            skwds = dict()
         uu = vv = stats.rel_ranks(np.arange(1000))
-        # if self.rotation == "90":
-        #     vv = 1 - vv
-        # elif self.rotation == "180":
-        #     uu = 1 - uu
-        #     vv = 1 - vv
-        # elif self.rotation == "270":
-        #     uu = 1 - uu
-
         density = self.density(uu[None, :], vv[:, None], *theta)
-        # get rid of large values for visualizations sake
-        # density[density >= np.sort(density.ravel())[-100]] = np.nan
+        if not isinstance(self, Independence):
+            # get rid of large values for visualizations sake
+            density[density >= np.sort(density.ravel())[-10]] = np.nan
         if ax is None:
             fig, ax = plt.subplots(subplot_kw=dict(aspect="equal"))
         if kind == "contourf":
@@ -387,13 +383,16 @@ class Copulae(metaclass=MetaCop):
                 ax.scatter(u_sample, v_sample,
                            marker="o",
                            facecolor=(0, 0, 0, 0),
-                           edgecolor=(0, 0, 0, opacity))
+                           edgecolor=(0, 0, 0, opacity),
+                           **skwds)
             except ValueError:
                 warnings.warn("Sampling %s does not work" % self.name)
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_xticklabels([])
         ax.set_yticklabels([])
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
         return ax
 
     def plot_copula(self, theta=None, ax=None, kind="contourf"):
