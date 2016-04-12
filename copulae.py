@@ -449,13 +449,16 @@ class Fitted:
         self.ranks_v = ranks_v
         self.theta = theta
         self.name = "fitted %s" % copula.name
-        density = copula.density(ranks_u, ranks_v, *theta)
-        mask = (density > 0) & np.isfinite(density)
-        dens_masked = density[mask]
-        if len(dens_masked) == 0:
-            self.likelihood = -np.inf
+        if isinstance(copula, Independence):
+            self.likelihood = 0
         else:
-            self.likelihood = np.sum(np.log(dens_masked))
+            density = copula.density(ranks_u, ranks_v, *theta)
+            mask = (density > 0) & np.isfinite(density)
+            dens_masked = density[mask]
+            if len(dens_masked) == 0:
+                self.likelihood = -np.inf
+            else:
+                self.likelihood = np.sum(np.log(dens_masked))
 
     def __getattr__(self, name):
         return getattr(self.copula, name)
@@ -464,8 +467,7 @@ class Fitted:
         return self.likelihood < other
 
     def __repr__(self):
-        return ("Fitted(%r, %r, %r, %r)" %
-                (self.copula, self.ranks_u, self.ranks_v, self.theta))
+        return ("Fitted(%r, theta=%r)" % (self.copula, self.theta))
 
     def cdf_given_u(self, uu, vv):
         return self.copula.cdf_given_u(uu, vv, *self.theta)
@@ -473,8 +475,24 @@ class Fitted:
     def cdf_given_v(self, uu, vv):
         return self.copula.cdf_given_v(uu, vv, *self.theta)
 
+    def inv_cdf_given_u(self, uu, qq):
+        return self.copula.inv_cdf_given_u(uu, qq, self.theta)
+
+    def inv_cdf_given_v(self, vv, qq):
+        return self.copula.inv_cdf_given_v(vv, qq, self.theta)
+
+    def plot_density(self, *args, **kwds):
+        return self.copula.plot_density(theta=self.theta, *args, **kwds)
+
 
 class Archimedian(Copulae, metaclass=MetaArch):
+    """Archimedian Copulas.
+
+    Notes
+    -----
+    Nelsen-style archimedian copulas defined by a generator
+    function. Not a LT as in Joe.
+    """
     par_names = "uu", "vv", "theta"
 
     # def sample(self, size, theta):
