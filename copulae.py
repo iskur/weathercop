@@ -12,8 +12,11 @@ import scipy as sp
 import sympy
 from sympy.utilities import autowrap
 from sympy import ln, exp  # , asin
+# from sympy import stats as sstats
+# from sympy.functions.special import error_functions
 from mpmath import mp
 from scipy.optimize import minimize
+from scipy.special import erfinv, erf
 
 from weathercop import cop_conf as conf
 from weathercop import tools, stats
@@ -22,21 +25,21 @@ from weathercop import tools, stats
 theta_large = 1e3
 
 
-def ufuncify(cls, name, *args, **kwds):
-    copula_hash = tools.hash_cop(cls)
-    module_name = "%s_%s_%s" % (cls.name, name, copula_hash)
+def ufuncify(cls, name, uargs, expr, *args, **kwds):
+    expr_hash = tools.hash_cop(expr)
+    module_name = "%s_%s_%s" % (cls.name, name, expr_hash)
     try:
         with tools.chdir(conf.ufunc_tmp_dir):
             ufunc = importlib.import_module("%s_0" % module_name).autofunc_c
     except ImportError:
-        warnings.warn("Compiling...")
+        warnings.warn("Compiling %s" % repr(expr))
         _filename_orig = autowrap.CodeWrapper._filename
         _module_basename_orig = autowrap.CodeWrapper._module_basename
         _module_counter_orig = autowrap.CodeWrapper._module_counter
         autowrap.CodeWrapper._filename = "%s_code" % module_name
         autowrap.CodeWrapper._module_basename = module_name
         autowrap.CodeWrapper._module_counter = 0
-        ufunc = autowrap.ufuncify(*args, **kwds)
+        ufunc = autowrap.ufuncify(uargs, expr, *args, **kwds)
         autowrap.CodeWrapper._module_basename = _module_basename_orig
         autowrap.CodeWrapper._module_counter = _module_counter_orig
         autowrap.CodeWrapper._filename = _filename_orig
@@ -93,13 +96,32 @@ class MetaCop(ABCMeta):
             new_cls.dens_func = MetaCop.density_from_cop(new_cls)
             new_cls.cdf_given_u = MetaCop.cdf_given_u(new_cls)
             new_cls.cdf_given_v = MetaCop.cdf_given_v(new_cls)
+            # new_cls.inv_cdf_given_u = MetaCop.inv_cdf_given_u(new_cls)
+            # new_cls.inv_cdf_given_v = MetaCop.inv_cdf_given_v(new_cls)
             new_cls.copula_func = MetaCop.copula_func(new_cls)
+        elif "dens_expr" in cls_dict and "dens_func" not in cls_dict:
+            new_cls.dens_func = MetaCop.density_func(new_cls)
+        if "inv_cdf_given_uu_expr" in cls_dict:
+            new_cls.inv_cdf_given_u = MetaCop.inv_cdf_given_u(new_cls)
+        if "inv_cdf_given_vv_expr" in cls_dict:
+            new_cls.inv_cdf_given_v = MetaCop.inv_cdf_given_v(new_cls)
         return new_cls
 
     def copula_func(cls):
-        uu, vv, theta = sympy.symbols(("uu", "vv", "theta"))
+        uu, vv, *theta = sympy.symbols(cls.par_names)
         ufunc = ufuncify(cls, "copula",
-                         [uu, vv, theta], cls.cop_expr,
+                         [uu, vv] + theta, cls.cop_expr,
+                         backend=MetaCop.backend,
+                         tempdir=conf.ufunc_tmp_dir)
+        if MetaCop.backend in ("f2py", "cython"):
+            ufunc = broadcast_2d(ufunc)
+        return positive(ufunc)
+
+    def density_func(cls):
+        uu, vv, *theta = sympy.symbols(cls.par_names)
+        dens_expr = cls.dens_expr
+        ufunc = ufuncify(cls, "density",
+                         [uu, vv] + theta, dens_expr,
                          backend=MetaCop.backend,
                          tempdir=conf.ufunc_tmp_dir)
         if MetaCop.backend in ("f2py", "cython"):
@@ -107,21 +129,33 @@ class MetaCop(ABCMeta):
         return positive(ufunc)
 
     def conditional_cdf(cls, conditioning):
-        uu, vv, theta = sympy.symbols(("uu", "vv", "theta"))
-        with tools.shelve_open(conf.sympy_cache) as sh:
-            key = ("%s_cdf_given_%s__%s" %
-                   (cls.name, conditioning, tools.hash_cop(cls)))
-            if key not in sh:
-                warnings.warn("Generating conditional %s" % cls.name)
-                # a good cop always stays positive!
-                good_cop = sympy.Piecewise((cls.cop_expr, cls.cop_expr > 0),
-                                           (0, True))
-                conditional_cdf = sympy.diff(good_cop, conditioning)
-                sh[key] = sympy.simplify(conditional_cdf)
-            conditional_cdf = sh[key]
-        setattr(cls, "cdf_given_%s_expr", conditional_cdf)
+        uu, vv, *theta = sympy.symbols(cls.par_names)
+        expr_attr = "cdf_given_%s_expr" % conditioning
+        try:
+            conditional_cdf = getattr(cls, expr_attr)
+        except AttributeError:
+            with tools.shelve_open(conf.sympy_cache) as sh:
+                key = ("%s_cdf_given_%s__%s" %
+                       (cls.name, conditioning, tools.hash_cop(cls)))
+                if key not in sh:
+                    warnings.warn("Generating conditional %s" % cls.name)
+                    # a good cop always stays positive!
+                    good_cop = sympy.Piecewise((cls.cop_expr,
+                                                cls.cop_expr > 0),
+                                               (0, True))
+                    conditional_cdf = sympy.diff(good_cop, conditioning)
+                    conditional_cdf = sympy.simplify(conditional_cdf)
+                    # conditional_cdf = \
+                    #     sympy.Piecewise((0, uu < 1e-12),
+                    #                     (0, vv < 1e-12),
+                    #                     (1, uu > (1 - 1e-12)),
+                    #                     (1, vv > (1 - 1e-12)),
+                    #                     (conditional_cdf, True))
+                    sh[key] = conditional_cdf
+                conditional_cdf = sh[key]
+            setattr(cls, expr_attr, conditional_cdf)
         ufunc = ufuncify(cls, "conditional_cdf",
-                         [uu, vv, theta], conditional_cdf,
+                         [uu, vv] + theta, conditional_cdf,
                          backend=MetaCop.backend,
                          tempdir=conf.ufunc_tmp_dir)
         if MetaCop.backend in ("f2py", "cython"):
@@ -134,11 +168,46 @@ class MetaCop(ABCMeta):
     def cdf_given_v(cls):
         return cls.conditional_cdf(sympy.symbols("vv"))
 
+    def inverse_conditional_cdf(cls, conditioning):
+        uu, vv, qq, theta = sympy.symbols(("uu", "vv", "qq", "theta"))
+        # conditioned = list(set((uu, vv)) - set([conditioning]))[0]
+        # with tools.shelve_open(conf.sympy_cache) as sh:
+        #     key = ("%s_inv_cdf_given_%s_%s" %
+        #            (cls.name, conditioning, tools.hash_cop(cls)))
+        #     if key not in sh:
+        #         warnings.warn("Generating inverse conditional %s" %
+        #                       cls.name)
+        #         cdf_given_expr = getattr(cls,
+        #                                  "cdf_given_%s_expr" % conditioning)
+        #         try:
+        #             inv_cdf = sympy.solve(cdf_given_expr - qq, conditioned)
+        #         except NotImplementedError:
+        #             warnings.warn("Derivation of inv.-conditional failed for" +
+        #                           " %s" % cls.name)
+        #             return
+        #         sh[key] = inv_cdf
+        #     inv_cdf = sh[key]
+        # setattr(cls, "inv_cdf_given_%s" % conditioning, inv_cdf)
+        inv_cdf = getattr(cls, "inv_cdf_given_%s_expr" % conditioning)
+        ufunc = ufuncify(cls, "inv_cdf_given_%s" % conditioning,
+                         [qq, conditioning, theta], inv_cdf,
+                         backend=MetaCop.backend,
+                         tempdir=conf.ufunc_tmp_dir)
+        if MetaCop.backend in ("f2py", "cython"):
+            ufunc = broadcast_2d(ufunc)
+        return positive(ufunc)
+
+    def inv_cdf_given_u(cls):
+        return cls.inverse_conditional_cdf(sympy.symbols("uu"))
+
+    def inv_cdf_given_v(cls):
+        return cls.inverse_conditional_cdf(sympy.symbols("vv"))
+
     def density_from_cop(cls):
-        """Copula density obtained by sympy differentiation compiled to
-        fortran.
+        """Copula density obtained by sympy differentiation compiled with
+        cython.
         """
-        uu, vv, theta = sympy.symbols(("uu", "vv", "theta"))
+        uu, vv, *theta = sympy.symbols(cls.par_names)
         with tools.shelve_open(conf.sympy_cache) as sh:
             key = "%s_density_%s" % (cls.name, tools.hash_cop(cls))
             if key not in sh:
@@ -151,7 +220,7 @@ class MetaCop(ABCMeta):
         # for outer pleasure
         cls.dens_expr = dens_expr
         ufunc = ufuncify(cls, "density",
-                         [uu, vv, theta], dens_expr,
+                         [uu, vv] + theta, dens_expr,
                          backend=MetaCop.backend,
                          tempdir=conf.ufunc_tmp_dir)
         if MetaCop.backend in ("f2py", "cython"):
@@ -180,7 +249,7 @@ class MetaArch(MetaCop):
         return new_cls
 
 
-class Copulae(object, metaclass=MetaCop):
+class Copulae(metaclass=MetaCop):
 
     """Base of all copula implementations, defining what a copula
     must implement to be a copula."""
@@ -199,17 +268,39 @@ class Copulae(object, metaclass=MetaCop):
     def __call__(self, *theta):
         return Frozen(self, *theta)
 
-    def density(self, uu, vv, theta):
-        theta = np.full_like(uu, theta)
-        return self.dens_func(uu, vv, theta)
+    def density(self, uu, vv, *theta):
+        if len(theta) > 1:
+            theta = [np.full_like(uu, the) for the in theta]
+        else:
+            theta = np.full_like(uu, theta),
+        return self.dens_func(uu, vv, *theta)
+
+    def inv_cdf_given_u(self, ranks_u, quantiles, theta=None):
+        """Numeric inversion of the cdf_given_u, to be used as a last resort.
+        """
+        theta = self.theta if theta is None else theta
+        ranks_u, quantiles = map(np.atleast_1d, (ranks_u, quantiles))
+        return np.array([
+            sp.optimize.brentq(lambda y: self.cdf_given_u(u, y, theta) - q,
+                               # 1e-12, 1 - 1e-12,
+                               0, 1)
+            for u, q in zip(ranks_u, quantiles)])
+
+    def inv_cdf_given_v(self, quantiles, ranks_v, theta=None):
+        """Numeric inversion of the cdf_given_v, to be used as a last resort.
+        """
+        theta = self.theta if theta is None else theta
+        ranks_v, quantiles = map(np.atleast_1d, (ranks_v, quantiles))
+        return np.array([
+            sp.optimize.brentq(lambda y: self.cdf_given_v(y, v, theta) - q,
+                               # 1e-12, 1 - 1e-12,
+                               0, 1)
+            for v, q in zip(ranks_v, quantiles)])
 
     def sample(self, size, theta=None):
         uu = random_sample(size)
         xx = random_sample(size)
-        vv = np.array([
-            sp.optimize.brentq(lambda y: self.cdf_given_u(u, y, theta) - x,
-                               1e-12, 1 - 1e-12)
-            for u, x in zip(uu, xx)])
+        vv = self.inv_cdf_given_u(uu, xx, *theta)
         return uu, vv
 
     def generate_fitted(self, ranks_u, ranks_v, *args, **kwds):
@@ -227,23 +318,11 @@ class Copulae(object, metaclass=MetaCop):
 
     def fit_ml(self, ranks_u, ranks_v, method=None, verbose=False):
         """Maximum likelihood estimate."""
-        # rotate based on sign of correlation and asymmetry
-        # rho = spearmans_rank(ranks_u, ranks_v)
-        # asy = asymmetry2(ranks_u, ranks_v)
-        # if rho < 0 and asy > 0:
-        #     # this in not a number, as we do not support general
-        #     # rotations
-        #     self.rotation = "90"
-        #     ranks_v = 1 - ranks_v
-        # elif rho >= 0 and asy < 0:
-        #     self.rotation = "180"
-        #     ranks_u = 1 - ranks_u
-        #     ranks_v = 1 - ranks_v
-        # elif rho >= 0 and asy > 0:
-        #     self.rotation = "270"
-        #     ranks_u = 1 - ranks_u
 
         def neg_log_likelihood(theta):
+            # for (lower, upper), par in zip(self.theta_bounds, theta):
+            #     if lower <= par <= upper:
+            #         return -np.inf
             dens = self.density(ranks_u, ranks_v, theta)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
