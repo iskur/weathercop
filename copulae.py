@@ -504,21 +504,18 @@ class Archimedian(Copulae, metaclass=MetaArch):
     #         return Copulae.sample(self, size, theta)
 
 
-class Clayton(Archimedian):
-    theta_start = 2,
-    theta_bounds = [(1e-9, theta_large)]
-
-    uu, vv, t, theta = sympy.symbols(("uu", "vv", "t", "theta"))
-    # cop_expr = (uu ** (-theta) + vv ** (-theta) - 1) ** (-1 / theta)
-    gen_expr = 1 / theta * (t ** (-theta) - 1)
-    # gen_inv_expr = (1 + theta * t) ** (-1 / theta)
-    kc_inv_expr = (theta + 1) ** (1 / theta)
-
-    # def fit(self, uu, vv, *args, **kwds):
-    #     tau = stats.kendalltau(uu, vv).correlation
-    #     self.theta = 2 * tau / (1 - tau),
-    #     return self.theta
-clayton = Clayton()
+# class Clayton(Archimedian):
+#     theta_start = 2,
+#     theta_bounds = [(1e-9, 10.)]
+#     uu, vv, t, theta, qq = sympy.symbols(("uu", "vv", "t", "theta", "qq"))
+#     cop_expr = (uu ** -theta + vv ** -theta - 1) ** (-1 / theta)
+#     gen_expr = 1 / theta * (t ** (-theta) - 1)
+#     # gen_inv_expr = (1 + theta * t) ** (-1 / theta)
+#     cdf_given_uu_expr = ((1 + uu ** theta *
+#                           (vv ** -theta - 1)) ** (-1 - 1 / theta))
+#     inv_cdf_given_uu_expr = ((qq ** (-theta / (1 + theta)) - 1) *
+#                              uu ** -theta + 1) ** (-1 / theta)
+# clayton = Clayton()
 
 
 class Frank(Archimedian):
@@ -528,20 +525,28 @@ class Frank(Archimedian):
     gen_expr = -ln((exp(-theta * t) - 1) /
                    (exp(-theta) - 1))
     gen_inv_expr = -1 / theta * ln(1 + exp(-xx) * (exp(-theta) - 1))
+    cdf_given_uu_expr = exp(-theta * uu * ((1 - exp(-theta)) *
+                                           (1 - exp(-theta * vv)) ** -1 -
+                                           (1 - exp(-theta * uu)))) ** -1
+    qq = sympy.symbols("qq")
+    inv_cdf_given_uu_expr = (-theta ** -1 * ln(1 - (1 - exp(-theta)) /
+                                               ((qq ** -1 - 1) *
+                                                exp(-theta * uu) + 1)))
 frank = Frank()
 
 
-class GumbelBarnett(Archimedian):
-    theta_start = .5,
-    theta_bounds = [(0., 1.)]
-    t, theta = sympy.symbols(("t", "theta"))
-    gen_expr = ln(1 - theta * ln(t))
-gumbelbarnett = GumbelBarnett()
+# class GumbelBarnett(Archimedian):
+#     """Also Nelsen09"""
+#     theta_start = .5,
+#     theta_bounds = [(1e-9, 1. - 1e-9)]
+#     t, theta = sympy.symbols(("t", "theta"))
+#     gen_expr = ln(1 - theta * ln(t))
+# gumbelbarnett = GumbelBarnett()
 
 
 class Nelsen02(Archimedian):
     theta_start = 1.5,
-    theta_bounds = [(1 + 1e-9, theta_large)]
+    theta_bounds = [(1 + 1e-9, 80)]
     uu, vv, t, theta = sympy.symbols(("uu", "vv", "t", "theta"))
     gen_expr = (1 - t) ** theta
     cop_expr = (1 - ((1 - uu) ** theta +
@@ -549,13 +554,13 @@ class Nelsen02(Archimedian):
 nelsen02 = Nelsen02()
 
 
-class Nelsen06(Archimedian):
-    theta_start = 1.5,
-    theta_bounds = [(1., theta_large)]
-    t, theta = sympy.symbols(("t", "theta"))
-    gen_expr = -ln(1 - (1 - t) ** theta)
-nelsen06 = Nelsen06()
-
+# this is the joe copula (see below)
+# class Nelsen06(Archimedian):
+#     theta_start = 1.5,
+#     theta_bounds = [(1., theta_large)]
+#     t, theta = sympy.symbols(("t", "theta"))
+#     gen_expr = -ln(1 - (1 - t) ** theta)
+# nelsen06 = Nelsen06()
 
 # class Nelsen07(Archimedian):
 #     theta_start = .5,
@@ -569,7 +574,7 @@ nelsen06 = Nelsen06()
 
 class Nelsen08(Archimedian):
     theta_start = 1.5,
-    theta_bounds = [(1., theta_large)]
+    theta_bounds = [(1. + 1e-3, theta_large)]
     t, theta = sympy.symbols(("t", "theta"))
     gen_expr = (1 - t) / (1 + (theta - 1) * t)
 nelsen08 = Nelsen08()
@@ -577,7 +582,7 @@ nelsen08 = Nelsen08()
 
 class Nelsen10(Archimedian):
     theta_start = .5,
-    theta_bounds = [(0., 1.)]
+    theta_bounds = [(1e-3, 1.)]
     t, theta = sympy.symbols(("t", "theta"))
     gen_expr = ln(2 * t ** (-theta) - 1)
 nelsen10 = Nelsen10()
@@ -585,7 +590,7 @@ nelsen10 = Nelsen10()
 
 class Nelsen11(Archimedian):
     theta_start = .4,
-    theta_bounds = [(0, .5)]
+    theta_bounds = [(1e-6, .5)]
     uu, vv, t, theta = sympy.symbols(("uu", "vv", "t", "theta"))
     gen_expr = ln(2 - t ** theta)
     cop_expr = (uu ** theta * vv ** theta -
@@ -595,7 +600,7 @@ nelsen11 = Nelsen11()
 
 class Nelsen12(Archimedian):
     theta_start = 1.5,
-    theta_bounds = [(1., theta_large)]
+    theta_bounds = [(1., 70)]
     t, theta = sympy.symbols(("t", "theta"))
     gen_expr = (1 / t - 1) ** theta
 nelsen12 = Nelsen12()
@@ -603,24 +608,24 @@ nelsen12 = Nelsen12()
 
 class Nelsen13(Archimedian):
     theta_start = .5,
-    theta_bounds = [(1e-12, theta_large)]
+    theta_bounds = [(1e-12, 300)]
     t, theta = sympy.symbols(("t", "theta"))
     gen_expr = (1 - ln(t)) ** theta - 1
 nelsen13 = Nelsen13()
 
 
-class Nelsen14(Archimedian):
-    theta_start = 3.,
-    theta_bounds = [(1., theta_large)]
-    t, theta = sympy.symbols(("t", "theta"))
-    gen_expr = (t ** (-1 / theta) - 1) ** theta
-nelsen14 = Nelsen14()
+# class Nelsen14(Archimedian):
+#     theta_start = 3.,
+#     theta_bounds = [(1., theta_large)]
+#     t, theta = sympy.symbols(("t", "theta"))
+#     gen_expr = (t ** (-1 / theta) - 1) ** theta
+# nelsen14 = Nelsen14()
 
 
 class Nelsen15(Archimedian):
     # TODO: this probably has a real name, look it up!
     theta_start = 3.,
-    theta_bounds = [(1., theta_large)]
+    theta_bounds = [(1., 45)]
     t, theta = sympy.symbols(("t", "theta"))
     gen_expr = (1 - t ** (1 / theta)) ** theta
 nelsen15 = Nelsen15()
@@ -628,10 +633,10 @@ nelsen15 = Nelsen15()
 
 class Nelsen16(Archimedian):
     theta_start = .5,
-    theta_bounds = [(0, theta_large)]
+    theta_bounds = [(1e-3, theta_large)]
     uu, vv, S, t, theta = sympy.symbols(("uu", "vv", "S", "t", "theta"))
     gen_expr = (theta / t + 1) * (1 - t)
-    cop_expr = .5 * (S * sympy.sqrt(S ** 2 + 4 * theta))
+    cop_expr = .5 * (S + sympy.sqrt(S ** 2 + 4 * theta))
     cop_expr = cop_expr.subs(S, uu + vv - 1 - theta * (1 / uu + 1 / vv - 1))
 nelsen16 = Nelsen16()
 
@@ -645,33 +650,39 @@ class Nelsen17(Archimedian):
 nelsen17 = Nelsen17()
 
 
-class Nelsen18(Archimedian):
-    theta_start = 100,
-    theta_bounds = [(2., theta_large)]
-    t, theta = sympy.symbols(("t", "theta"))
-    gen_expr = exp(theta / (t - 1))
-nelsen18 = Nelsen18()
+# class Nelsen18(Archimedian):
+#     theta_start = 100,
+#     theta_bounds = [(2., theta_large)]
+#     uu, vv, t, theta = sympy.symbols(("uu", "vv", "t", "theta"))
+#     gen_expr = exp(theta / (t - 1))
+#     cop_expr = 1 + theta / ln(exp(theta / (uu - 1)) +
+#                               exp(theta / (vv - 1)))
+#     cop_expr = sympy.Piecewise((cop_expr, cop_expr > 0),
+#                                (0, True))
+# nelsen18 = Nelsen18()
 
 
 class Nelsen19(Archimedian):
     theta_start = 10,
-    theta_bounds = [(0., theta_large)]
+    theta_bounds = [(0., 2.)]
     t, theta = sympy.symbols(("t", "theta"))
     gen_expr = exp(theta / t) - exp(theta)
 nelsen19 = Nelsen19()
 
 
-class Nelsen20(Archimedian):
-    theta_start = .1,
-    theta_bounds = [(1e-12, theta_large)]
-    t, theta = sympy.symbols(("t", "theta"))
-    gen_expr = exp(t ** (-theta)) - mp.e
-nelsen20 = Nelsen20()
+# class Nelsen20(Archimedian):
+#     theta_start = .1,
+#     theta_bounds = [(1e-12, theta_large)]
+#     uu, vv, t, theta = sympy.symbols(("uu", "vv", "t", "theta"))
+#     gen_expr = exp(t ** (-theta)) - mp.e
+#     cop_expr = (ln(exp(uu ** -theta) +
+#                    exp(vv ** -theta) - mp.e)) ** (-1 / theta)
+# nelsen20 = Nelsen20()
 
 
 class Nelsen21(Archimedian):
     theta_start = 1.5,
-    theta_bounds = [(1., theta_large)]
+    theta_bounds = [(1., 5)]
     uu, vv, t, theta = sympy.symbols(("uu", "vv", "t", "theta"))
     gen_expr = 1 - (1 - (1 - t) ** theta) ** (1 / theta)
     # cop_expr = (1 - (1 - ((1 - (1 - uu) ** theta) ** (1 / theta) +
@@ -693,10 +704,21 @@ nelsen21 = Nelsen21()
 
 class Joe(Archimedian):
     theta_start = 10,
-    theta_bounds = [(1 + 1e-9, theta_large)]
+    theta_bounds = [(1 + 1e-9, 30)]
     xx, uu, vv, t, theta = sympy.symbols(("xx", "uu", "vv", "t", "theta"))
-    gen_expr = -sympy.ln(1 - (1 - t) ** theta)
+    gen_expr = -ln(1 - (1 - t) ** theta)
     # gen_inv_expr = 1 - (1 - sympy.exp(-xx)) ** (1 / theta)
+    cdf_given_uu_expr = ((1 +
+                          (1 - vv) ** theta *
+                          (1 - uu) ** -theta -
+                          (1 - vv) ** theta) ** (-1 + 1 / theta) *
+                         (1 - (1 - vv) ** theta))
+    # cdf_given_vv_expr = cdf_given_uu_expr.subs({uu: vv, vv: uu})
+    cdf_given_vv_expr = ((1 +
+                          (1 - uu) ** theta *
+                          (1 - vv) ** -theta -
+                          (1 - uu) ** theta) ** (-1 + 1 / theta) *
+                         (1 - (1 - uu) ** theta))
 joe = Joe()
 
 
@@ -713,10 +735,16 @@ class Gumbel(Archimedian):
     theta_start = 5.,
     # not sure about that
     # theta_bounds = [(1e-9, 1. - 1e-9)]
-    theta_bounds = [(1. + 1e-9, theta_large)]
+    theta_bounds = [(1. + 1e-9, 10.)]
     xx, uu, vv, t, theta = sympy.symbols(("xx", "uu", "vv", "t", "theta"))
     gen_expr = (-ln(t)) ** theta
     gen_inv_expr = exp(-xx ** (1 / theta))
+    # cdf_given_uu_expr = \
+    #     (exp(-((-ln(uu)) ** theta + (-ln(vv)) ** theta) ** (1 / theta)) *
+    #      (1 + (ln(vv) / ln(uu)) ** theta) ** (1 / (theta - 1)) / uu)
+    # cdf_given_vv_expr = \
+    #     (exp(-((-ln(uu)) ** theta + (-ln(vv)) ** theta) ** (1 / theta)) *
+    #      (1 + (ln(uu) / ln(vv)) ** theta) ** (1 / (theta - 1)) / vv)
 
     # def fit(self, uu, vv, *args, **kwds):
     #     tau = stats.kendalltau(uu, vv).correlation
@@ -736,15 +764,92 @@ alimikailhaqpos = AliMikailHaqPos()
 class AliMikailHaqNeg(AliMikailHaqPos):
     # splitting AliMikailHaq into its positive and negative dependence
     # domain hopefully helps the optimizer
-    theta_start = -.1
+    theta_start = -.1,
     theta_bounds = [(-1., -1e-9)]
 alimikailhaqneg = AliMikailHaqNeg()
 
 
+class Gaussian(Copulae):
+    par_names = "uu", "vv", "rho"
+    theta_start = .0,
+    theta_bounds = [(-1. + 1e-12, 1. - 1e-12)]
+    # uu, vv, rho = sympy.symbols(par_names)
+    # xx, yy = sympy.symbols(("xx", "yy"))
+    # dens_expr = ((1 - rho ** 2) ** (-.5) *
+    #              exp(-.5 * (xx ** 2 + yy ** 2 - 2 * rho * xx * yy) *
+    #                  (1 - rho ** 2)) *
+    #              exp(0.5 * (xx ** 2 + yy ** 2)))
+    # uni_inv = sympy.sqrt(2) * error_functions.erfinv(2 * xx - 1)
+    # dens_expr = dens_expr.subs(xx, uni_inv.subs(xx, uu))
+    # dens_expr = dens_expr.subs(yy, uni_inv.subs(xx, vv))
+    # dens_func = np.vectorize(sympy.lambdify((uu, vv, rho), dens_expr,))
+
+    def dens_func(self, uu, vv, rho):
+        rho = np.squeeze(rho)
+        erfu = erfinv(2 * uu - 1)
+        erfv = erfinv(2 * vv - 1)
+        return ((-rho ** 2 + 1) ** (-0.5) *
+                np.exp((-rho ** 2 + 1) *
+                       (2.0 * rho * erfu * erfv -
+                        erfu ** 2 - erfv ** 2)) *
+                np.exp(erfu ** 2 + erfv ** 2))
+
+    def cdf_given_u(self, uu, vv, rho):
+        rho = np.squeeze(rho)
+        return (-0.5 * erf((rho *
+                            erfinv(2 * uu - 1) -
+                            erfinv(2 * vv - 1)) /
+                           np.sqrt(-rho ** 2 + 1)) + 0.5)
+
+    def cdf_given_v(self, uu, vv, rho):
+        # return self.cdf_given_u(uu, vv, rho)
+        rho = np.squeeze(rho)
+        return (-0.5 * erf((rho *
+                            erfinv(2 * uu - 1) -
+                            erfinv(2 * vv - 1)) /
+                           np.sqrt(-rho ** 2 + 1)) + 0.5)
+
+    def fit(self, ranks_u, ranks_v, *args, **kwds):
+        return np.corrcoef(ranks_u, ranks_v)[0, 1],
+# gaussian = Gaussian()
+
+
+class Plackett(Copulae):
+    par_names = "uu", "vv", "delta"
+    theta_start = 5.,
+    theta_bounds = [(0, 20)]
+    uu, vv, delta, eta = sympy.symbols(par_names + ("eta",))
+    cop_expr = (1 / (2 * eta) * (1 + eta * (uu + vv) -
+                                 ((1 + eta * (uu + vv)) ** 2 -
+                                  4 * delta * eta * uu * vv) ** .5))
+    cop_expr = cop_expr.subs(eta, delta - 1)
+    cdf_given_uu_expr = 0.5 - 0.5 * ((eta * uu + 1 - (eta + 2) * vv) /
+                                     ((1 + eta * (uu + vv)) ** 2 -
+                                      4 * delta * eta * uu * vv) ** .5)
+    cdf_given_uu_expr = cdf_given_uu_expr.subs(eta, delta - 1)
+plackett = Plackett()
+
+
+class Galambos(Copulae):
+    par_names = "uu", "vv", "delta"
+    theta_start = 2.
+    theta_bounds = [(.01, 50)]
+    uu, vv, delta = sympy.symbols(par_names)
+    cop_expr = uu * vv * exp(((-ln(uu)) ** -delta +
+                              (-ln(vv)) ** -delta) ** (-1 / delta))
+    xx, yy = sympy.symbols(("xx", "yy"))
+    cdf_given_uu_expr = (vv * exp((xx ** -delta +
+                                   yy ** -delta) ** (-1 / delta)) *
+                         (1 - (1 + (xx / yy) ** delta) ** (-1 - 1 / delta)))
+    cdf_given_uu_expr = cdf_given_uu_expr.subs({xx: -ln(uu), yy: -ln(vv)})
+galambos = Galambos()
+
+
 class Independence(Copulae):
-    par_names = "uu", "vv"
+    # having the theta here, prevents trouble down the road...
+    par_names = "uu", "vv", "theta"
     theta_start = None,
-    uu, vv = sympy.symbols(par_names)
+    uu, vv, _ = sympy.symbols(par_names)
     cop_expr = uu * vv
 
     def fit(self, uu, vv, *args, **kwds):
@@ -752,6 +857,12 @@ class Independence(Copulae):
 
     def sample(self, size, *args, **kwds):
         return random_sample(size), random_sample(size)
+
+    def inv_cdf_given_u(self, uu, qq, *args):
+        return qq
+
+    def inv_cdf_given_v(self, vv, qq, *args):
+        return qq
 independence = Independence()
 
 
