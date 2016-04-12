@@ -1,11 +1,13 @@
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import numpy as np
+import matplotlib.pyplot as plt
 from weathercop import copulae, cop_conf, stats
 
 
 pool = ProcessPoolExecutor()
 
 
-def mml(ranks_u, ranks_v, cops=copulae.all_cops):
+def mml(ranks_u, ranks_v, cops=copulae.all_cops, verbose=False):
     with ProcessPoolExecutor() as executor:
         futures = {executor.submit(cop.generate_fitted, ranks_u, ranks_v):
                    cop_name
@@ -15,25 +17,35 @@ def mml(ranks_u, ranks_v, cops=copulae.all_cops):
         try:
             fitted_cop = future.result()
         except copulae.NoConvergence:
-            print("No fit for %s" % futures[future])
+            if verbose:
+                print("No fit for %s" % futures[future])
             continue
         fitted_cop.likelihood
         fitted_cops.append(fitted_cop)
     return fitted_cops
 
 
-def mml_serial(ranks_u, ranks_v, cops=copulae.all_cops):
+def mml_serial(ranks_u, ranks_v, cops=copulae.all_cops, verbose=False):
     fitted_cops = []
     for cop_name, cop in cops.items():
         try:
             fitted_cop = cop.generate_fitted(ranks_u, ranks_v)
         except copulae.NoConvergence:
-            print("No fit for %s" % cop_name)
+            if verbose:
+                print("No fit for %s" % cop_name)
             continue
         else:
             fitted_cops.append(fitted_cop)
-            print(fitted_cop.name, fitted_cop.likelihood)
-    return max(fitted_cops)
+            if verbose:
+                print(fitted_cop.name, fitted_cop.likelihood)
+    best_cop = max(fitted_cops)
+    print(best_cop.name)
+    # prefer the independence copula explicitly if it is on par with
+    # the best
+    if best_cop.likelihood == 0:
+        if not isinstance(best_cop, copulae.Independence):
+            best_cop = copulae.independence.generate_fitted(None, None)
+    return best_cop
 
 
 def mml_kdim(data, cops=copulae.all_cops, k=1):
