@@ -5,7 +5,7 @@ import numpy.testing as npt
 import matplotlib.pyplot as plt
 from weathercop import copulae as cop
 
-frozen_cops = tuple((name, copulas(*copulas.theta_start))
+frozen_cops = tuple((name, copulas(copulas.theta_start))
                     for name, copulas in sorted(cop.all_cops.items()))
 
 
@@ -19,7 +19,7 @@ class Test(npt.TestCase):
 
     def test_cop(self):
         """A few very basic copula requirements."""
-        print("Testing copula function")
+        print("\nTesting copula function")
         for name, frozen_cop in frozen_cops:
             print(name)
             zero = frozen_cop.copula_func(1e-9, 1e-9)
@@ -32,7 +32,7 @@ class Test(npt.TestCase):
                 plt.show()
 
     def test_cdf_given_u(self):
-        print("Testing conditional cdfs")
+        print("\nTesting u-conditional cdfs")
         for name, copulas in frozen_cops:
             print(name)
             zero = copulas.cdf_given_u(.5, 1e-9)
@@ -40,9 +40,21 @@ class Test(npt.TestCase):
             npt.assert_almost_equal(zero, 0)
             npt.assert_almost_equal(one, 1)
 
+    def test_cdf_given_v(self):
+        print("\nTesting v-conditional cdfs")
+        for name, copulas in frozen_cops:
+            print(name)
+            zero = copulas.cdf_given_v(1e-9, .5)
+            one = copulas.cdf_given_v(1 - 1e-9, .5)
+            try:
+                npt.assert_almost_equal(zero, 0)
+                npt.assert_almost_equal(one, 1)
+            except AssertionError:
+                warnings.warn(name)
+
     def test_density(self):
         """Does the density integrate to 1?"""
-        print("Testing density")
+        print("\nTesting density")
         for name, frozen_cop in frozen_cops:
             print(name)
             with warnings.catch_warnings():
@@ -54,12 +66,12 @@ class Test(npt.TestCase):
                 except integrate.IntegrationWarning:
                     print("Numerical integration of %s is problematic" % name)
                 else:
-                    npt.assert_almost_equal(one, 1.)
+                    npt.assert_almost_equal(one, 1., decimal=5)
 
     def test_fit(self):
         """Is fit able to reproduce parameters of a self-generated sample?
         """
-        print("Testing fit")
+        print("\nTesting fit")
         np.random.seed(1)
         for name, copulas in cop.all_cops.items():
             if name == "joe":
@@ -71,6 +83,9 @@ class Test(npt.TestCase):
             except cop.NoConvergence:
                 print("... fitting did not converge.")
             else:
+                if copulas.theta_start[0] is None and fitted_theta is None:
+                    # for the independence copula
+                    continue
                 npt.assert_almost_equal(fitted_theta, copulas.theta_start,
                                         decimal=1)
 
