@@ -7,6 +7,9 @@ from hashlib import md5
 
 @contextlib.contextmanager
 def shelve_open(filename, *args, **kwds):
+    dirname = os.path.dirname(filename)
+    if not os.path.exists(dirname):
+        os.mkdir(dirname)
     sh = shelve.open(filename, "c")
     yield sh
     sh.close()
@@ -49,5 +52,3 @@ class ADict(UserDict):
         for del_key in del_keys:
             del left_dict[del_key]
         return ADict(left_dict)
-
-
