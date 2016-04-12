@@ -413,7 +413,7 @@ class Copulae(metaclass=MetaCop):
         ax.set_title(sympy.printing.latex(self.cop_expr, mode="inline"))
 
 
-class Frozen(object):
+class Frozen:
 
     def __init__(self, copula, *theta):
         """Copula with frozen parameters."""
@@ -441,7 +441,7 @@ class Frozen(object):
 
 
 @functools.total_ordering
-class Fitted(object):
+class Fitted:
 
     def __init__(self, copula, ranks_u, ranks_v, *theta):
         self.copula = copula
