@@ -2,11 +2,12 @@
 import functools
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy import stats
+from scipy import stats as spstats
+from weathercop import stats
 
 
 def rel_ranks(data, method="average"):
-    return (stats.rankdata(data, method) - .5) / len(data)
+    return (spstats.rankdata(data, method) - .5) / len(data)
 
 
 def cache(*names, **name_values):
@@ -53,10 +54,10 @@ def clear_def_cache(function, cache_names=None, cache_name_values=None):
         setattr(function, name, value)
 
 
-def ccplom(data, k=1, variable_names=None, h_kwds=None, s_kwds=None,
-           title=None, opacity=.1, cmap=None, x_bins=20, y_bins=20,
-           display_rho=True, display_asy=True, vmax_fct=1.,
-           **fig_kwds):
+def ccplom(data, k=1, kind="contour", var_names=None, h_kwds=None,
+           s_kwds=None, title=None, opacity=.1, cmap=None, x_bins=20,
+           y_bins=20, display_rho=True, display_asy=True, vmax_fct=1.,
+           fontsize=20, **fig_kwds):
     """Cross-Copula-plot matrix. Values that appear on the x-axes are shifted
     back k timesteps. Data is assumed to be a 2 dim arrays with
     observations in rows."""
@@ -76,21 +77,24 @@ def ccplom(data, k=1, variable_names=None, h_kwds=None, s_kwds=None,
             ax = axes[ii, jj]
             ranks_x = ranks[jj, x_slice]
             ranks_y = ranks[ii, y_slice]
-            hist2d(ranks_x, ranks_y, x_bins, y_bins,
-                   ax=ax, cmap=cmap, scatter=False)
+            hist2d(ranks_x, ranks_y, x_bins, y_bins, ax=ax, cmap=cmap,
+                   scatter=False, kind=kind)
             ax.scatter(ranks_x, ranks_y,
                        marker="o", facecolors=(0, 0, 0, 0),
                        edgecolors=(0, 0, 0, opacity), **s_kwds)
             if display_rho:
-                rho = spearmans_rank(ranks_x, ranks_y)
+                rho = stats.spearmans_rank(ranks_x, ranks_y)
                 ax.text(.5, .5, r"$\rho = %.3f$" % rho,
+                        fontsize=fontsize, color="red",
                         horizontalalignment="center")
             if display_asy:
-                asy1 = asymmetry1(ranks_x, ranks_y)
-                asy2 = asymmetry2(ranks_x, ranks_y)
+                asy1 = stats.asymmetry1(ranks_x, ranks_y)
+                asy2 = stats.asymmetry2(ranks_x, ranks_y)
                 ax.text(.5, .75, r"$a_1 = %.3f$" % asy1,
+                        fontsize=fontsize, color="red",
                         horizontalalignment="center")
                 ax.text(.5, .25, r"$a_2 = %.3f$" % asy2,
+                        fontsize=fontsize, color="red",
                         horizontalalignment="center")
             ax.set_xlim(0, 1)
             ax.set_ylim(0, 1)
@@ -101,9 +105,9 @@ def ccplom(data, k=1, variable_names=None, h_kwds=None, s_kwds=None,
             if ii != n_variables - 1:
                 ax.set_xticklabels("")
             if jj == 0:
-                ax.set_ylabel(variable_names[ii] + "(t)")
+                ax.set_ylabel(var_names[ii] + "(t)")
             if ii == n_variables - 1:
-                ax.set_xlabel(variable_names[jj] + "(t-%d)" % k)
+                ax.set_xlabel(var_names[jj] + "(t-%d)" % k)
     # reset the vlims, so that we have the same color scale in all plots
     for ax in np.ravel(axes):
         for im in ax.get_images():
@@ -132,10 +136,13 @@ def hist2d(x, y, n_xbins=15, n_ybins=15, kind="img", ax=None, cmap=None,
     h_max = np.max(H)
     if h_max > hist2d.h_max:
         hist2d.h_max = h_max
-    if kind == "contourf":
+    if kind.startswith("contour"):
         x_bins = .5 * (xedges[1:] + xedges[:-1])
         y_bins = .5 * (yedges[1:] + yedges[:-1])
-        ax.contourf(x_bins, y_bins, H.T, cmap=cmap, vmin=0, vmax=vmax)
+        if kind == "contourf":
+            ax.contourf(x_bins, y_bins, H.T, cmap=cmap, vmin=0, vmax=vmax)
+        elif kind == "contour":
+            ax.contour(x_bins, y_bins, H.T, cmap=cmap, vmin=0, vmax=vmax)
     elif kind == "img":
         ax.imshow(H.T,
                   extent=(xedges[0], xedges[-1], yedges[0], yedges[-1]),
