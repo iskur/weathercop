@@ -25,29 +25,55 @@ from weathercop import tools, stats
 theta_large = 1e3
 
 
-def ufuncify(cls, name, uargs, expr, *args, **kwds):
+def ufuncify(cls, name, uargs, expr, *args, verbose=False, **kwds):
     expr_hash = tools.hash_cop(expr)
     module_name = "%s_%s_%s" % (cls.name, name, expr_hash)
     try:
         with tools.chdir(conf.ufunc_tmp_dir):
             ufunc = importlib.import_module("%s_0" % module_name).autofunc_c
     except ImportError:
-        warnings.warn("Compiling %s" % repr(expr))
+        if verbose:
+            print("Compiling %s" % repr(expr))
         _filename_orig = autowrap.CodeWrapper._filename
         _module_basename_orig = autowrap.CodeWrapper._module_basename
         _module_counter_orig = autowrap.CodeWrapper._module_counter
+        # these attributes determine the file name of the generated code
         autowrap.CodeWrapper._filename = "%s_code" % module_name
         autowrap.CodeWrapper._module_basename = module_name
         autowrap.CodeWrapper._module_counter = 0
-        ufunc = autowrap.ufuncify(uargs, expr, *args, **kwds)
+        ufunc = autowrap.ufuncify(uargs, expr,
+                                  tempdir=conf.ufunc_tmp_dir,
+                                  verbose=verbose,
+                                  *args, **kwds)
         autowrap.CodeWrapper._module_basename = _module_basename_orig
         autowrap.CodeWrapper._module_counter = _module_counter_orig
         autowrap.CodeWrapper._filename = _filename_orig
     return ufunc
 
 
+def swap_symbols(expr, symbol1, symbol2):
+    """Substitute symbol1 and symbol2 in the given sympy expression.
+
+    >>> import sympy
+    >>> x, y = sympy.symbols("x y")
+    >>> swap_symbols(x - y, x, y)
+    -x + y
+    """
+    try:
+        # in case symbols are strings
+        symbol1, symbol2 = sympy.symbols((symbol1, symbol2))
+    except TypeError:
+        # assume symbols are already sympy symbols
+        pass
+    xxx = sympy.symbols("xxx")
+    expr = expr.subs({symbol1: xxx})
+    expr = expr.subs({symbol2: symbol1})
+    expr = expr.subs({xxx: symbol2})
+    return expr
+
+
 def random_sample(size, bound=1e-12):
-    """Sample in the closed interval (0, 1)."""
+    """Sample in the closed interval (0 + bound, 1 - bound)."""
     return (1 - 2 * bound) * np.random.random_sample(size) + bound
 
 
@@ -96,15 +122,15 @@ class MetaCop(ABCMeta):
             new_cls.dens_func = MetaCop.density_from_cop(new_cls)
             new_cls.cdf_given_u = MetaCop.cdf_given_u(new_cls)
             new_cls.cdf_given_v = MetaCop.cdf_given_v(new_cls)
-            # new_cls.inv_cdf_given_u = MetaCop.inv_cdf_given_u(new_cls)
-            # new_cls.inv_cdf_given_v = MetaCop.inv_cdf_given_v(new_cls)
             new_cls.copula_func = MetaCop.copula_func(new_cls)
+            ufunc = MetaCop.inv_cdf_given_u(new_cls)
+            if ufunc is not None:
+                new_cls.inv_cdf_given_u = ufunc
+            ufunc = MetaCop.inv_cdf_given_v(new_cls)
+            if ufunc is not None:
+                new_cls.inv_cdf_given_v = ufunc
         elif "dens_expr" in cls_dict and "dens_func" not in cls_dict:
             new_cls.dens_func = MetaCop.density_func(new_cls)
-        if "inv_cdf_given_uu_expr" in cls_dict:
-            new_cls.inv_cdf_given_u = MetaCop.inv_cdf_given_u(new_cls)
-        if "inv_cdf_given_vv_expr" in cls_dict:
-            new_cls.inv_cdf_given_v = MetaCop.inv_cdf_given_v(new_cls)
         return new_cls
 
     def copula_func(cls):
@@ -112,7 +138,7 @@ class MetaCop(ABCMeta):
         ufunc = ufuncify(cls, "copula",
                          [uu, vv] + theta, cls.cop_expr,
                          backend=MetaCop.backend,
-                         tempdir=conf.ufunc_tmp_dir)
+                         verbose=False)
         if MetaCop.backend in ("f2py", "cython"):
             ufunc = broadcast_2d(ufunc)
         return positive(ufunc)
@@ -123,7 +149,7 @@ class MetaCop(ABCMeta):
         ufunc = ufuncify(cls, "density",
                          [uu, vv] + theta, dens_expr,
                          backend=MetaCop.backend,
-                         tempdir=conf.ufunc_tmp_dir)
+                         verbose=False)
         if MetaCop.backend in ("f2py", "cython"):
             ufunc = broadcast_2d(ufunc)
         return positive(ufunc)
@@ -135,14 +161,15 @@ class MetaCop(ABCMeta):
             conditional_cdf = getattr(cls, expr_attr)
         except AttributeError:
             with tools.shelve_open(conf.sympy_cache) as sh:
-                key = ("%s_cdf_given_%s__%s" %
+                key = ("%s_cdf_given_%s_%s" %
                        (cls.name, conditioning, tools.hash_cop(cls)))
                 if key not in sh:
-                    warnings.warn("Generating conditional %s" % cls.name)
+                    print("Generating conditional %s" % cls.name)
                     # a good cop always stays positive!
                     good_cop = sympy.Piecewise((cls.cop_expr,
                                                 cls.cop_expr > 0),
                                                (0, True))
+                    # good_cop = cls.cop_expr
                     conditional_cdf = sympy.diff(good_cop, conditioning)
                     conditional_cdf = sympy.simplify(conditional_cdf)
                     # conditional_cdf = \
@@ -157,7 +184,7 @@ class MetaCop(ABCMeta):
         ufunc = ufuncify(cls, "conditional_cdf",
                          [uu, vv] + theta, conditional_cdf,
                          backend=MetaCop.backend,
-                         tempdir=conf.ufunc_tmp_dir)
+                         verbose=False)
         if MetaCop.backend in ("f2py", "cython"):
             ufunc = broadcast_2d(ufunc)
         return positive(ufunc)
@@ -166,33 +193,69 @@ class MetaCop(ABCMeta):
         return cls.conditional_cdf(sympy.symbols("uu"))
 
     def cdf_given_v(cls):
+        # if we are given an expression for the u-conditional, we can
+        # substitute v for u to get the corresponding v-conditional
+        try:
+            cdf = getattr(cls, "cdf_given_uu_expr")
+            cdf = swap_symbols(cdf, "uu", "vv")
+            setattr(cls, "cdf_given_vv_expr", cdf)
+        except AttributeError:
+            pass
         return cls.conditional_cdf(sympy.symbols("vv"))
 
     def inverse_conditional_cdf(cls, conditioning):
         uu, vv, qq, theta = sympy.symbols(("uu", "vv", "qq", "theta"))
-        # conditioned = list(set((uu, vv)) - set([conditioning]))[0]
-        # with tools.shelve_open(conf.sympy_cache) as sh:
-        #     key = ("%s_inv_cdf_given_%s_%s" %
-        #            (cls.name, conditioning, tools.hash_cop(cls)))
-        #     if key not in sh:
-        #         warnings.warn("Generating inverse conditional %s" %
-        #                       cls.name)
-        #         cdf_given_expr = getattr(cls,
-        #                                  "cdf_given_%s_expr" % conditioning)
-        #         try:
-        #             inv_cdf = sympy.solve(cdf_given_expr - qq, conditioned)
-        #         except NotImplementedError:
-        #             warnings.warn("Derivation of inv.-conditional failed for" +
-        #                           " %s" % cls.name)
-        #             return
-        #         sh[key] = inv_cdf
-        #     inv_cdf = sh[key]
-        # setattr(cls, "inv_cdf_given_%s" % conditioning, inv_cdf)
-        inv_cdf = getattr(cls, "inv_cdf_given_%s_expr" % conditioning)
-        ufunc = ufuncify(cls, "inv_cdf_given_%s" % conditioning,
-                         [qq, conditioning, theta], inv_cdf,
-                         backend=MetaCop.backend,
-                         tempdir=conf.ufunc_tmp_dir)
+        conditioned = list(set((uu, vv)) - set([conditioning]))[0]
+        key = ("%s_inv_cdf_given_%s_%s" %
+               (cls.name, conditioning, tools.hash_cop(cls)))
+        # keep a log of what does not work in order to not repeat ad
+        # nauseum
+        faillog_file = os.path.join(conf.ufunc_tmp_dir, "known_fail")
+        try:
+            if (key + os.linesep) in open(faillog_file):
+                return
+        except FileNotFoundError:
+            open(faillog_file, "a").close()
+        attr_name = "inv_cdf_given_%s_expr" % conditioning
+        # cached sympy derivation
+        if not hasattr(cls, attr_name):
+            with tools.shelve_open(conf.sympy_cache) as sh:
+                if key not in sh:
+                    print("Generating inverse %s-conditional %s" %
+                          (conditioning, cls.name))
+                    cdf_given_expr = getattr(cls,
+                                             "cdf_given_%s_expr" %
+                                             conditioning)
+                    try:
+                        inv_cdf = sympy.solve(cdf_given_expr - qq,
+                                              conditioned)[0]
+                    except NotImplementedError:
+                        warnings.warn("Derivation of inv.-conditional " +
+                                      "failed for" +
+                                      " %s" % cls.name)
+                        with open(faillog_file, "r+") as faillog:
+                            keys = faillog.readlines()
+                            if key not in keys:
+                                faillog.write(key + os.linesep)
+                        return
+                    sh[key] = inv_cdf
+                inv_cdf = sh[key]
+            setattr(cls, attr_name, inv_cdf)
+        inv_cdf = getattr(cls, attr_name)
+        # compile sympy expression
+        try:
+            ufunc = ufuncify(cls, "inv_cdf_given_%s" % conditioning,
+                             [qq, conditioning, theta], inv_cdf,
+                             backend=MetaCop.backend,
+                             verbose=False)
+        except autowrap.CodeWrapError:
+            warnings.warn("Could not compile inv.-conditional for %s" %
+                          cls.name)
+            with open(faillog_file, "r+") as faillog:
+                keys = faillog.readlines()
+                if key not in keys:
+                    faillog.write(key + os.linesep)
+                return
         if MetaCop.backend in ("f2py", "cython"):
             ufunc = broadcast_2d(ufunc)
         return positive(ufunc)
@@ -201,6 +264,15 @@ class MetaCop(ABCMeta):
         return cls.inverse_conditional_cdf(sympy.symbols("uu"))
 
     def inv_cdf_given_v(cls):
+        # if we are given an expression for the u-conditional, we can
+        # substitute v for u to get the corresponding v-conditional
+        try:
+            inv_cdf = getattr(cls, "inv_cdf_given_uu_expr")
+            uu, vv = sympy.symbols("uu vv")
+            inv_cdf = inv_cdf.subs({uu: vv})
+            setattr(cls, "inv_cdf_given_vv_expr", inv_cdf)
+        except AttributeError:
+            pass
         return cls.inverse_conditional_cdf(sympy.symbols("vv"))
 
     def density_from_cop(cls):
@@ -211,7 +283,7 @@ class MetaCop(ABCMeta):
         with tools.shelve_open(conf.sympy_cache) as sh:
             key = "%s_density_%s" % (cls.name, tools.hash_cop(cls))
             if key not in sh:
-                warnings.warn("Generating density for %s" % cls.name)
+                print("Generating density for %s" % cls.name)
                 dens_expr = sympy.diff(cls.cop_expr, uu, vv)
                 dens_expr = sympy.Piecewise((dens_expr, cls.cop_expr > 0),
                                             (0, True))
@@ -222,7 +294,7 @@ class MetaCop(ABCMeta):
         ufunc = ufuncify(cls, "density",
                          [uu, vv] + theta, dens_expr,
                          backend=MetaCop.backend,
-                         tempdir=conf.ufunc_tmp_dir)
+                         verbose=False)
         if MetaCop.backend in ("f2py", "cython"):
             ufunc = broadcast_2d(ufunc)
         return positive(ufunc)
@@ -238,7 +310,7 @@ class MetaArch(MetaCop):
             with tools.shelve_open(conf.sympy_cache) as sh:
                 key = "%s_cop_%s" % (name, tools.hash_cop(gen))
                 if key not in sh:
-                    warnings.warn("Generating inv. gen for %s" % name)
+                    print("Generating inv. gen for %s" % name)
                     if "gen_inv" not in cls_dict:
                         gen_inv = sympy.solve(gen - x, t)[0]
                     cop = gen_inv.subs(x, gen.subs(t, uu) + gen.subs(t, vv))
@@ -276,24 +348,25 @@ class Copulae(metaclass=MetaCop):
         return self.dens_func(uu, vv, *theta)
 
     def inv_cdf_given_u(self, ranks_u, quantiles, theta=None):
-        """Numeric inversion of the cdf_given_u, to be used as a last resort.
+        """Numeric inversion of cdf_given_u, to be used as a last resort.
         """
         theta = self.theta if theta is None else theta
         ranks_u, quantiles = map(np.atleast_1d, (ranks_u, quantiles))
         return np.array([
-            sp.optimize.brentq(lambda y: self.cdf_given_u(u, y, theta) - q,
-                               # 1e-12, 1 - 1e-12,
+            sp.optimize.brentq(lambda y: self.cdf_given_u(max(1e-15, u),
+                                                     y, theta) - q,
                                0, 1)
             for u, q in zip(ranks_u, quantiles)])
 
-    def inv_cdf_given_v(self, quantiles, ranks_v, theta=None):
-        """Numeric inversion of the cdf_given_v, to be used as a last resort.
+    def inv_cdf_given_v(self, ranks_v, quantiles, theta=None):
+        """Numeric inversion of cdf_given_v, to be used as a last resort.
         """
         theta = self.theta if theta is None else theta
         ranks_v, quantiles = map(np.atleast_1d, (ranks_v, quantiles))
         return np.array([
-            sp.optimize.brentq(lambda y: self.cdf_given_v(y, v, theta) - q,
-                               # 1e-12, 1 - 1e-12,
+            sp.optimize.brentq(lambda y: self.cdf_given_v(y,
+                                                     max(1e-15, v),
+                                                     theta) - q,
                                0, 1)
             for v, q in zip(ranks_v, quantiles)])
 
