@@ -533,17 +533,17 @@ class Fitted:
     def __repr__(self):
         return ("Fitted(%r, theta=%r)" % (self.copula, self.theta))
 
-    def cdf_given_u(self, uu, vv):
-        return self.copula.cdf_given_u(uu, vv, *self.theta)
+    def cdf_given_u(self, *, conditioned, condition):
+        return self.copula.cdf_given_u(condition, conditioned, *self.theta)
 
-    def cdf_given_v(self, uu, vv):
-        return self.copula.cdf_given_v(uu, vv, *self.theta)
+    def cdf_given_v(self, *, conditioned, condition):
+        return self.copula.cdf_given_v(conditioned, condition, *self.theta)
 
-    def inv_cdf_given_u(self, uu, qq):
-        return self.copula.inv_cdf_given_u(uu, qq, self.theta)
+    def inv_cdf_given_u(self, *, conditioned, condition):
+        return self.copula.inv_cdf_given_u(condition, conditioned, *self.theta)
 
-    def inv_cdf_given_v(self, vv, qq):
-        return self.copula.inv_cdf_given_v(vv, qq, self.theta)
+    def inv_cdf_given_v(self, *, conditioned, condition):
+        return self.copula.inv_cdf_given_v(conditioned, condition, *self.theta)
 
     def plot_density(self, *args, **kwds):
         return self.copula.plot_density(theta=self.theta, *args, **kwds)
