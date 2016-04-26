@@ -495,22 +495,13 @@ class Frozen:
         self.name = "frozen %s" % copula.name
 
     def __getattr__(self, name):
-        return getattr(self.copula, name)
-
-    def density(self, ranks_u, ranks_v):
-        return self.copula.density(ranks_u, ranks_v, *self.theta)
-
-    def sample(self, size):
-        return self.copula.sample(size, *self.theta)
-
-    def copula_func(self, uu, vv):
-        return self.copula.copula_func(uu, vv, *self.theta)
-
-    def cdf_given_u(self, uu, vv):
-        return self.copula.cdf_given_u(uu, vv, *self.theta)
-
-    def cdf_given_v(self, uu, vv):
-        return self.copula.cdf_given_v(uu, vv, *self.theta)
+        try:
+            return self.__dict__[name]
+        except KeyError:
+            attr = getattr(self.copula, name)
+            if callable(attr):
+                return lambda *args: attr(*(args + self.theta))
+            return attr
 
 
 @functools.total_ordering
