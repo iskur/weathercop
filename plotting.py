@@ -54,7 +54,7 @@ def clear_def_cache(function, cache_names=None, cache_name_values=None):
         setattr(function, name, value)
 
 
-def ccplom(data, k=1, kind="contour", var_names=None, h_kwds=None,
+def ccplom(data, k=1, kind="contour", varnames=None, h_kwds=None,
            s_kwds=None, title=None, opacity=.1, cmap=None, x_bins=20,
            y_bins=20, display_rho=True, display_asy=True, vmax_fct=1.,
            fontsize=20, **fig_kwds):
@@ -65,7 +65,10 @@ def ccplom(data, k=1, kind="contour", var_names=None, h_kwds=None,
     K, T = data.shape
     h_kwds = {} if h_kwds is None else h_kwds
     s_kwds = {} if s_kwds is None else s_kwds
-    n_variables = data.shape[0]
+    if varnames is None:
+        n_variables = data.shape[0]
+    else:
+        n_variables = len(varnames)
     fig, axes = plt.subplots(n_variables, n_variables,
                              subplot_kw=dict(aspect="equal"),
                              **fig_kwds)
@@ -75,6 +78,9 @@ def ccplom(data, k=1, kind="contour", var_names=None, h_kwds=None,
     for ii in range(n_variables):
         for jj in range(n_variables):
             ax = axes[ii, jj]
+            if ii == jj:
+                ax.set_axis_off()
+                continue
             ranks_x = ranks[jj, x_slice]
             ranks_y = ranks[ii, y_slice]
             hist2d(ranks_x, ranks_y, x_bins, y_bins, ax=ax, cmap=cmap,
@@ -85,16 +91,16 @@ def ccplom(data, k=1, kind="contour", var_names=None, h_kwds=None,
             if display_rho:
                 rho = stats.spearmans_rank(ranks_x, ranks_y)
                 ax.text(.5, .5, r"$\rho = %.3f$" % rho,
-                        fontsize=fontsize, color="red",
+                        fontsize=fontsize, color="green",
                         horizontalalignment="center")
             if display_asy:
                 asy1 = stats.asymmetry1(ranks_x, ranks_y)
                 asy2 = stats.asymmetry2(ranks_x, ranks_y)
                 ax.text(.5, .75, r"$a_1 = %.3f$" % asy1,
-                        fontsize=fontsize, color="red",
+                        fontsize=fontsize, color="green",
                         horizontalalignment="center")
                 ax.text(.5, .25, r"$a_2 = %.3f$" % asy2,
-                        fontsize=fontsize, color="red",
+                        fontsize=fontsize, color="green",
                         horizontalalignment="center")
             ax.set_xlim(0, 1)
             ax.set_ylim(0, 1)
@@ -105,9 +111,9 @@ def ccplom(data, k=1, kind="contour", var_names=None, h_kwds=None,
             if ii != n_variables - 1:
                 ax.set_xticklabels("")
             if jj == 0:
-                ax.set_ylabel(var_names[ii] + "(t)")
+                ax.set_ylabel(varnames[ii] + "(t)")
             if ii == n_variables - 1:
-                ax.set_xlabel(var_names[jj] + "(t-%d)" % k)
+                ax.set_xlabel(varnames[jj] + "(t-%d)" % k)
     # reset the vlims, so that we have the same color scale in all plots
     for ax in np.ravel(axes):
         for im in ax.get_images():
