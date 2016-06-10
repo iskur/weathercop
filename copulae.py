@@ -25,6 +25,13 @@ from weathercop import tools, stats
 # used wherever theta can be inf in principle
 theta_large = 1e3
 
+# here expressions are kept that sympy has problems with
+faillog_file = os.path.join(conf.ufunc_tmp_dir, "known_fail")
+
+# allow printing of more complex equations
+# from matplotlib import rc
+# rc("text", usetex=True)
+
 
 def ufuncify(cls, name, uargs, expr, *args, verbose=False, **kwds):
     expr_hash = tools.hash_cop(expr)
@@ -50,6 +57,13 @@ def ufuncify(cls, name, uargs, expr, *args, verbose=False, **kwds):
         autowrap.CodeWrapper._module_counter = _module_counter_orig
         autowrap.CodeWrapper._filename = _filename_orig
     return ufunc
+
+
+def mark_failed(key):
+    with open(faillog_file, "r+") as faillog:
+        keys = faillog.readlines()
+        if key not in keys:
+            faillog.write(key + os.linesep)
 
 
 def swap_symbols(expr, symbol1, symbol2):
@@ -134,6 +148,13 @@ class MetaCop(ABCMeta):
             new_cls.dens_func = MetaCop.density_func(new_cls)
         return new_cls
 
+    def mark_failed(new_cls):
+        for method_name in new_cls.known_fail:
+            key = "_".join((new_cls.name,
+                            method_name,
+                            tools.hash_cop(new_cls)))
+            mark_failed(key)
+
     def copula_func(cls):
         uu, vv, *theta = sympy.symbols(cls.par_names)
         ufunc = ufuncify(cls, "copula",
@@ -158,29 +179,30 @@ class MetaCop(ABCMeta):
     def conditional_cdf(cls, conditioning):
         uu, vv, *theta = sympy.symbols(cls.par_names)
         expr_attr = "cdf_given_%s_expr" % conditioning
-        try:
-            conditional_cdf = getattr(cls, expr_attr)
-        except AttributeError:
-            with tools.shelve_open(conf.sympy_cache) as sh:
-                key = ("%s_cdf_given_%s_%s" %
-                       (cls.name, conditioning, tools.hash_cop(cls)))
-                if key not in sh:
-                    print("Generating conditional %s" % cls.name)
-                    # a good cop always stays positive!
-                    good_cop = sympy.Piecewise((cls.cop_expr,
-                                                cls.cop_expr > 0),
-                                               (0, True))
-                    # good_cop = cls.cop_expr
-                    conditional_cdf = sympy.diff(good_cop, conditioning)
-                    conditional_cdf = sympy.simplify(conditional_cdf)
-                    # conditional_cdf = \
-                    #     sympy.Piecewise((0, uu < 1e-12),
-                    #                     (0, vv < 1e-12),
-                    #                     (1, uu > (1 - 1e-12)),
-                    #                     (1, vv > (1 - 1e-12)),
-                    #                     (conditional_cdf, True))
-                    sh[key] = conditional_cdf
-                conditional_cdf = sh[key]
+        # try:
+        #     conditional_cdf = getattr(cls, expr_attr)
+        # except AttributeError:
+        with tools.shelve_open(conf.sympy_cache) as sh:
+            key = ("%s_cdf_given_%s_%s" %
+                   (cls.name, conditioning, tools.hash_cop(cls)))
+            if key not in sh:
+                print("Generating %s-conditional %s" %
+                      (conditioning, cls.name))
+                # a good cop always stays positive!
+                good_cop = sympy.Piecewise((cls.cop_expr,
+                                            cls.cop_expr > 0),
+                                           (0, True))
+                # good_cop = cls.cop_expr
+                conditional_cdf = sympy.diff(good_cop, conditioning)
+                conditional_cdf = sympy.simplify(conditional_cdf)
+                # conditional_cdf = \
+                #     sympy.Piecewise((0, uu < 1e-12),
+                #                     (0, vv < 1e-12),
+                #                     (1, uu > (1 - 1e-12)),
+                #                     (1, vv > (1 - 1e-12)),
+                #                     (conditional_cdf, True))
+                sh[key] = conditional_cdf
+            conditional_cdf = sh[key]
             setattr(cls, expr_attr, conditional_cdf)
         ufunc = ufuncify(cls, "conditional_cdf",
                          [uu, vv] + theta, conditional_cdf,
@@ -211,7 +233,6 @@ class MetaCop(ABCMeta):
                (cls.name, conditioning, tools.hash_cop(cls)))
         # keep a log of what does not work in order to not repeat ad
         # nauseum
-        faillog_file = os.path.join(conf.ufunc_tmp_dir, "known_fail")
         try:
             if (key + os.linesep) in open(faillog_file):
                 return
@@ -219,28 +240,28 @@ class MetaCop(ABCMeta):
             open(faillog_file, "a").close()
         attr_name = "inv_cdf_given_%s_expr" % conditioning
         # cached sympy derivation
-        if not hasattr(cls, attr_name):
-            with tools.shelve_open(conf.sympy_cache) as sh:
-                if key not in sh:
-                    print("Generating inverse %s-conditional %s" %
-                          (conditioning, cls.name))
-                    cdf_given_expr = getattr(cls,
-                                             "cdf_given_%s_expr" %
-                                             conditioning)
-                    try:
-                        inv_cdf = sympy.solve(cdf_given_expr - qq,
-                                              conditioned)[0]
-                    except NotImplementedError:
-                        warnings.warn("Derivation of inv.-conditional " +
-                                      "failed for" +
-                                      " %s" % cls.name)
-                        with open(faillog_file, "r+") as faillog:
-                            keys = faillog.readlines()
-                            if key not in keys:
-                                faillog.write(key + os.linesep)
-                        return
-                    sh[key] = inv_cdf
-                inv_cdf = sh[key]
+        # if not hasattr(cls, attr_name):
+        with tools.shelve_open(conf.sympy_cache) as sh:
+            if key not in sh:
+                print("Generating inverse %s-conditional %s" %
+                      (conditioning, cls.name))
+                cdf_given_expr = getattr(cls,
+                                         "cdf_given_%s_expr" %
+                                         conditioning)
+                try:
+                    inv_cdf = sympy.solve(cdf_given_expr - qq,
+                                          conditioned)[0]
+                except NotImplementedError:
+                    warnings.warn("Derivation of inv.-conditional " +
+                                  "failed for" +
+                                  " %s" % cls.name)
+                    with open(faillog_file, "r+") as faillog:
+                        keys = faillog.readlines()
+                        if key not in keys:
+                            faillog.write(key + os.linesep)
+                    return
+                sh[key] = inv_cdf
+            inv_cdf = sh[key]
             setattr(cls, attr_name, inv_cdf)
         inv_cdf = getattr(cls, attr_name)
         # compile sympy expression
@@ -252,11 +273,8 @@ class MetaCop(ABCMeta):
         except autowrap.CodeWrapError:
             warnings.warn("Could not compile inv.-conditional for %s" %
                           cls.name)
-            with open(faillog_file, "r+") as faillog:
-                keys = faillog.readlines()
-                if key not in keys:
-                    faillog.write(key + os.linesep)
-                return
+            mark_failed(key)
+            return
         if MetaCop.backend in ("f2py", "cython"):
             ufunc = broadcast_2d(ufunc)
         return positive(ufunc)
