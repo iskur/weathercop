@@ -22,7 +22,14 @@ def mml(ranks_u, ranks_v, cops=copulae.all_cops, verbose=False):
             continue
         fitted_cop.likelihood
         fitted_cops.append(fitted_cop)
-    return fitted_cops
+    best_cop = max(fitted_cops)
+    print(best_cop.name)
+    # prefer the independence copula explicitly if it is on par with
+    # the best
+    if best_cop.likelihood == 0:
+        if not isinstance(best_cop, copulae.Independence):
+            best_cop = copulae.independence.generate_fitted(None, None)
+    return best_cop
 
 
 def mml_serial(ranks_u, ranks_v, cops=copulae.all_cops, verbose=False):
