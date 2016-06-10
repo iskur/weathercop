@@ -55,8 +55,8 @@ def clear_def_cache(function, cache_names=None, cache_name_values=None):
 
 
 def ccplom(data, k=1, kind="contour", varnames=None, h_kwds=None,
-           s_kwds=None, title=None, opacity=.1, cmap=None, x_bins=20,
-           y_bins=20, display_rho=True, display_asy=True, vmax_fct=1.,
+           s_kwds=None, title=None, opacity=.1, cmap=None, x_bins=15,
+           y_bins=15, display_rho=True, display_asy=True, vmax_fct=1.,
            fontsize=20, **fig_kwds):
     """Cross-Copula-plot matrix. Values that appear on the x-axes are shifted
     back k timesteps. Data is assumed to be a 2 dim arrays with
@@ -91,29 +91,28 @@ def ccplom(data, k=1, kind="contour", varnames=None, h_kwds=None,
             if display_rho:
                 rho = stats.spearmans_rank(ranks_x, ranks_y)
                 ax.text(.5, .5, r"$\rho = %.3f$" % rho,
-                        fontsize=fontsize, color="green",
+                        fontsize=fontsize, color="yellow",
                         horizontalalignment="center")
             if display_asy:
                 asy1 = stats.asymmetry1(ranks_x, ranks_y)
                 asy2 = stats.asymmetry2(ranks_x, ranks_y)
                 ax.text(.5, .75, r"$a_1 = %.3f$" % asy1,
-                        fontsize=fontsize, color="green",
+                        fontsize=fontsize, color="yellow",
                         horizontalalignment="center")
                 ax.text(.5, .25, r"$a_2 = %.3f$" % asy2,
-                        fontsize=fontsize, color="green",
+                        fontsize=fontsize, color="yellow",
                         horizontalalignment="center")
             ax.set_xlim(0, 1)
             ax.set_ylim(0, 1)
             ax.grid(False)
-            # show ticklabels only on the margins
-            if jj != 0:
-                ax.set_yticklabels("")
-            if ii != n_variables - 1:
-                ax.set_xticklabels("")
+            ax.set_yticklabels("")
+            ax.set_xticklabels("")
             if jj == 0:
-                ax.set_ylabel(varnames[ii] + "(t)")
+                ax.set_ylabel(varnames[ii] +
+                              ("(t)" if k else ""))
             if ii == n_variables - 1:
-                ax.set_xlabel(varnames[jj] + "(t-%d)" % k)
+                ax.set_xlabel(varnames[jj] +
+                              (("(t-%d)" % k) if k else ""))
     # reset the vlims, so that we have the same color scale in all plots
     for ax in np.ravel(axes):
         for im in ax.get_images():
