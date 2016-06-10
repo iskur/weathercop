@@ -17,6 +17,7 @@ from sympy import ln, exp  # , asin
 from mpmath import mp
 from scipy.optimize import minimize
 from scipy.special import erfinv, erf
+from scipy.interpolate import interp1d
 
 from weathercop import cop_conf as conf
 from weathercop import tools, stats
@@ -327,6 +328,8 @@ class Copulae(metaclass=MetaCop):
     must implement to be a copula."""
 
     theta_bounds = None
+    zero, one = 1e-6, 1 - 1e-4
+    # zero, one = 1e-9, 1 - 1e-9
 
     @abstractproperty
     def theta_start(self):
@@ -352,23 +355,55 @@ class Copulae(metaclass=MetaCop):
         """
         theta = self.theta if theta is None else theta
         ranks_u, quantiles = map(np.atleast_1d, (ranks_u, quantiles))
-        return np.array([
-            sp.optimize.brentq(lambda y: self.cdf_given_u(max(1e-15, u),
-                                                     y, theta) - q,
-                               0, 1)
-            for u, q in zip(ranks_u, quantiles)])
+
+        ranks_v = np.empty_like(ranks_u)
+        ranks_v_calc = np.linspace(self.zero, self.one, 500)
+        # ranks_v_calc = np.concatenate(([0], ranks_v_calc, [1]))
+        for i, (rank_u, quantile) in enumerate(zip(ranks_u, quantiles)):
+            quantiles_calc = self.cdf_given_u(rank_u, ranks_v_calc,
+                                              # ranks_v_calc[1:-1],
+                                              theta)
+            quantiles_calc = np.squeeze(quantiles_calc)
+            # if there is more than one zero involved, interpolating
+            # between them gives unwanted results.
+            middle_mask = ((quantiles_calc != 0) & (quantiles_calc != 1))
+            f_int = interp1d(quantiles_calc[middle_mask],
+                             # np.concatenate(([0],
+                             #                 np.squeeze(quantiles_calc),
+                             #                 [1])),
+                             ranks_v_calc[middle_mask],
+                             bounds_error=False,
+                             fill_value=(0, 1))
+            ranks_v[i] = f_int(quantile)
+        return ranks_v
 
     def inv_cdf_given_v(self, ranks_v, quantiles, theta=None):
         """Numeric inversion of cdf_given_v, to be used as a last resort.
         """
         theta = self.theta if theta is None else theta
         ranks_v, quantiles = map(np.atleast_1d, (ranks_v, quantiles))
-        return np.array([
-            sp.optimize.brentq(lambda y: self.cdf_given_v(y,
-                                                     max(1e-15, v),
-                                                     theta) - q,
-                               0, 1)
-            for v, q in zip(ranks_v, quantiles)])
+
+        ranks_u = np.empty_like(ranks_v)
+        ranks_u_calc = np.linspace(self.zero, self.one, 500)
+        # ranks_u_calc = np.concatenate(([0], ranks_u_calc, [1]))
+        for i, (rank_v, quantile) in enumerate(zip(ranks_v, quantiles)):
+            quantiles_calc = self.cdf_given_v(ranks_u_calc,
+                                              # ranks_u_calc[1:-1],
+                                              rank_v,
+                                              theta)
+            quantiles_calc = np.squeeze(quantiles_calc)
+            # if there is more than one zero involved, interpolating
+            # between them gives unwanted results.
+            middle_mask = ((quantiles_calc != 0) & (quantiles_calc != 1))
+            f_int = interp1d(quantiles_calc[middle_mask],
+                             # np.concatenate(([0],
+                             #                 np.squeeze(quantiles_calc),
+                             #                 [1])),
+                             ranks_u_calc[middle_mask],
+                             bounds_error=False,
+                             fill_value=(0, 1))
+            ranks_u[i] = f_int(quantile)
+        return ranks_u
 
     def sample(self, size, theta=None):
         uu = random_sample(size)
