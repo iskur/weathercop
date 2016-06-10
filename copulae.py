@@ -122,6 +122,23 @@ def broadcast_2d(func):
     return inner
 
 
+# def rotate_cop(cop_expr, rotation):
+#     """Rotate copula expression.
+
+#     Notes
+#     -----
+#     see p. 271
+#     """
+#     uu, vv = sympy.symbols(("uu vv"))
+#     if rotation == 90:
+#         return uu - cop_expr.subs({vv: 1 - vv})
+#     elif rotation == 180:
+#         return uu + vv - 1 + cop_expr.subs({uu: 1 - uu,
+#                                             vv: 1 - vv})
+#     elif rotation == 270:
+#         return vv - cop_expr.subs({uu: 1 - uu})
+
+
 class NoConvergence(Exception):
     pass
 
@@ -132,8 +149,13 @@ class MetaCop(ABCMeta):
     def __new__(cls, name, bases, cls_dict):
         new_cls = super().__new__(cls, name, bases, cls_dict)
         new_cls.name = name.lower()
-        # print("in MetaCop with " + name)
         if "cop_expr" in cls_dict:
+            # auto-rotate the copula expression
+            if name.endswith(("90", "180", "270")):
+                new_cls = MetaCop.rotate_expr(new_cls)
+
+            if "known_fail" in cls_dict:
+                MetaCop.mark_failed(new_cls)
             new_cls.dens_func = MetaCop.density_from_cop(new_cls)
             new_cls.cdf_given_u = MetaCop.cdf_given_u(new_cls)
             new_cls.cdf_given_v = MetaCop.cdf_given_v(new_cls)
@@ -154,6 +176,23 @@ class MetaCop(ABCMeta):
                             method_name,
                             tools.hash_cop(new_cls)))
             mark_failed(key)
+
+    def rotate_expr(cls):
+        """Rotate copula expression.
+
+        Notes
+        -----
+        see p. 271
+        """
+        uu, vv = sympy.symbols(("uu vv"))
+        if cls.name.endswith("90"):
+            cls.cop_expr = uu - cls.cop_expr.subs({vv: 1 - vv})
+        elif cls.name.endswith("180"):
+            cls.cop_expr = uu + vv - 1 + cls.cop_expr.subs({uu: 1 - uu,
+                                                            vv: 1 - vv})
+        elif cls.name.endswith("270"):
+            cls.cop_expr = vv - cls.cop_expr.subs({uu: 1 - uu})
+        return cls
 
     def copula_func(cls):
         uu, vv, *theta = sympy.symbols(cls.par_names)
@@ -602,6 +641,11 @@ class Fitted:
         return self.copula.plot_density(theta=self.theta, *args, **kwds)
 
 
+class NoRotations:
+    """Use this as a base if Copula should not be rotated."""
+    pass
+
+
 class Archimedian(Copulae, metaclass=MetaArch):
     """Archimedian Copulas.
 
@@ -986,6 +1030,23 @@ independence = Independence()
 all_cops = OrderedDict((name, obj) for name, obj
                        in sorted(dict(locals()).items())
                        if isinstance(obj, Copulae))
+# rotate all the cops!!
+turned_cops = OrderedDict()
+for cop_name, obj in all_cops.items():
+    if isinstance(obj, NoRotations):
+        continue
+    for rot in ("90", "180", "270"):
+        new_name = "%s_%s" % (cop_name, rot)
+        old_type = type(obj)
+        turned_cop = type(new_name, (old_type,), dict(old_type.__dict__))
+        turned_cops[new_name] = turned_cop()
+all_cops.update(turned_cops)
+all_cops = OrderedDict((name, obj) for name, obj
+                       in sorted(all_cops.items()))
+
+frozen_cops = tuple((name, copulas(copulas.theta_start))
+                    for name, copulas in sorted(all_cops.items()))
+
 
 if __name__ == '__main__':
     import doctest
