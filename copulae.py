@@ -505,7 +505,8 @@ class Copulae(metaclass=MetaCop):
         result = minimize(neg_log_likelihood, self.theta_start,
                           bounds=self.theta_bounds,
                           method=method,
-                          options=(dict(disp=True) if verbose else None))
+                          # options=(dict(disp=True) if verbose else None)
+                          )
         self.theta = result.x
         self.likelihood = -result.fun if result.success else -np.inf
         if not result.success:
@@ -598,12 +599,14 @@ class Frozen:
 @functools.total_ordering
 class Fitted:
 
-    def __init__(self, copula, ranks_u, ranks_v, *theta):
+    def __init__(self, copula, ranks_u, ranks_v, *theta,
+                 verbose=False):
         self.copula = copula
         self.ranks_u = ranks_u
         self.ranks_v = ranks_v
         self.theta = theta
         self.name = "fitted %s" % copula.name
+        self.verbose = self.copula.verbose = verbose
         if isinstance(copula, Independence):
             self.likelihood = 0
         else:
@@ -616,16 +619,17 @@ class Fitted:
             else:
                 self.likelihood = np.sum(np.log(dens_masked))
 
-            print(4 * " ",
-                  self.name[len("fitted "):],
-                  self.likelihood, end="")
-            n_nonfin = np.sum(~mask)
-            if n_nonfin:
-                print(" # nonfinite ",
-                      np.sum(~mask),
-                      )
-            else:
-                print()
+            if verbose:
+                print(4 * " ",
+                      self.name[len("fitted "):],
+                      self.likelihood, end="")
+                n_nonfin = np.sum(~mask)
+                if n_nonfin:
+                    print(" # nonfinite ",
+                          np.sum(~mask),
+                          )
+                else:
+                    print()
 
     def __getattr__(self, name):
         return getattr(self.copula, name)
