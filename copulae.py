@@ -497,7 +497,7 @@ class Copulae(metaclass=MetaCop):
                 # loglike = -np.sum(np.log(dens_masked))
                 mask = (dens <= 0) | ~np.isfinite(dens)
                 if np.any(mask):
-                    return -np.inf
+                    return -1e12
                 # dens[mask] = 1e-9
                 loglike = -np.sum(np.log(dens))
             return loglike
@@ -890,7 +890,7 @@ nelsen18 = Nelsen18()
 
 class Nelsen20(Archimedian):
     theta_start = .05,
-    theta_bounds = [(1e-12, .9)]
+    theta_bounds = [(1e-9, .9)]
     uu, vv, t, theta = sympy.symbols(("uu", "vv", "t", "theta"))
     gen_expr = exp(t ** (-theta)) - mp.e
     cop_expr = (ln(exp(uu ** -theta) +
@@ -1062,7 +1062,7 @@ plackett = Plackett()
 class Galambos(Copulae):
     par_names = "uu", "vv", "delta"
     theta_start = 2.,
-    theta_bounds = [(.01, 50)]
+    theta_bounds = [(.011, 50)]
     uu, vv, delta = sympy.symbols(par_names)
     cop_expr = uu * vv * exp(((-ln(uu)) ** -delta +
                               (-ln(vv)) ** -delta) ** (-1 / delta))
