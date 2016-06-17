@@ -23,7 +23,8 @@ def mml(ranks_u, ranks_v, cops=copulae.all_cops, verbose=False):
         fitted_cop.likelihood
         fitted_cops.append(fitted_cop)
     best_cop = max(fitted_cops)
-    print(best_cop.name)
+    if verbose:
+        print("%s (L=%.2f)" % (best_cop.name, best_cop.likelihood))
     # prefer the independence copula explicitly if it is on par with
     # the best
     if best_cop.likelihood == 0:
@@ -38,15 +39,16 @@ def mml_serial(ranks_u, ranks_v, cops=copulae.all_cops, verbose=False):
         try:
             fitted_cop = cop.generate_fitted(ranks_u, ranks_v)
         except copulae.NoConvergence:
-            if verbose:
+            if verbose > 1:
                 print("No fit for %s" % cop_name)
             continue
         else:
             fitted_cops.append(fitted_cop)
-            if verbose:
+            if verbose > 1:
                 print(fitted_cop.name, fitted_cop.likelihood)
     best_cop = max(fitted_cops)
-    print(best_cop.name)
+    if verbose:
+        print("%s (L=%.2f)" % (best_cop.name, best_cop.likelihood))
     # prefer the independence copula explicitly if it is on par with
     # the best
     if best_cop.likelihood == 0:
