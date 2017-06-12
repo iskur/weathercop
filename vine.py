@@ -45,17 +45,16 @@ def get_clabel(node1, node2, prefix=""):
 
 def get_cop_key(node1, node2):
     node1, node2 = map(flat_set, (node1, node2))
-    n1, n2 = sorted(list(node1 ^ node2))
+    n1 = (node1 - node2).pop()
+    n2 = (node2 - node1).pop()
     return "Copula_%d_%d" % (n1, n2)
-
-
-def get_rank_label(node1, node2):
-    return "ranks_%s" % get_clabel(node1, node2)
 
 
 def get_cond_labels(node1, node2, prefix=""):
     if isinstance(node1, int):
-        return prefix + str(node1), prefix + str(node2)
+        key1 = "%s%d|%d" % (prefix, node1, node2)
+        key2 = "%s%d|%d" % (prefix, node2, node1)
+        return key1, key2
     conditioned1 = flat_set(node1[0]) ^ flat_set(node1[1])
     conditioned2 = flat_set(node2[0]) ^ flat_set(node2[1])
     condition1 = flat_set(node1[0]) & flat_set(node1[1])
@@ -81,7 +80,7 @@ def get_cond_labels(node1, node2, prefix=""):
     return key1, key2
 
 
-def set_edge_copulae(tree, tau_min):
+def set_edge_copulae(tree, tau_min, verbose=True):
     """Fits a copula to the ranks at all nodes and sets conditional
     ranks and copula methods as edge attributes.
     """
@@ -91,10 +90,13 @@ def set_edge_copulae(tree, tau_min):
         ranks1 = edge["ranks_" + ranks1_key]
         ranks2 = edge["ranks_" + ranks2_key]
         if abs(edge["tau"]) > tau_min:
-            copula = find_copula.mml_serial(ranks1, ranks2)
+            copula = find_copula.mml_serial(ranks1, ranks2,
+                                            verbose=verbose)
             # copula = find_copula.mml(ranks1, ranks2)
         else:
-            copula = cop.independence.generate_fitted(None, None)
+            if verbose:
+                print("chose independence")
+            copula = cops.independence.generate_fitted(ranks1, ranks2)
         clabel1 = get_clabel(node2, node1)  # u|v
         clabel2 = get_clabel(node1, node2)  # v|u
         edge["ranks_%s" % clabel1] = \
@@ -116,7 +118,8 @@ def set_edge_copulae(tree, tau_min):
 
 class Vine:
 
-    def __init__(self, ranks, k=0, varnames=None, verbose=True):
+    def __init__(self, ranks, k=0, varnames=None, verbose=True,
+                 build_trees=True):
         """Vine copula.
 
         Parameter
@@ -125,8 +128,12 @@ class Vine:
             d: number of variables
             T: number of time steps
         k : int, optional
-        time shift to insert between u and v. (u is shifted
+            time shift to insert between u and v. (u is shifted
             backwards)
+        varnames : sequence of str, length d or None, optional
+            If None, nodes will be numbered
+        build_trees : boolean, optional
+            If False, don't build vine trees.
         """
         self.ranks = ranks
         self.k = k
@@ -142,42 +149,54 @@ class Vine:
         # old order.
         self.varnames_old = None
         self.verbose = verbose
-        self.trees = self._gen_trees(ranks)
-        # property cache
-        self._A = self._edge_map = None
-        # this relabels nodes to have a natural-order vine array
-        self.A
+        if build_trees:
+            self.trees = self._gen_trees(ranks)
+            # property cache
+            self._A = self._edge_map = None
+            # this relabels nodes to have a natural-order vine array
+            self.A
 
-    def _gen_trees(self, ranks):
-        """Generate the vine trees."""
+    @property
+    def tau_min(self):
         # minimum absolute tau to reject dependence at 5% significance
         # level -> use the independence copula, then (see Genest and
         # Favre, 2007)
         n = self.T - self.k
-        tau_min = 1.96 / np.sqrt((9 * n * (n - 1)) /
-                                 (2 * (2 * n + 5)))
-        if self.verbose:
-            print("Minimum tau for dependence: %.4f" % tau_min)
+        return 1.96 / np.sqrt((9 * n * (n - 1)) /
+                              (2 * (2 * n + 5)))
 
-        # first tree
+    def _gen_first_tree(self, ranks):
+        # this does the unexpensive work of finding the first tree
+        # without fitting any copulae
         full_graph = nx.complete_graph(self.d)
-        for i, ui in enumerate(ranks):
-            ranks1 = ui[:-self.k] if self.k > 0 else ui
-            for j, vj in enumerate(ranks[i:], start=i):
-                if i != j:
-                    ranks2 = vj[self.k:] if self.k > 0 else vj
+        for node1, ranks1 in enumerate(ranks):
+            ranks1 = ranks1[:-self.k] if self.k > 0 else ranks1
+            for node2, ranks2 in enumerate(ranks[node1:], start=node1):
+                if node1 != node2:
+                    ranks2 = ranks2[self.k:] if self.k > 0 else ranks2
                     tau = spstats.kendalltau(ranks1, ranks2).correlation
                     # as networkx minimizes the spanning tree, we have
                     # to invert the weights
-                    ranks1_key, ranks2_key = get_cond_labels(i, j,
-                                                             "ranks_")
+                    ranks1_key, ranks2_key = \
+                        get_cond_labels(node1, node2, "ranks_")
                     ranks_dict = {ranks1_key: ranks1,
-                                  ranks2_key: ranks2}
-                    full_graph.add_edge(i, j,
+                                  ranks2_key: ranks2,
+                                  "ranks_u": ranks1,
+                                  "ranks_v": ranks2}
+                    full_graph.add_edge(node1, node2,
                                         weight=(1 - abs(tau)), tau=tau,
                                         **ranks_dict)
         tree = self._best_tree(full_graph)
-        set_edge_copulae(tree, tau_min)
+        return tree
+
+    def _gen_trees(self, ranks):
+        """Generate the vine trees."""
+        if self.verbose:
+            print("Minimum tau for dependence: %.4f" % self.tau_min)
+
+        # first tree
+        tree = self._gen_first_tree(ranks)
+        set_edge_copulae(tree, self.tau_min)
         trees = [tree]
 
         # 2nd to (d-1)th tree
@@ -188,7 +207,7 @@ class Vine:
             last_edges = sorted(last_tree.edges())
             full_graph.add_nodes_from(last_edges)
             for node1, node2 in itertools.combinations(last_edges, 2):
-                # do these edges share a node?
+                # do these edges share exactly one node?
                 proximity_condition = set(node1) & set(node2)
                 if len(proximity_condition) == 1:
                     edge1 = last_tree[node1[0]][node1[1]]
@@ -204,7 +223,7 @@ class Vine:
                                         weight=(1 - abs(tau)), tau=tau,
                                         **ranks_dict)
             tree = self._best_tree(full_graph)
-            set_edge_copulae(tree, tau_min)
+            set_edge_copulae(tree, self.tau_min)
             trees += [tree]
         return trees
 
@@ -281,7 +300,7 @@ class Vine:
         relabel_mapping = {old: new for new, old in enumerate(np.diag(A))}
         # and don't forget the variable names, so we can return data
         # in the expected order!
-        self.varnames_old = self.varnames
+        self.varnames_old = self.varnames[:]
         self.varnames = [self.varnames[i] for i in np.diag(A)]
 
         def relabel_func(old):
@@ -324,7 +343,8 @@ class Vine:
         self.trees = new_trees
 
         A = np.array([-1 if item == -1 else relabel_mapping[item]
-                      for item in A.ravel()]).reshape((self.d, self.d))
+                      for item in A.ravel()]
+                     ).reshape((self.d, self.d))
         return A
 
     @property
