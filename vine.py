@@ -1,14 +1,16 @@
-import os
 import itertools
+import os
 import re
 from collections import Iterable
-from tqdm import tqdm
-import numpy as np
+
+import matplotlib as mpl
 import matplotlib.pyplot as plt
-from scipy import stats as spstats
+import numpy as np
 import networkx as nx
-from weathercop import find_copula, cop_conf, stats, plotting
-from weathercop import copulae as cop
+from scipy import stats as spstats
+from tqdm import tqdm
+
+from weathercop import cop_conf, copulae as cops, find_copula, stats
 
 
 def flat_set(*args):

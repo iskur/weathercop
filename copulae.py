@@ -1,25 +1,26 @@
 """Bivariate Copulas intended for Vine Copulas."""
-from abc import ABCMeta, abstractproperty
 import functools
+import importlib
 import warnings
 import os
-import importlib
+from abc import ABCMeta, abstractproperty
 from collections import OrderedDict
 
 import numpy as np
 import matplotlib.pyplot as plt
 import sympy
-from sympy.utilities import autowrap
-from sympy import ln, exp  # , asin
-# from sympy import stats as sstats
-# from sympy.functions.special import error_functions
 from mpmath import mp
-from scipy.optimize import minimize
-from scipy.special import erfinv, erf
 from scipy.interpolate import interp1d
+from scipy.optimize import minimize
+from scipy.special import erf, erfinv
+from scipy.stats import mvn
+from scipy import stats as spstats
+from sympy import exp, ln
+from sympy.utilities import autowrap
 
-from weathercop import cop_conf as conf
-from weathercop import tools, stats
+from weathercop import cop_conf as conf, stats, tools
+from lhglib.contrib.time_series_analysis import distributions
+
 
 # used wherever theta can be inf in principle
 theta_large = 1e3
