@@ -9,16 +9,18 @@ from weathercop import copulae as cop
 class Test(npt.TestCase):
 
     def setUp(self):
-        pass
+        self.verbose = False
 
     def tearDown(self):
         pass
 
     def test_cop(self):
         """A few very basic copula requirements."""
-        print("\nTesting copula function")
+        if self.verbose:
+            print("\nTesting copula function")
         for name, frozen_cop in cop.frozen_cops:
-            print(name)
+            if self.verbose:
+                print(name)
             zero = frozen_cop.copula_func(1e-9, 1e-9)
             one = frozen_cop.copula_func(1 - 1e-9, 1 - 1e-9)
             try:
@@ -27,11 +29,14 @@ class Test(npt.TestCase):
             except AssertionError:
                 frozen_cop.plot_copula()  # theta=frozen_cop.theta)
                 plt.show()
+                raise
 
     def test_cdf_given_u(self):
-        print("\nTesting u-conditional cdfs")
+        if self.verbose:
+            print("\nTesting u-conditional cdfs")
         for name, copulas in cop.frozen_cops:
-            print(name)
+            if self.verbose:
+                print(name)
             zero = copulas.cdf_given_u(1 - 1e-9, 1e-9)
             one = copulas.cdf_given_u(1e-9, 1 - 1e-9)
             try:
@@ -43,7 +48,8 @@ class Test(npt.TestCase):
                 warnings.warn(name.upper())
 
     def test_cdf_given_v(self):
-        print("\nTesting v-conditional cdfs")
+        if self.verbose:
+            print("\nTesting v-conditional cdfs by roundtrip")
         for name, copulas in cop.frozen_cops:
             print(name)
             zero = copulas.cdf_given_v(1e-9, 1 - 1e-9)
@@ -57,9 +63,11 @@ class Test(npt.TestCase):
                 warnings.warn(name.upper())
 
     def test_inv_cdf_given_u(self):
-        print("\nTesting inverse u-conditional cdfs")
+        if self.verbose:
+            print("\nTesting inverse u-conditional cdfs by roundtrip")
         for name, copulas in cop.frozen_cops:
-            print(name)
+            if self.verbose:
+                print(name)
             uu = np.linspace(1e-9, 1 - 1e-9, 100)
             vv_exp = np.copy(uu)
             qq = copulas.cdf_given_u(uu, vv_exp)
@@ -67,9 +75,11 @@ class Test(npt.TestCase):
             npt.assert_almost_equal(vv_actual, vv_exp, decimal=2)
 
     def test_inv_cdf_given_v(self):
-        print("\nTesting inverse v-conditional cdfs")
+        if self.verbose:
+            print("\nTesting inverse v-conditional cdfs")
         for name, copulas in cop.frozen_cops:
-            print(name)
+            if self.verbose:
+                print(name)
             vv = np.linspace(1e-9, 1 - 1e-9, 100)
             uu_exp = np.copy(vv)
             qq = copulas.cdf_given_v(uu_exp, vv)
@@ -78,9 +88,11 @@ class Test(npt.TestCase):
 
     def test_density(self):
         """Does the density integrate to 1?"""
-        print("\nTesting density by numerical integration")
+        if self.verbose:
+            print("\nTesting density by numerical integration")
         for name, frozen_cop in cop.frozen_cops:
-            print(name)
+            if self.verbose:
+                print(name)
             with warnings.catch_warnings():
                 warnings.filterwarnings("error")
                 try:
@@ -95,10 +107,12 @@ class Test(npt.TestCase):
     def test_fit(self):
         """Is fit able to reproduce parameters of a self-generated sample?
         """
-        print("\nTesting fit")
+        if self.verbose:
+            print("\nTesting fit")
         np.random.seed(1)
         for name, copulas in cop.all_cops.items():
-            print(name)
+            if self.verbose:
+                print(name)
             sample_x, sample_y = copulas.sample(10000, copulas.theta_start)
             try:
                 fitted_theta = copulas.fit(sample_x, sample_y)
