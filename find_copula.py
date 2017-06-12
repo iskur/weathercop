@@ -29,7 +29,7 @@ def mml(ranks_u, ranks_v, cops=copulae.all_cops, verbose=False):
     # the best
     if best_cop.likelihood == 0:
         if not isinstance(best_cop, copulae.Independence):
-            best_cop = copulae.independence.generate_fitted(None, None)
+            best_cop = copulae.independence.generate_fitted(ranks_u, ranks_v)
     return best_cop
 
 
@@ -70,7 +70,7 @@ def mml_serial(ranks_u, ranks_v, cops=copulae.all_cops, verbose=False,
     # the best
     if best_cop.likelihood == 0:
         if not isinstance(best_cop, copulae.Independence):
-            best_cop = copulae.independence.generate_fitted(None, None)
+            best_cop = copulae.independence.generate_fitted(ranks_u, ranks_v)
     return best_cop
 
 
