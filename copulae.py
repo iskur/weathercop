@@ -672,6 +672,17 @@ class Fitted:
         fig.tight_layout()
         return fig, ax
         
+    def __getstate__(self):
+        # this could be a rotated copula, for which the class is
+        # generated dynamically. even dill has problems with pickling
+        # these crazy instances!
+        dict_ = dict(self.__dict__)
+        dict_["copula"] = self.copula.name
+        return dict_
+
+    def __setstate__(self, dict_):
+        dict_["copula"] = globals()[dict_["copula"]]
+        self.__dict__ = dict_
 
     def __getattr__(self, name):
         return getattr(self.copula, name)
