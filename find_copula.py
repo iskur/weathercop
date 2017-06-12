@@ -33,7 +33,8 @@ def mml(ranks_u, ranks_v, cops=copulae.all_cops, verbose=False):
     return best_cop
 
 
-def mml_serial(ranks_u, ranks_v, cops=copulae.all_cops, verbose=False):
+def mml_serial(ranks_u, ranks_v, cops=copulae.all_cops, verbose=False,
+               plot=False):
     fitted_cops = []
     for cop_name, cop in cops.items():
         try:
@@ -49,6 +50,22 @@ def mml_serial(ranks_u, ranks_v, cops=copulae.all_cops, verbose=False):
     best_cop = max(fitted_cops)
     if verbose:
         print("%s (L=%.2f)" % (best_cop.name, best_cop.likelihood))
+    if plot:
+        n_cops = 9
+        fig, axs = plt.subplots(nrows=int(np.sqrt(n_cops)),
+                                ncols=int(np.sqrt(n_cops)),
+                                subplot_kw=dict(aspect="equal"))
+        axs = np.ravel(axs)
+        for cop, ax in zip(sorted(fitted_cops)[::-1], axs):
+            cop.plot_density(ax=ax, scatter=False)
+            ax.scatter(ranks_u, ranks_v,
+                       marker="x", s=1,
+                       facecolor=(0, 0, 0, 0),
+                       edgecolor=(0, 0, 0, .25),)
+            ax.set_title("%s\n%.2f" % (cop.name[len("fitted "):],
+                                       cop.likelihood),
+                         fontsize=8)
+        fig.tight_layout()
     # prefer the independence copula explicitly if it is on par with
     # the best
     if best_cop.likelihood == 0:
