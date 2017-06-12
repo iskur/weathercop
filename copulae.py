@@ -122,21 +122,6 @@ def broadcast_2d(func):
     return inner
 
 
-# def rotate_cop(cop_expr, rotation):
-#     """Rotate copula expression.
-
-#     Notes
-#     -----
-#     see p. 271
-#     """
-#     uu, vv = sympy.symbols(("uu vv"))
-#     if rotation == 90:
-#         return uu - cop_expr.subs({vv: 1 - vv})
-#     elif rotation == 180:
-#         return uu + vv - 1 + cop_expr.subs({uu: 1 - uu,
-#                                             vv: 1 - vv})
-#     elif rotation == 270:
-#         return vv - cop_expr.subs({uu: 1 - uu})
 def bipit(ranks_u, ranks_v):
     """Bivariabe probability integral transform."""
     ranks_u, ranks_v = map(np.squeeze, (ranks_u, ranks_v))
