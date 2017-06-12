@@ -714,6 +714,24 @@ class NoRotations:
     pass
 
 
+class No90:
+    """Use this as a base if Copula should not be rotated by 90
+    degrees."""
+    pass
+
+
+class No180:
+    """Use this as a base if Copula should not be rotated by 180
+    degrees."""
+    pass
+
+
+class No270:
+    """Use this as a base if Copula should not be rotated by 270
+    degrees."""
+    pass
+
+
 class Archimedian(Copulae, metaclass=MetaArch):
     """Archimedian Copulas.
 
@@ -1156,14 +1174,42 @@ turned_cops = OrderedDict()
 for cop_name, obj in all_cops.items():
     if isinstance(obj, NoRotations):
         continue
-    for rot in ("90", "180", "270"):
-        new_name = "%s_%s" % (cop_name, rot)
+    for norot_cls in (No90, No180, No270):
+        if isinstance(obj, norot_cls):
+            continue
+        rot_str = norot_cls.__name__[len("No"):]
+        new_name = "%s_%s" % (cop_name, rot_str)
         old_type = type(obj)
-        turned_cop = type(new_name, (old_type,), dict(old_type.__dict__))
-        turned_cops[new_name] = turned_cop()
+        # # look for the same object in the call stack (really hacky!)
+        # found = False
+        # for depth in range(1, 1000):
+        #     try:
+        #         frame = sys._getframe(depth)
+        #     except ValueError:
+        #         break
+        #     try:
+        #         TurnedCop = frame.f_globals[new_name.capitalize()]
+        #         turned_cops[new_name] = frame.f_globals[new_name]
+        #         found = True
+        #         break
+        #     except KeyError:
+        #         continue
+        # if not found:
+        #     TurnedCop = type(new_name,
+        #                      (old_type,),
+        #                      dict(old_type.__dict__))
+        #     turned_cops[new_name] = TurnedCop()
+        # make the rotated copulas importable
+        TurnedCop = type(new_name,
+                         (old_type,),
+                         dict(old_type.__dict__))
+        turned_cops[new_name] = TurnedCop()
+        globals()[new_name.capitalize()] = TurnedCop
+        globals()[new_name] = turned_cops[new_name]
 all_cops.update(turned_cops)
 all_cops = OrderedDict((name, obj) for name, obj
                        in sorted(all_cops.items()))
+
 
 frozen_cops = tuple((name, copulas(copulas.theta_start))
                     for name, copulas in sorted(all_cops.items()))
