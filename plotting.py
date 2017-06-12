@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import functools
 import numpy as np
+import matplotlib as mpl
 import matplotlib.pyplot as plt
 from scipy import stats as spstats
 from weathercop import stats
@@ -54,10 +55,10 @@ def clear_def_cache(function, cache_names=None, cache_name_values=None):
         setattr(function, name, value)
 
 
-def ccplom(data, k=1, kind="contour", varnames=None, h_kwds=None,
+def ccplom(data, k=0, kind="contour", varnames=None, h_kwds=None,
            s_kwds=None, title=None, opacity=.1, cmap=None, x_bins=15,
            y_bins=15, display_rho=True, display_asy=True, vmax_fct=1.,
-           fontsize=20, **fig_kwds):
+           fontsize=None, **fig_kwds):
     """Cross-Copula-plot matrix. Values that appear on the x-axes are shifted
     back k timesteps. Data is assumed to be a 2 dim arrays with
     observations in rows."""
@@ -65,8 +66,11 @@ def ccplom(data, k=1, kind="contour", varnames=None, h_kwds=None,
     K, T = data.shape
     h_kwds = {} if h_kwds is None else h_kwds
     s_kwds = {} if s_kwds is None else s_kwds
+    if fontsize is None:
+        fontsize = mpl.rcParams["xtick.labelsize"]
     if varnames is None:
         n_variables = data.shape[0]
+        varnames = [str(i) for i in range(n_variables)]
     else:
         n_variables = len(varnames)
     fig, axes = plt.subplots(n_variables, n_variables,
@@ -107,10 +111,11 @@ def ccplom(data, k=1, kind="contour", varnames=None, h_kwds=None,
             ax.grid(False)
             ax.set_yticklabels("")
             ax.set_xticklabels("")
-            if jj == 0:
+            if (jj == 0) or (jj == 1 and ii == 0):
                 ax.set_ylabel(varnames[ii] +
                               ("(t)" if k else ""))
-            if ii == n_variables - 1:
+            K = n_variables
+            if (ii == K - 1) or (ii == K - 2 and jj == K - 1):
                 ax.set_xlabel(varnames[jj] +
                               (("(t-%d)" % k) if k else ""))
     # reset the vlims, so that we have the same color scale in all plots
@@ -133,7 +138,8 @@ def hist2d(x, y, n_xbins=15, n_ybins=15, kind="img", ax=None, cmap=None,
     else:
         fig = plt.gcf()
     if cmap is None:
-        cmap = plt.get_cmap("coolwarm")
+        # cmap = plt.get_cmap("coolwarm")
+        cmap = plt.get_cmap("terrain")
     H, xedges, yedges = np.histogram2d(x, y, (n_xbins, n_ybins), normed=True)
     # if this histogram is part of a plot-matrix, the plot-matrix
     # might want to set vmax to a common value.  expose h_max to the
@@ -159,3 +165,67 @@ def hist2d(x, y, n_xbins=15, n_ybins=15, kind="img", ax=None, cmap=None,
         ax.scatter(x, y, marker="o", facecolors=(0, 0, 0, 0),
                    edgecolors=(0, 0, 0, opacity))
     return fig, ax
+
+
+def plot_cross_corr(data, varnames=None, max_lags=10, figsize=None, fig=None,
+                    axs=None, *args, **kwds):
+    K = data.shape[0]
+    if varnames is None:
+        varnames = np.arange(K).astype(str)
+    lags = np.arange(max_lags)
+    # shape: (max_lags, K, K)
+    cross_corrs = np.array([cross_corr(data, k) for k in lags])
+    if fig is None and axs is None:
+        size = {}
+        if figsize:
+            size["figsize"] = figsize
+        fig, axs = plt.subplots(K, squeeze=True, **size)
+    for var_i in range(K):
+        lines = []
+        for var_j in range(K):
+            # want to set the same colors as before when called with a given
+            # fig and axs
+            colors = plt.rcParams["axes.color_cycle"]
+            color = colors[var_j % len(colors)]
+            lines += axs[var_i].plot(lags, cross_corrs[:, var_i, var_j],
+                                     color=color, *args, **kwds)
+        axs[var_i].set_title(varnames[var_i])
+        axs[var_i].grid(True)
+    plt.subplots_adjust(right=.75, hspace=.25)
+    fig.legend(lines, varnames, loc="center right")
+    return fig, axs
+
+
+def cross_corr(data, k):
+    """Return the cross-correlation-coefficient matrix for lag k. Variables are
+    assumed to be stored in rows, with time extending across the columns."""
+    finite_ii = np.isfinite(data)
+    stds = [np.std(row[row_ii]) for row, row_ii in zip(data, finite_ii)]
+    stds = np.array(stds)[:, np.newaxis]
+    stds_dot = stds * stds.T  # dyadic product of row-vector stds
+    return cross_cov(data, k) / stds_dot
+
+
+def nanavg(x, axis=None, ddof=0):
+    ii = np.isfinite(x)
+    return (np.nansum(x, axis=axis) /
+            (np.sum(ii, axis=axis) - ddof))
+
+
+def cross_cov(data, k, means=None):
+    """Return the cross-covariance matrix for lag k. Variables are assumed to
+    be stored in rows, with time extending across the columns."""
+    n_vars = data.shape[0]
+    k_right = -abs(k) if k else None
+    if means is None:
+        means = nanavg(data, axis=1).reshape((n_vars, 1))
+        ddof = 1
+    else:
+        ddof = 0
+    cross = np.empty((n_vars, n_vars))
+    for ii in range(n_vars):
+        for jj in range(n_vars):
+            cross[ii, jj] = nanavg((data[ii, :k_right] - means[ii]) *
+                                   (data[jj, k:] - means[jj]),
+                                   ddof=ddof)
+    return cross
