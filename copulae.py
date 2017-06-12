@@ -393,8 +393,8 @@ class Copulae(metaclass=MetaCop):
     must implement to be a copula."""
 
     theta_bounds = None
-    zero, one = 1e-6, 1 - 1e-4
-    # zero, one = 1e-9, 1 - 1e-9
+    # zero, one = 1e-6, 1 - 1e-6
+    zero, one = 1e-15, 1 - 1e-15
 
     @abstractproperty
     def theta_start(self):
@@ -423,22 +423,22 @@ class Copulae(metaclass=MetaCop):
 
         ranks_v = np.empty_like(ranks_u)
         ranks_v_calc = np.linspace(self.zero, self.one, 500)
-        # ranks_v_calc = np.concatenate(([0], ranks_v_calc, [1]))
+        ranks_v_calc = np.concatenate(([0], ranks_v_calc, [1]))
         for i, (rank_u, quantile) in enumerate(zip(ranks_u, quantiles)):
-            quantiles_calc = self.cdf_given_u(rank_u, ranks_v_calc,
-                                              # ranks_v_calc[1:-1],
+            quantiles_calc = self.cdf_given_u(rank_u,
+                                              ranks_v_calc[1:-1],
                                               theta)
             quantiles_calc = np.squeeze(quantiles_calc)
+            quantiles_calc = np.concatenate(([0], quantiles_calc, [1]))
             # if there is more than one zero involved, interpolating
             # between them gives unwanted results.
-            middle_mask = ((quantiles_calc != 0) & (quantiles_calc != 1))
-            f_int = interp1d(quantiles_calc[middle_mask],
-                             # np.concatenate(([0],
-                             #                 np.squeeze(quantiles_calc),
-                             #                 [1])),
-                             ranks_v_calc[middle_mask],
-                             bounds_error=False,
-                             fill_value=(0, 1))
+            # valid_mask = ((quantiles_calc != 0) & (quantiles_calc != 1))
+            valid_mask = np.ones_like(quantiles_calc, dtype=bool)
+            f_int = interp1d(quantiles_calc[valid_mask],
+                             ranks_v_calc[valid_mask],
+                             # bounds_error=False,
+                             # fill_value=(0, 1)
+                             )
             ranks_v[i] = f_int(quantile)
         return ranks_v
 
@@ -450,23 +450,22 @@ class Copulae(metaclass=MetaCop):
 
         ranks_u = np.empty_like(ranks_v)
         ranks_u_calc = np.linspace(self.zero, self.one, 500)
-        # ranks_u_calc = np.concatenate(([0], ranks_u_calc, [1]))
+        ranks_u_calc = np.concatenate(([0], ranks_u_calc, [1]))
         for i, (rank_v, quantile) in enumerate(zip(ranks_v, quantiles)):
-            quantiles_calc = self.cdf_given_v(ranks_u_calc,
-                                              # ranks_u_calc[1:-1],
+            quantiles_calc = self.cdf_given_v(ranks_u_calc[1:-1],
                                               rank_v,
                                               theta)
             quantiles_calc = np.squeeze(quantiles_calc)
+            quantiles_calc = np.concatenate(([0], quantiles_calc, [1]))
             # if there is more than one zero involved, interpolating
             # between them gives unwanted results.
-            middle_mask = ((quantiles_calc != 0) & (quantiles_calc != 1))
-            f_int = interp1d(quantiles_calc[middle_mask],
-                             # np.concatenate(([0],
-                             #                 np.squeeze(quantiles_calc),
-                             #                 [1])),
-                             ranks_u_calc[middle_mask],
-                             bounds_error=False,
-                             fill_value=(0, 1))
+            # valid_mask = ((quantiles_calc != 0) & (quantiles_calc != 1))
+            valid_mask = np.ones_like(quantiles_calc, dtype=bool)
+            f_int = interp1d(quantiles_calc[valid_mask],
+                             ranks_u_calc[valid_mask],
+                             # bounds_error=False,
+                             # fill_value=(0, 1)
+                             )
             ranks_u[i] = f_int(quantile)
         return ranks_u
 
@@ -504,10 +503,12 @@ class Copulae(metaclass=MetaCop):
                 # if len(dens_masked) == 0:
                 #     return -np.inf
                 # loglike = -np.sum(np.log(dens_masked))
+
                 mask = (dens <= 0) | ~np.isfinite(dens)
-                if np.any(mask):
-                    return -1e12
-                # dens[mask] = 1e-9
+                # if np.any(mask):
+                #     return -1e12
+ 
+                dens[mask] = 1e-9
                 loglike = -np.sum(np.log(dens))
             return loglike
 
@@ -623,6 +624,10 @@ class Fitted:
             self.likelihood = 0
         else:
             density = copula.density(ranks_u, ranks_v, *theta)
+            # if np.any(~np.isfinite(density)):
+            #     self.likelihood = -np.inf
+            # else:
+            #     self.likelihood = np.sum(np.log(density))
             mask = (density > 0) & np.isfinite(density)
             density[~mask] = 1e-60
             dens_masked = density[mask]
@@ -635,13 +640,14 @@ class Fitted:
                 print(4 * " ",
                       self.name[len("fitted "):],
                       self.likelihood, end="")
-                n_nonfin = np.sum(~mask)
-                if n_nonfin:
-                    print(" # nonfinite ",
-                          np.sum(~mask),
-                          )
-                else:
-                    print()
+                # n_nonfin = np.sum(~mask)
+                # if n_nonfin:
+                #     print(" # nonfinite ",
+                #           np.sum(~mask),
+                #           )
+                # else:
+                #     print()
+
     def plot_qq(self, ax=None, opacity=.25, s_kwds=None, title=None,
                 *args, **kwds):
         if s_kwds is None:
