@@ -14,8 +14,9 @@ from weathercop import cop_conf, copulae as cops, find_copula, stats
 
 
 def flat_set(*args):
-    """Returns a flatted set of all possibly nested iterables containing
+    """Returns a flattened set of all possibly nested iterables containing
     integers in args.
+
     """
     # muhahaha!
     return set(int(match) for match
@@ -833,21 +834,27 @@ if __name__ == '__main__':
     # fig, axs = vine.plot(edge_labels="copulas")
     # plt.show()
 
+    from weathercop import plotting
     import ar_models as ar
     data_filepath = os.path.join(cop_conf.weathercop_dir, "code",
                                  "vg_data.npz")
+    varnames = "R theta ILWR Qsw u".split()
     # varnames = "R theta ILWR Qsw".split()
-    varnames = "R theta ILWR Qsw rh v u".split()
     data_varnames = "R theta Qsw ILWR rh u v".split()
     # varnames = cop_conf.varnames
-    with np.load(data_filepath) as saved:
+    with np.load(data_filepath, encoding="bytes") as saved:
         data_summer = saved["summer"]
         data_winter = saved["winter"]
         data_all = saved["all"]
-    for data, title in zip((data_winter, data_summer),
-                           ("winter", "summer")):
+        dtimes = saved["dtimes"]
+        # doys = saved["doys"]
+    for data_unordered, title in zip((data_summer, data_winter),
+                                     ("summer", "winter")):
         # data = np.hstack((data_summer, data_winter))
-        data = np.array([data[data_varnames.index(varname)]
+        # data = data_all
+        # data = np.vstack((doys[None, :] % 182, data))
+        # data = np.vstack((data_all[None, 0], data))
+        data = np.array([data_unordered[data_varnames.index(varname)]
                          for varname in varnames])
         p = 3
         K, T = data.shape
@@ -856,37 +863,69 @@ if __name__ == '__main__':
         data_ranks = np.array([stats.rel_ranks(row) for row in data_residuals])
         vine = RVine(data_ranks, k=0, varnames=varnames,
                      verbose=True)
+        # P = vine.quantiles()
+        # residuals_sim_ranks = vine.simulate(randomness=P)
+        # residuals_sim_ranks = vine.simulate()
+        # residuals_sim_ranks = np.array([
+        #     residuals_sim_ranks[i] for i in (1, 0, 3, 2, 4)])
+        # residuals_sim_ranks = np.array([
+        #     residuals_sim_ranks[vine.varnames_old.index(varname)]
+        #     for varname in vine.varnames])
+
+        # residuals_sim = np.array([spstats.distributions.norm.ppf(ranks)
+        #                           for ranks in residuals_sim_ranks])
+        # fig, axs = plt.subplots(K, sharex=True)
+        # for i, ax in enumerate(axs):
+        #     ax.plot(data_ranks[i], label="data")
+        #     ax.plot(residuals_sim_ranks[i], label="cop sim")
+        #     ax.set_title(varnames[i])
+        #     ax.grid(True)
+        #     if i == 0:
+        #         ax.legend()
+        # fig.suptitle(title)
+
+        # for i, (dat, sim) in enumerate(zip(data_ranks, residuals_sim_ranks)):
+        #     fig, ax = plt.subplots(subplot_kw=dict(aspect="equal"))
+        #     ax.scatter(dat, sim)
+        #     ax.set_title(varnames[i])
+        # import numpy.testing as npt
+        # npt.assert_almost_equal(data_ranks, residuals_sim_ranks, decimal=3)
+        # plt.show()
+        cmap = "terrain"
+        # plotting.ccplom(residuals_sim, k=0, x_bins=12, y_bins=12,
+        #                 cmap=cmap, title="%s simulated" % title,
+        #                 fontsize=12, opacity=.25, kind="img",
+        #                 varnames=varnames)
+        # plotting.ccplom(data_residuals, k=0, x_bins=12, y_bins=12,
+        #                 cmap=cmap, title="%s data" % title,
+        #                 fontsize=12, opacity=.25, kind="img",
+        #                 varnames=varnames)
+        vine.plot_tplom()
+        vine.plot_qqplom()
+        # plotting.ccplom(data_residuals, k=1, title="data (t-1)", opacity=.25,
+        #                 kind="img",
+        #                 varnames=varnames)
         # fig, axs = vine.plot(edge_labels="copulas")
         # fig.suptitle(title)
         # vine.plot_tplom()
-        residuals_sim_ranks = vine.simulate()
-        residuals_sim = np.array([spstats.distributions.norm.ppf(ranks)
-                                  for ranks in residuals_sim_ranks])
-        plotting.ccplom(residuals_sim, k=0, title="simulated", opacity=.25,
-                        kind="contourf",
-                        varnames=varnames)
-        plotting.ccplom(data_residuals, k=0, title="data", opacity=.25,
-                        kind="contourf",
-                        varnames=varnames)
-        # plotting.ccplom(data_residuals, k=1, title="data (t-1)", opacity=.25,
-        #                 kind="contourf",
-        #                 varnames=varnames)
-        cop_sim = ar.VAR_LS_sim(B, sigma_u, T=T, u=residuals_sim)
-        var_sim = ar.VAR_LS_sim(B, sigma_u, T=T)
-        plotting.ccplom(cop_sim, k=0, title="cop sim", opacity=.25,
-                        kind="contourf",
-                        varnames=varnames)
-        plotting.ccplom(var_sim, k=0, title="var sim", opacity=.25,
-                        kind="contourf",
-                        varnames=varnames)
-        fig, axs = plt.subplots(K, sharex=True)
-        for i, ax in enumerate(axs):
-            ax.plot(data[i], label="data")
-            ax.plot(cop_sim[i], label="cop sim")
-            ax.plot(var_sim[i], label="VAR")
-            ax.set_title(varnames[i])
-            ax.grid(True)
-            if i == 0:
-                ax.legend()
+        # cop_sim = ar.VAR_LS_sim(B, sigma_u, T=T, u=residuals_sim)
+        # var_sim = ar.VAR_LS_sim(B, sigma_u, T=T)
+        # plotting.ccplom(cop_sim, k=0, x_bins=12, y_bins=12, cmap=cmap,
+        #                 title="%s cop sim" % title, opacity=.25,
+        #                 kind="img", varnames=varnames)
+        # plotting.ccplom(var_sim, k=0, x_bins=12, y_bins=12, cmap=cmap,
+        #                 title="%s var sim" % title, opacity=.25,
+        #                 kind="img", varnames=varnames)
+        # fig, axs = plt.subplots(K, sharex=True)
+        # for i, ax in enumerate(axs):
+        #     ax.plot(data[i], label="data")
+        #     ax.plot(cop_sim[i], label="cop sim")
+        #     ax.plot(var_sim[i], label="VAR")
+        #     ax.set_title(varnames[i])
+        #     ax.grid(True)
+        #     if i == 0:
+        #         ax.legend()
+        # fig.suptitle(title)
+
         break
     plt.show()
