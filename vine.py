@@ -374,13 +374,24 @@ class Vine:
         return self._A
 
     def plot(self, edge_labels="nodes"):
+        """Plot vine structure.
+
+        Parameter
+        ---------
+        edge_labels : "nodes" or "copulas", optional
+        """
         nrows = int(len(self.trees) / 2)
         if nrows * 2 < len(self.trees):
             nrows += 1
+        node_fontsize = mpl.rcParams["legend.fontsize"]
+        edge_fontsize = mpl.rcParams["xtick.labelsize"]
+        node_size = 100 * node_fontsize
         fig, axs = plt.subplots(nrows, 2)
         axs = np.ravel(axs)
         for tree_i, (ax, tree) in enumerate(zip(axs, self.trees)):
-            ax.set_title(r"$T_%d$" % tree_i, fontsize=20)
+            ax.set_title(r"$T_%d$" % tree_i,
+                         # fontsize=20
+                         )
             if tree_i == 0:
                 labels = {i: "%d: %s" % (i, varname)
                           for i, varname in enumerate(self.varnames)}
@@ -391,8 +402,9 @@ class Vine:
                 labels = {(node1, node2): get_label(node1, node2)
                           for node1, node2 in tree.nodes()}
             pos = nx.spring_layout(tree)
-            nx.draw_networkx(tree, ax=ax, pos=pos, node_size=2000,
-                             font_size=20, labels=labels)
+            nx.draw_networkx(tree, ax=ax, pos=pos, node_size=node_size,
+                             font_size=node_fontsize,
+                             labels=labels)
 
             if edge_labels == "nodes":
                 if tree_i == 0:
@@ -403,7 +415,8 @@ class Vine:
                                for node1, node2 in tree.edges()}
             elif edge_labels == "copulas":
                 elabels = {}
-                for node1, node2 in tree.edges():
+                for node1, node2 in sorted(tree.edges()):
+                    node1, node2 = sorted((node1, node2))
                     edge = tree[node1][node2]
                     cop_key = get_cop_key(node1, node2)
                     cop_name = edge[cop_key].name[len("fitted "):]
@@ -414,15 +427,18 @@ class Vine:
                 elabels = None
             nx.draw_networkx_edge_labels(tree, ax=ax, pos=pos,
                                          edge_labels=elabels,
-                                         font_size=15)
+                                         font_size=edge_fontsize)
         for ax in axs:
             ax.set_axis_off()
         return fig, axs
 
-    def plot_tplom(self, opacity=.25, s_kwds=None):
+    def plot_tplom(self, opacity=.25, s_kwds=None, c_kwds=None):
         """Plots all bivariate copulae with scattered (conditioned) ranks.
         """
-        s_kwds = dict() if s_kwds is None else s_kwds
+        if s_kwds is None:
+            s_kwds = dict(marker="o", s=1,
+                          facecolors=(0, 0, 0, 0),
+                          edgecolors=(0, 0, 0, opacity))
         x_slice = slice(None, None if self.k == 0 else -self.k)
         y_slice = slice(self.k, None)
 
@@ -433,21 +449,19 @@ class Vine:
         for ax_i, (node1, node2) in enumerate(tree.edges()):
             ax = axs[0, ax_i]
             edge = tree[node1][node2]
-            # ranks1 = edge["ranks_u"]
-            # ranks2 = edge["ranks_v"]
-            ranks1_key, ranks2_key = get_cond_labels(node1, node2)
-            ranks1 = edge["ranks_" + ranks1_key]
-            ranks2 = edge["ranks_" + ranks2_key]
+            ranks1 = edge["ranks_u"]
+            ranks2 = edge["ranks_v"]
+            # ranks1_key, ranks2_key = get_cond_labels(node1, node2)
+            # ranks1 = edge["ranks_" + ranks1_key]
+            # ranks2 = edge["ranks_" + ranks2_key]
 
             cop_key = get_cop_key(node1, node2)
             cop = edge[cop_key]
-            cop.plot_density(ax=ax, kind="contour", scatter=False)
+            cop.plot_density(ax=ax, kind="contour", scatter=False,
+                             c_kwds=c_kwds)
             ax.set_title("%s (%.2f)" % (cop.name[len("fitted "):],
                                         cop.likelihood))
             ax.scatter(ranks1[x_slice], ranks2[y_slice],
-                       marker="o",
-                       facecolors=(0, 0, 0, 0),
-                       edgecolors=(0, 0, 0, opacity),
                        **s_kwds)
             ax.set_xlabel("%s (%d)" % (self.varnames[node1], node1))
             ax.set_ylabel("%s (%d)" % (self.varnames[node2], node2))
@@ -461,18 +475,71 @@ class Vine:
                 ranks1_key, ranks2_key = get_cond_labels(node1, node2)
                 ranks1 = edge["ranks_" + ranks1_key]
                 ranks2 = edge["ranks_" + ranks2_key]
+                cop_key = get_cop_key(node1, node2)
+                try:
+                    cop = edge[cop_key]
+                except KeyError:
+                    print("switched ", cop_key)
+                    cop_key = get_cop_key(node2, node1)
+                    cop = edge[cop_key]
                 cop.plot_density(ax=ax, kind="contour", scatter=False)
                 ax.set_title("%s (%.2f)" % (cop.name[len("fitted "):],
                                             cop.likelihood))
                 ax.scatter(ranks1[x_slice], ranks2[y_slice],
-                           marker="o",
-                           facecolors=(0, 0, 0, 0),
-                           edgecolors=(0, 0, 0, opacity),
                            **s_kwds)
                 ax.set_xlabel(ranks1_key)
                 ax.set_ylabel(ranks2_key)
             for ax in axs[tree_i, len(edges):]:
                 ax.set_axis_off()
+        fig.tight_layout()
+        return fig, axs
+
+    def plot_qqplom(self, opacity=.25, s_kwds=None, c_kwds=None):
+        """Plots all bivariate qq plots."""
+        if s_kwds is None:
+            s_kwds = dict(marker="o", s=1,
+                          facecolors=(0, 0, 0, 0),
+                          edgecolors=(0, 0, 0, opacity))
+
+        fig, axs = plt.subplots(len(self.trees), self.d - 1,
+                                sharey=True
+                                # subplot_kw=dict(aspect="equal")
+        )
+        # first tree, showing actual observations
+        tree = self.trees[0]
+        for ax_i, (node1, node2) in enumerate(tree.edges()):
+            ax = axs[0, ax_i]
+            edge = tree[node1][node2]
+            cop_key = get_cop_key(node1, node2)
+            cop = edge[cop_key]
+            cop.plot_qq(ax=ax, s_kwds=s_kwds)
+            ax.set_title("%s (%.2f)" % (cop.name[len("fitted "):],
+                                        cop.likelihood))
+            ax.set_xlabel("%s (%d)" % (self.varnames[node1], node1))
+            ax.set_ylabel("%s (%d)" % (self.varnames[node2], node2))
+
+        # other trees showing conditioned observations
+        for tree_i, tree in enumerate(self.trees[1:], start=1):
+            edges = sorted(tree.edges())
+            for ax_i, (node1, node2) in enumerate(edges):
+                ax = axs[tree_i, ax_i]
+                edge = tree[node1][node2]
+                cop_key = get_cop_key(node1, node2)
+                try:
+                    cop = edge[cop_key]
+                except KeyError:
+                    print("switched ", cop_key)
+                    cop_key = get_cop_key(node2, node1)
+                    cop = edge[cop_key]
+                cop.plot_qq(ax=ax, s_kwds=s_kwds)
+                ax.set_title("%s (%.2f)" % (cop.name[len("fitted "):],
+                                            cop.likelihood))
+                ranks1_key, ranks2_key = get_cond_labels(node1, node2)
+                ax.set_xlabel(ranks1_key)
+                ax.set_ylabel(ranks2_key)
+            for ax in axs[tree_i, len(edges):]:
+                ax.set_axis_off()
+        fig.tight_layout()
         return fig, axs
 
 
