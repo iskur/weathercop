@@ -9,7 +9,7 @@ from hashlib import md5
 def shelve_open(filename, *args, **kwds):
     dirname = os.path.dirname(filename)
     if not os.path.exists(dirname):
-        os.mkdir(dirname)
+        os.makedirs(dirname)
     sh = shelve.open(filename, "c")
     yield sh
     sh.close()
