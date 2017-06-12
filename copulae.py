@@ -1071,15 +1071,51 @@ class Gaussian(Copulae, NoRotations):
     # dens_expr = dens_expr.subs(yy, uni_inv.subs(xx, vv))
     # dens_func = np.vectorize(sympy.lambdify((uu, vv, rho), dens_expr,))
 
+    # def dens_func(self, uu, vv, rho):
+    #     rho = np.squeeze(rho)
+    #     erfu = erfinv(2 * uu - 1)
+    #     erfv = erfinv(2 * vv - 1)
+    #     return ((-rho ** 2 + 1) ** (-0.5) *
+    #             np.exp((-rho ** 2 + 1) *
+    #                    (2.0 * rho * erfu * erfv -
+    #                     erfu ** 2 - erfv ** 2)) *
+    #             np.exp(erfu ** 2 + erfv ** 2))
+
     def dens_func(self, uu, vv, rho):
+        uu, vv = np.atleast_1d(uu, vv)
+        xx = spstats.norm.ppf(uu).reshape(uu.shape)
+        yy = spstats.norm.ppf(vv).reshape(vv.shape)
+        return ((1 - rho ** 2) ** (-.5) *
+                np.exp(-.5 * (xx ** 2 + yy ** 2 - 2 * rho * xx * yy) *
+                       (1 - rho ** 2)) *
+                np.exp(0.5 * (xx ** 2 + yy ** 2)))
+
+    def copula_func(self, uu, vv, rho):
         rho = np.squeeze(rho)
-        erfu = erfinv(2 * uu - 1)
-        erfv = erfinv(2 * vv - 1)
-        return ((-rho ** 2 + 1) ** (-0.5) *
-                np.exp((-rho ** 2 + 1) *
-                       (2.0 * rho * erfu * erfv -
-                        erfu ** 2 - erfv ** 2)) *
-                np.exp(erfu ** 2 + erfv ** 2))
+        uu, vv = np.atleast_1d(uu, vv)
+        uu_normal = spstats.norm.ppf(uu)
+        vv_normal = spstats.norm.ppf(vv)
+        broadcast = np.ndim(uu) == 2
+        quantiles = np.empty_like(((uu + vv).ravel()))
+        if broadcast:
+            uu_normal = uu_normal.repeat(len(vv_normal))
+            vv_normal = (vv_normal
+                         .repeat(len(uu_normal))
+                         .reshape((len(uu_normal),
+                                   len(vv_normal)))
+                         .T
+                         .ravel())
+        lower = np.full(2, -20.)
+        infin = np.full(2, 2, dtype=int)
+        for i, (u_normal, v_normal) in enumerate(zip(uu_normal, vv_normal)):
+            quantiles[i] = mvn.mvndst(lower,
+                                      np.array([u_normal, v_normal]),
+                                      infin,
+                                      rho
+                                      )[1]
+        if broadcast:
+            quantiles = quantiles.reshape(uu.size, vv.size)
+        return quantiles
 
     def cdf_given_u(self, uu, vv, rho):
         rho = np.squeeze(rho)
