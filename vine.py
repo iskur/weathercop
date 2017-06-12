@@ -233,6 +233,24 @@ class Vine:
         return np.array([sim[self.varnames.index(varname)]
                          for varname in self.varnames_old])
 
+    def quantiles(self, ranks=None, *args, **kwds):
+        """Returns the 'quantiles' (in the sense that if they would be used as
+        random numbers in `simulate`, the input data would be
+        reproduced)
+        """
+        if ranks is None:
+            ranks = self.ranks
+            # ranks = np.array([self.ranks[self.varnames.index(name_old)]
+            #                   for name_old in self.varnames_old])
+        else:
+            # we assume the variables were given in the old/outside
+            # order
+            ranks = np.array([ranks[self.varnames.index(name_old)]
+                              for name_old in self.varnames_old])
+        Ps = self._quantiles(ranks, *args, **kwds)
+        return np.array([Ps[self.varnames_old.index(name_new)]
+                         for name_new in self.varnames])
+
     def __getitem__(self, key):
         """Access the vine tree nodes by row and column index of Vine.A."""
         try:
@@ -476,7 +494,7 @@ class CVine(Vine):
                                full_graph[central_node][other_node])
         return new_graph
 
-    def _simulate(self, T=None):
+    def _simulate(self, T=None, randomness=None, **tqdm_kwds):
         """Simulate a sample of size T.
 
         Notes
@@ -487,10 +505,14 @@ class CVine(Vine):
 
         zero = 1e-15
         one = 1 - zero
-        Ps = np.random.rand(self.d, T_sim)
+        if randomness is None:
+            Ps = np.random.rand(self.d, T_sim)
+        else:
+            Ps = np.array([randomness[self.varnames.index(name_old)]
+                           for name_old in self.varnames_old])
         Us = np.empty_like(Ps)
         Us[0] = Ps[0]
-        for t in tqdm(range(T_sim)):
+        for t in tqdm(range(T_sim), **tqdm_kwds):
             U, P = Us[:, t], Ps[:, t]
             U[1] = self[0, 1]["C^_1|0"](conditioned=P[1],
                                         condition=P[0])
@@ -502,7 +524,42 @@ class CVine(Vine):
                     q = max(zero, min(one, q))
                 U[j] = q
             Us[:, t] = U
+        if randomness is not None:
+            # why this is necessary, is beyond me :(
+            Us = np.array([Us[self.varnames_old.index(name)]
+                           for name in self.varnames])
         return Us
+
+    def _quantiles(self, ranks, **tqdm_kwds):
+        """Returns the 'quantiles' (in the sense that if they would be used as
+        random numbers in `simulate`, the input data would be
+        reproduced)
+
+        """
+        if ranks is None:
+            ranks = self.ranks
+        else:
+            # we assume the variables were given in the old/outside
+            # order
+            ranks = np.array([ranks[self.varnames.index(name_old)]
+                              for name_old in self.varnames_old])
+        T = ranks.shape[1]
+        Ps = np.empty_like(ranks)
+        Us = ranks
+        Ps[0] = Us[0]
+        for t in tqdm(range(T), **tqdm_kwds):
+            U, P = Us[:, t], Ps[:, t]
+            P[1] = self[0, 1]["C_1|0"](conditioned=U[1],
+                                       condition=P[0])
+            for j in range(2, self.d):
+                q = U[j]
+                for l in range(j):
+                    cop = self[l, j]["C_%d|%d" % (j, l)]
+                    q = cop(conditioned=q,
+                            condition=P[l])
+                P[j] = q
+            Ps[:, t] = P
+        return Ps
 
 
 class DVine(Vine):
@@ -546,32 +603,113 @@ class RVine(Vine):
                     I[k - 1, M[k, j]] = 1
         return I
 
-    def _simulate(self, T=None):
+    def _quantiles(self, ranks, **tqdm_kwds):
+        """Returns the 'quantiles' (in the sense that if they would be used as
+        random numbers in `simulate`, the input data would be
+        reproduced)
+        """
+        zero = 1e-12
+        # one = 1 - zero
+
+        def minmax(x):
+            return x
+            # return min(one, max(zero, x))
+
+        if ranks is None:
+            ranks = self.ranks
+        else:
+            # we assume the variables were given in the old/outside
+            # order
+            ranks = np.array([ranks[self.varnames.index(name_old)]
+                              for name_old in self.varnames_old])
+        T = ranks.shape[1]
+        A, M, I = self.A, self.M, self.I
+        Ps = np.empty_like(ranks)
+        Us = ranks
+        Ps[0] = Us[0]
+        Q, V, Z = [np.empty_like(A, dtype=float) for _ in range(3)]
+        for t in tqdm(range(T), **tqdm_kwds):
+            Q[:] = V[:] = Z[:] = zero
+            # this should cause problems and alert me when we fail to
+            # correctly invert the simulating algorithm
+            # Q[:] = V[:] = Z[:] = np.nan
+            U, P = Us[:, t], Ps[:, t]
+            P[1] = self[0, 1]["C_1|0"](conditioned=U[1],
+                                       condition=P[0])
+            Q[1, 1] = P[1]
+            if I[0, 1]:
+                V[0, 1] = minmax(self[0, 1]["C_0|1"](conditioned=U[0],
+                                                     condition=U[1]))
+            for j in range(2, self.d):
+                Q[0, j] = U[j]
+                cop = self[0, j]["C_%d|%d" % (j, A[0, j])]
+                Q[1, j] = cop(conditioned=U[j],
+                              condition=U[A[0, j]])
+                cop = self[0, j]["C_%d|%d" % (A[0, j], j)]
+                V[0, j] = minmax(cop(conditioned=U[A[0, j]],
+                                     condition=U[j]))
+                for l in range(1, j):
+                    if A[l, j] == M[l, j]:
+                        s = Q[l, A[l, j]]
+                    else:
+                        s = V[l - 1, M[l, j]]
+                    Z[l, j] = s
+                    cop = self[l, j]["C_%d|%d" % (j, A[l, j])]
+                    Q[l + 1, j] = minmax(cop(conditioned=Q[l, j],
+                                             condition=s))
+                P[j] = Q[j, j]
+                for l in range(1, j):
+                    if I[l, j]:
+                        cop = self[l, j]["C_%d|%d" % (A[l, j], j)]
+                        V[l, j] = minmax(cop(conditioned=Z[l, j],
+                                             condition=Q[l, j]))
+            Ps[:, t] = P
+        return Ps
+
+    def _simulate(self, T=None, randomness=None, **tqdm_kwds):
         """Simulate a sample of size T.
 
+        Parameter
+        ---------
+        T : int or None, optional
+            Number of timesteps to be simulated. None means number of
+            timesteps in source data.
+        randomness : (K, T) array or None, optional
+            Random ranks to be used. None means iid uniform ranks.
+        
         Notes
         -----
         See Algorithm 17 on p. 292.
         """
         T_sim = self.T if T is None else T
 
-        zero = 1e-15
-        one = 1 - zero
+        # zero = 1e-15
+        zero = 1e-12
+        # one = 1 - zero
+
+        def minmax(x):
+            return x
+            # return min(one, max(zero, x))
+
         A, M, I = self.A, self.M, self.I
-        Ps = np.random.rand(self.d, T_sim)
+        if randomness is None:
+            Ps = np.random.rand(self.d, T_sim)
+        else:
+            Ps = np.array([randomness[self.varnames.index(name_old)]
+                           for name_old in self.varnames_old])
         Us = np.empty_like(Ps)
         Us[0] = Ps[0]
         Q, V, Z = [np.empty_like(A, dtype=float) for _ in range(3)]
-        for t in tqdm(range(T_sim)):
-            Q[:] = V[:] = Z[:] = 0
-            # Q[:] = V[:] = Z[:] = zero
+        for t in tqdm(range(T_sim), **tqdm_kwds):
+            # Q[:] = V[:] = Z[:] = np.nan
+            Q[:] = V[:] = Z[:] = zero
             U, P = Us[:, t], Ps[:, t]
-            U[1] = self[0, 1]["C^_1|0"](conditioned=P[1],
-                                        condition=P[0])
+            U[1] = minmax(self[0, 1]["C^_1|0"](conditioned=P[1],
+                                               condition=P[0]))
             Q[1, 1] = P[1]
             if I[0, 1]:
-                V[0, 1] = self[0, 1]["C_0|1"](conditioned=U[0],
-                                              condition=U[1])
+                V[0, 1] = minmax(self[0, 1]["C_0|1"](conditioned=U[0],
+                                                     condition=U[1]))
             for j in range(2, self.d):
                 Q[j, j] = P[j]
                 for l in range(j - 1, 0, -1):
@@ -581,28 +719,33 @@ class RVine(Vine):
                         s = V[l - 1, M[l, j]]
                     Z[l, j] = s
                     cop = self[l, j]["C^_%d|%d" % (j, A[l, j])]
-                    Q[l, j] = cop(conditioned=Q[l + 1, j],
-                                  condition=s)
-                    Q[l, j] = min(one, max(zero, Q[l, j]))
+                    Q[l, j] = minmax(cop(conditioned=Q[l + 1, j],
+                                         condition=s))
                 cop = self[0, j]["C^_%d|%d" % (j, A[0, j])]
-                U[j] = Q[0, j] = max(zero,
-                                     min(one,
-                                         cop(conditioned=Q[1, j],
-                                             condition=U[A[0, j]])))
+                U[j] = Q[0, j] = minmax(cop(conditioned=Q[1, j],
+                                            condition=U[A[0, j]]))
                 cop = self[0, j]["C_%d|%d" % (A[0, j], j)]
-                V[0, j] = cop(conditioned=U[A[0, j]],
-                              condition=U[j])
+                V[0, j] = minmax(cop(conditioned=U[A[0, j]],
+                                     condition=U[j]))
                 for l in range(1, j):
                     if I[l, j]:
                         cop = self[l, j]["C_%d|%d" % (A[l, j], j)]
-                        V[l, j] = cop(conditioned=Z[l, j],
-                                      condition=Q[l, j])
+                        V[l, j] = minmax(cop(conditioned=Z[l, j],
+                                             condition=Q[l, j]))
+
+            # if np.any(np.isnan(U)):
+            #     import ipdb; ipdb.set_trace()
             Us[:, t] = U
+        if randomness is not None:
+            # why this is necessary, is beyond me :(
+            Us = np.array([Us[self.varnames_old.index(name)]
+                           for name in self.varnames])
         return Us
+
 
 if __name__ == '__main__':
     # for deterministic networkx graphs!
-    np.random.seed(2)
+    # np.random.seed(2)
 
     # cov = [[1.5, 1., -1., 1.5],
     #        [1., 1., 0., .5],
