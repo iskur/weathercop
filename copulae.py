@@ -137,6 +137,14 @@ def broadcast_2d(func):
 #                                             vv: 1 - vv})
 #     elif rotation == 270:
 #         return vv - cop_expr.subs({uu: 1 - uu})
+def bipit(ranks_u, ranks_v):
+    """Bivariabe probability integral transform."""
+    ranks_u, ranks_v = map(np.squeeze, (ranks_u, ranks_v))
+    n = len(ranks_u)
+    ranks = np.empty(n)
+    for i, (rank_u, rank_v) in enumerate(zip(ranks_u, ranks_v)):
+        ranks[i] = np.sum((ranks_u < rank_u) & (ranks_v < rank_v))
+    return (ranks + .5) / n
 
 
 class NoConvergence(Exception):
@@ -524,25 +532,28 @@ class Copulae(metaclass=MetaCop):
 
     def plot_density(self, theta=None, scatter=True, ax=None,
                      kind="contourf", opacity=.1, sample_size=1000,
-                     skwds=None):
+                     s_kwds=None, c_kwds=None):
         if theta is None:
             try:
                 theta = self.theta
             except AttributeError:
                 theta = self.theta_start
-        if skwds is None:
-            skwds = dict()
+        if s_kwds is None:
+            s_kwds = dict()
+        if c_kwds is None:
+            c_kwds = dict(alpha=.5,
+                          linewidth=.25)
         uu = vv = stats.rel_ranks(np.arange(100))
         density = self.density(uu[None, :], vv[:, None], *theta)
         if not isinstance(self, Independence):
             # get rid of large values for visualizations sake
             density[density >= np.sort(density.ravel())[-10]] = np.nan
-        if ax is None:
-            fig, ax = plt.subplots(subplot_kw=dict(aspect="equal"))
-        if kind == "contourf":
-            ax.contourf(uu, vv, density, 40)
-        elif kind == "contour":
-            ax.contour(uu, vv, density, 40)
+            if ax is None:
+                fig, ax = plt.subplots(subplot_kw=dict(aspect="equal"))
+            if kind == "contourf":
+                ax.contourf(uu, vv, density, 40, **c_kwds)
+            elif kind == "contour":
+                ax.contour(uu, vv, density, 40, **c_kwds)
         if scatter:
             try:
                 u_sample, v_sample = self.sample(size=1000, theta=theta)
@@ -550,7 +561,7 @@ class Copulae(metaclass=MetaCop):
                            marker="o",
                            facecolor=(0, 0, 0, 0),
                            edgecolor=(0, 0, 0, opacity),
-                           **skwds)
+                           **s_kwds)
             except ValueError:
                 warnings.warn("Sampling %s does not work" % self.name)
         ax.set_xticks([])
@@ -631,6 +642,30 @@ class Fitted:
                           )
                 else:
                     print()
+    def plot_qq(self, ax=None, opacity=.25, s_kwds=None, title=None,
+                *args, **kwds):
+        if s_kwds is None:
+            s_kwds = dict(marker="o", s=1,
+                          facecolors=(0, 0, 0, 0),
+                          edgecolors=(0, 0, 0, opacity))
+
+        empirical = bipit(self.ranks_u, self.ranks_v)
+        theoretical = self.copula.copula_func(self.ranks_u,
+                                              self.ranks_v,
+                                              *self.theta)
+        if ax is None:
+            fig, ax = plt.subplots(
+                # subplot_kw=dict(aspect="equal")
+            )
+        if fig is None:
+            fig = plt.gcf()
+        ax.scatter(empirical, theoretical - empirical, **s_kwds)
+        if title is None:
+            title = "qq " + self.name[len("fitted "):]
+        ax.set_title(title)
+        fig.tight_layout()
+        return fig, ax
+        
 
     def __getattr__(self, name):
         return getattr(self.copula, name)
