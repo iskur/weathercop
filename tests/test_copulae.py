@@ -9,7 +9,8 @@ from weathercop import copulae as cop
 class Test(npt.TestCase):
 
     def setUp(self):
-        self.verbose = False
+        self.verbose = True
+        self.eps = 1e-6
 
     def tearDown(self):
         pass
@@ -21,11 +22,11 @@ class Test(npt.TestCase):
         for name, frozen_cop in cop.frozen_cops:
             if self.verbose:
                 print(name)
-            zero = frozen_cop.copula_func(1e-9, 1e-9)
-            one = frozen_cop.copula_func(1 - 1e-9, 1 - 1e-9)
+            zero = frozen_cop.copula_func(self.eps, self.eps)
+            one = frozen_cop.copula_func(1 - self.eps, 1 - self.eps)
             try:
-                npt.assert_almost_equal(zero, 0, decimal=4)
-                npt.assert_almost_equal(one, 1, decimal=4)
+                npt.assert_almost_equal(zero, self.eps, decimal=4)
+                npt.assert_almost_equal(one, 1 - self.eps, decimal=4)
             except AssertionError:
                 frozen_cop.plot_copula()  # theta=frozen_cop.theta)
                 plt.show()
@@ -37,29 +38,30 @@ class Test(npt.TestCase):
         for name, copulas in cop.frozen_cops:
             if self.verbose:
                 print(name)
-            zero = copulas.cdf_given_u(1 - 1e-9, 1e-9)
-            one = copulas.cdf_given_u(1e-9, 1 - 1e-9)
+            zero = copulas.cdf_given_u(1 - self.eps, self.eps)
+            one = copulas.cdf_given_u(self.eps, 1 - self.eps)
             try:
-                npt.assert_almost_equal(zero, 0, decimal=4)
-                npt.assert_almost_equal(one, 1, decimal=4)
+                npt.assert_almost_equal(zero, self.eps, decimal=4)
+                npt.assert_almost_equal(one, 1 - self.eps, decimal=4)
             except AssertionError:
-                print(zero, 0)
-                print(one, 1)
+                print(zero, self.eps)
+                print(one, 1 - self.eps)
                 warnings.warn(name.upper())
 
     def test_cdf_given_v(self):
         if self.verbose:
             print("\nTesting v-conditional cdfs by roundtrip")
         for name, copulas in cop.frozen_cops:
-            print(name)
-            zero = copulas.cdf_given_v(1e-9, 1 - 1e-9)
-            one = copulas.cdf_given_v(1 - 1e-9, 1e-9)
+            if self.verbose:
+                print(name)
+            zero = copulas.cdf_given_v(self.eps, 1 - self.eps)
+            one = copulas.cdf_given_v(1 - self.eps, self.eps)
             try:
-                npt.assert_almost_equal(zero, 0, decimal=4)
-                npt.assert_almost_equal(one, 1, decimal=4)
+                npt.assert_almost_equal(zero, self.eps, decimal=4)
+                npt.assert_almost_equal(one, 1 - self.eps, decimal=4)
             except AssertionError:
-                print(zero, 0)
-                print(one, 1)
+                print(zero, self.eps)
+                print(one, 1 - self.eps)
                 warnings.warn(name.upper())
 
     def test_inv_cdf_given_u(self):
@@ -68,11 +70,21 @@ class Test(npt.TestCase):
         for name, copulas in cop.frozen_cops:
             if self.verbose:
                 print(name)
-            uu = np.linspace(1e-9, 1 - 1e-9, 100)
+            uu = np.linspace(self.eps, 1 - self.eps, 100)
             vv_exp = np.copy(uu)
             qq = copulas.cdf_given_u(uu, vv_exp)
             vv_actual = copulas.inv_cdf_given_u(uu, np.squeeze(qq))
-            npt.assert_almost_equal(vv_actual, vv_exp, decimal=2)
+            try:
+                npt.assert_almost_equal(vv_actual, vv_exp, decimal=2)
+            except AssertionError:
+                if not self.verbose:
+                    raise
+                fig, ax = plt.subplots()
+                ax.scatter(vv_actual, vv_exp)
+                ax.set_xlabel("vv_actual")
+                ax.set_ylabel("vv_exp")
+                ax.set_title("%s inv_cdf_given_u" % name)
+                plt.show()
 
     def test_inv_cdf_given_v(self):
         if self.verbose:
@@ -80,11 +92,21 @@ class Test(npt.TestCase):
         for name, copulas in cop.frozen_cops:
             if self.verbose:
                 print(name)
-            vv = np.linspace(1e-9, 1 - 1e-9, 100)
+            vv = np.linspace(self.eps, 1 - self.eps, 100)
             uu_exp = np.copy(vv)
             qq = copulas.cdf_given_v(uu_exp, vv)
             uu_actual = copulas.inv_cdf_given_v(vv, np.squeeze(qq))
-            npt.assert_almost_equal(uu_actual, uu_exp, decimal=2)
+            try:
+                npt.assert_almost_equal(uu_actual, uu_exp, decimal=2)
+            except AssertionError:
+                if not self.verbose:
+                    raise
+                fig, ax = plt.subplots()
+                ax.scatter(uu_actual, uu_exp)
+                ax.set_xlabel("uu_actual")
+                ax.set_ylabel("uu_exp")
+                ax.set_title("%s inv_cdf_given_v" % name)
+                plt.show()
 
     def test_density(self):
         """Does the density integrate to 1?"""
@@ -97,8 +119,8 @@ class Test(npt.TestCase):
                 warnings.filterwarnings("error")
                 try:
                     one = integrate.nquad(frozen_cop.density,
-                                          ([1e-9, 1 - 1e-9],
-                                           [1e-9, 1 - 1e-9]))[0]
+                                          ([self.eps, 1 - self.eps],
+                                           [self.eps, 1 - self.eps]))[0]
                 except integrate.IntegrationWarning:
                     print("Numerical integration of %s is problematic" % name)
                 else:
@@ -122,8 +144,17 @@ class Test(npt.TestCase):
                 if copulas.theta_start[0] is None and fitted_theta is None:
                     # for the independence copula
                     continue
-                npt.assert_almost_equal(fitted_theta, copulas.theta_start,
-                                        decimal=1)
+                try:
+                    npt.assert_almost_equal(fitted_theta, copulas.theta_start,
+                                            decimal=1)
+                except AssertionError:
+                    if not self.verbose:
+                        raise
+                    ax = copulas.plot_density()
+                    ax.scatter(sample_x, sample_y, marker="x",
+                               facecolor=(0, 0, 1, .1))
+                    plt.show()
+                    raise
 
 
 if __name__ == "__main__":
