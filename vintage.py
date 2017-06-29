@@ -320,19 +320,20 @@ if __name__ == '__main__':
     vint = Vintage(data_ranks, dtimes, varnames=varnames, window_len=30)
     # vint.clear_pickle()
     vint.setup()
-    quantiles = vint.quantiles()
+    quantiles = pd.DataFrame(vint.quantiles())
     quantiles.plot(subplots=True)
     sim = vint.simulate(randomness=quantiles)
     # fig, axs = plt.subplots(K, sharex=True)
     axs = quantiles.plot(subplots=True, linestyle="--")
     data_ranks_df = pd.DataFrame(data_ranks.T, index=quantiles.index,
                                  columns=varnames)
-    for i, ax in enumerate(axs):
-        data_ranks_df.iloc[:, i].plot(ax=ax, label="data")
-        ax.set_title(varnames[i])
-        ax.grid(True)
-        if i == 0:
-            ax.legend()
+    # for i, ax in enumerate(axs):
+    #     data_ranks_df.iloc[:, i].plot(ax=ax, label="data")
+    #     ax.set_title(varnames[i])
+    #     ax.grid(True)
+    #     if i == 0:
+    #         ax.legend()
+
     # plotting.ccplom(sim.as_matrix().T, k=0, x_bins=12, y_bins=12,
     #                 kind="img", varnames=varnames, title="vintage")
     # plotting.ccplom(data_ranks, k=0, x_bins=12, y_bins=12, kind="img",

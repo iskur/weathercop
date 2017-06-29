@@ -130,7 +130,8 @@ class Vine:
             T: number of time steps
         k : int, optional
             time shift to insert between u and v. (u is shifted
-            backwards)
+            backwards).
+            experimental and not fully implemented - do not use!
         varnames : sequence of str, length d or None, optional
             If None, nodes will be numbered
         build_trees : boolean, optional
@@ -176,14 +177,14 @@ class Vine:
                 if node1 != node2:
                     ranks2 = ranks2[self.k:] if self.k > 0 else ranks2
                     tau = spstats.kendalltau(ranks1, ranks2).correlation
-                    # as networkx minimizes the spanning tree, we have
-                    # to invert the weights
                     ranks1_key, ranks2_key = \
                         get_cond_labels(node1, node2, "ranks_")
                     ranks_dict = {ranks1_key: ranks1,
                                   ranks2_key: ranks2,
                                   "ranks_u": ranks1,
                                   "ranks_v": ranks2}
+                    # as networkx minimizes the spanning tree, we have
+                    # to invert the weights
                     full_graph.add_edge(node1, node2,
                                         weight=(1 - abs(tau)), tau=tau,
                                         **ranks_dict)
@@ -675,6 +676,7 @@ class RVine(Vine):
         """Returns the 'quantiles' (in the sense that if they would be used as
         random numbers in `simulate`, the input data would be
         reproduced)
+
         """
         zero = 1e-12
         # one = 1 - zero
@@ -800,9 +802,6 @@ class RVine(Vine):
                         cop = self[l, j]["C_%d|%d" % (A[l, j], j)]
                         V[l, j] = minmax(cop(conditioned=Z[l, j],
                                              condition=Q[l, j]))
-
-            # if np.any(np.isnan(U)):
-            #     import ipdb; ipdb.set_trace()
             Us[:, t] = U
         if randomness is not None:
             # why this is necessary, is beyond me :(
