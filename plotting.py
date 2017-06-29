@@ -55,14 +55,18 @@ def clear_def_cache(function, cache_names=None, cache_name_values=None):
         setattr(function, name, value)
 
 
-def ccplom(data, k=0, kind="contour", varnames=None, h_kwds=None,
-           s_kwds=None, title=None, opacity=.1, cmap=None, x_bins=15,
-           y_bins=15, display_rho=True, display_asy=True, vmax_fct=1.,
-           fontsize=None, **fig_kwds):
+def ccplom(data, k=0, kind="contour", transform=False, varnames=None,
+           h_kwds=None, s_kwds=None, title=None, opacity=.1,
+           cmap=None, x_bins=15, y_bins=15, display_rho=True,
+           display_asy=True, vmax_fct=1., fontsize=None, **fig_kwds):
     """Cross-Copula-plot matrix. Values that appear on the x-axes are shifted
     back k timesteps. Data is assumed to be a 2 dim arrays with
     observations in rows."""
-    data = np.asarray(data)
+    if transform:
+        data = np.array([stats.rel_ranks(values)
+                         for values in data])
+    else:
+        data = np.asarray(data)
     K, T = data.shape
     h_kwds = {} if h_kwds is None else h_kwds
     s_kwds = {} if s_kwds is None else s_kwds
