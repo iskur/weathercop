@@ -19,7 +19,6 @@ from sympy import exp, ln
 from sympy.utilities import autowrap
 
 from weathercop import cop_conf as conf, stats, tools
-from lhglib.contrib.time_series_analysis import distributions
 
 
 # used wherever theta can be inf in principle
@@ -62,7 +61,7 @@ def ufuncify(cls, name, uargs, expr, *args, verbose=False, **kwds):
 def mark_failed(key):
     with open(faillog_file, "r+") as faillog:
         keys = faillog.readlines()
-        if key not in keys:
+        if (key + "\n") not in keys:
             faillog.write(key + os.linesep)
 
 
@@ -100,6 +99,7 @@ def positive(func):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             result = func(*args, **kwds)
+            result = np.squeeze(result)
             result[(result < 0) | (~np.isfinite(result))] = 1e-15
         return result
     return inner
@@ -211,9 +211,6 @@ class MetaCop(ABCMeta):
     def conditional_cdf(cls, conditioning):
         uu, vv, *theta = sympy.symbols(cls.par_names)
         expr_attr = "cdf_given_%s_expr" % conditioning
-        # try:
-        #     conditional_cdf = getattr(cls, expr_attr)
-        # except AttributeError:
         with tools.shelve_open(conf.sympy_cache) as sh:
             key = ("%s_cdf_given_%s_%s" %
                    (cls.name, conditioning, tools.hash_cop(cls)))
@@ -227,12 +224,6 @@ class MetaCop(ABCMeta):
                 # good_cop = cls.cop_expr
                 conditional_cdf = sympy.diff(good_cop, conditioning)
                 conditional_cdf = sympy.simplify(conditional_cdf)
-                # conditional_cdf = \
-                #     sympy.Piecewise((0, uu < 1e-12),
-                #                     (0, vv < 1e-12),
-                #                     (1, uu > (1 - 1e-12)),
-                #                     (1, vv > (1 - 1e-12)),
-                #                     (conditional_cdf, True))
                 sh[key] = conditional_cdf
             conditional_cdf = sh[key]
             setattr(cls, expr_attr, conditional_cdf)
@@ -272,29 +263,29 @@ class MetaCop(ABCMeta):
             open(faillog_file, "a").close()
         attr_name = "inv_cdf_given_%s_expr" % conditioning
         # cached sympy derivation
-        # if not hasattr(cls, attr_name):
-        with tools.shelve_open(conf.sympy_cache) as sh:
-            if key not in sh:
-                print("Generating inverse %s-conditional %s" %
-                      (conditioning, cls.name))
-                cdf_given_expr = getattr(cls,
-                                         "cdf_given_%s_expr" %
-                                         conditioning)
-                try:
-                    inv_cdf = sympy.solve(cdf_given_expr - qq,
-                                          conditioned)[0]
-                except NotImplementedError:
-                    warnings.warn("Derivation of inv.-conditional " +
-                                  "failed for" +
-                                  " %s" % cls.name)
-                    with open(faillog_file, "r+") as faillog:
-                        keys = faillog.readlines()
-                        if key not in keys:
-                            faillog.write(key + os.linesep)
-                    return
-                sh[key] = inv_cdf
-            inv_cdf = sh[key]
-            setattr(cls, attr_name, inv_cdf)
+        if not hasattr(cls, attr_name):
+            with tools.shelve_open(conf.sympy_cache) as sh:
+                if key not in sh:
+                    print("Generating inverse %s-conditional %s" %
+                          (conditioning, cls.name))
+                    cdf_given_expr = getattr(cls,
+                                             "cdf_given_%s_expr" %
+                                             conditioning)
+                    try:
+                        inv_cdf = sympy.solve(cdf_given_expr - qq,
+                                              conditioned)[0]
+                    except NotImplementedError:
+                        warnings.warn("Derivation of inv.-conditional " +
+                                      "failed for" +
+                                      " %s" % cls.name)
+                        with open(faillog_file, "r+") as faillog:
+                            keys = faillog.readlines()
+                            if key not in keys:
+                                faillog.write(key + os.linesep)
+                        return
+                    sh[key] = inv_cdf
+                inv_cdf = sh[key]
+                setattr(cls, attr_name, inv_cdf)
         inv_cdf = getattr(cls, attr_name)
         # compile sympy expression
         try:
@@ -315,15 +306,16 @@ class MetaCop(ABCMeta):
         return cls.inverse_conditional_cdf(sympy.symbols("uu"))
 
     def inv_cdf_given_v(cls):
-        # if we are given an expression for the u-conditional, we can
-        # substitute v for u to get the corresponding v-conditional
-        try:
-            inv_cdf = getattr(cls, "inv_cdf_given_uu_expr")
-            uu, vv = sympy.symbols("uu vv")
-            inv_cdf = inv_cdf.subs({uu: vv})
-            setattr(cls, "inv_cdf_given_vv_expr", inv_cdf)
-        except AttributeError:
-            pass
+        if not hasattr(cls, "inv_cdf_given_vv_expr"):
+            # if we are given an expression for the u-conditional, we can
+            # substitute v for u to get the corresponding v-conditional
+            try:
+                inv_cdf = getattr(cls, "inv_cdf_given_uu_expr")
+                uu, vv = sympy.symbols("uu vv")
+                inv_cdf = inv_cdf.subs({uu: vv})
+                setattr(cls, "inv_cdf_given_vv_expr", inv_cdf)
+            except AttributeError:
+                pass
         return cls.inverse_conditional_cdf(sympy.symbols("vv"))
 
     def density_from_cop(cls):
@@ -377,7 +369,7 @@ class Copulae(metaclass=MetaCop):
     """Base of all copula implementations, defining what a copula
     must implement to be a copula."""
 
-    theta_bounds = None
+    theta_bounds = [(-np.inf, np.inf)]
     # zero, one = 1e-6, 1 - 1e-6
     zero, one = 1e-15, 1 - 1e-15
 
@@ -400,18 +392,29 @@ class Copulae(metaclass=MetaCop):
             theta = np.full_like(uu, theta),
         return self.dens_func(uu, vv, *theta)
 
-    def inv_cdf_given_u(self, ranks_u, quantiles, theta=None):
-        """Numeric inversion of cdf_given_u, to be used as a last resort.
-        """
-        theta = self.theta if theta is None else theta
-        ranks_u, quantiles = map(np.atleast_1d, (ranks_u, quantiles))
+    def _inverse_conditional(self, conditional_func, ranks, quantiles, theta):
+        """Numeric inversion of conditional_func (inv_cdf_given_u or
+        inv_cdf_given_v), to be used as a last resort.
 
-        ranks_v = np.empty_like(ranks_u)
-        ranks_v_calc = np.linspace(self.zero, self.one, 500)
-        ranks_v_calc = np.concatenate(([0], ranks_v_calc, [1]))
-        for i, (rank_u, quantile) in enumerate(zip(ranks_u, quantiles)):
-            quantiles_calc = self.cdf_given_u(rank_u,
-                                              ranks_v_calc[1:-1],
+        """
+        theta = np.array(self.theta if theta is None else theta)
+        ranks1 = np.atleast_1d(ranks)
+        ranks1, quantiles, thetas = map(np.atleast_1d, (ranks,
+                                                        quantiles,
+                                                        theta))
+        quantiles, thetas = map(np.squeeze, (quantiles, thetas))
+        if thetas.size == 1:
+            thetas = np.full_like(ranks1, theta)
+        if quantiles.size == 1:
+            quantiles = np.full_like(ranks1, quantiles)
+
+        ranks2 = np.empty_like(ranks1)
+        ranks2_calc = np.linspace(self.zero, self.one, 500)
+        ranks2_calc = np.concatenate(([0], ranks2_calc, [1]))
+        for i, rank1 in enumerate(ranks1):
+            quantile, theta = quantiles[i], thetas[i]
+            quantiles_calc = conditional_func(rank1,
+                                              ranks2_calc[1:-1],
                                               theta)
             quantiles_calc = np.squeeze(quantiles_calc)
             quantiles_calc = np.concatenate(([0], quantiles_calc, [1]))
@@ -420,39 +423,24 @@ class Copulae(metaclass=MetaCop):
             # valid_mask = ((quantiles_calc != 0) & (quantiles_calc != 1))
             valid_mask = np.ones_like(quantiles_calc, dtype=bool)
             f_int = interp1d(quantiles_calc[valid_mask],
-                             ranks_v_calc[valid_mask],
+                             ranks2_calc[valid_mask],
                              # bounds_error=False,
                              # fill_value=(0, 1)
                              )
-            ranks_v[i] = f_int(quantile)
-        return ranks_v
+            ranks2[i] = f_int(quantile)
+        return ranks2
+
+    def inv_cdf_given_u(self, ranks_u, quantiles, theta=None):
+        """Numeric inversion of cdf_given_u, to be used as a last resort.
+        """
+        return self._inverse_conditional(self.cdf_given_u, ranks_u,
+                                         quantiles, theta=theta)
 
     def inv_cdf_given_v(self, ranks_v, quantiles, theta=None):
         """Numeric inversion of cdf_given_v, to be used as a last resort.
         """
-        theta = self.theta if theta is None else theta
-        ranks_v, quantiles = map(np.atleast_1d, (ranks_v, quantiles))
-
-        ranks_u = np.empty_like(ranks_v)
-        ranks_u_calc = np.linspace(self.zero, self.one, 500)
-        ranks_u_calc = np.concatenate(([0], ranks_u_calc, [1]))
-        for i, (rank_v, quantile) in enumerate(zip(ranks_v, quantiles)):
-            quantiles_calc = self.cdf_given_v(ranks_u_calc[1:-1],
-                                              rank_v,
-                                              theta)
-            quantiles_calc = np.squeeze(quantiles_calc)
-            quantiles_calc = np.concatenate(([0], quantiles_calc, [1]))
-            # if there is more than one zero involved, interpolating
-            # between them gives unwanted results.
-            # valid_mask = ((quantiles_calc != 0) & (quantiles_calc != 1))
-            valid_mask = np.ones_like(quantiles_calc, dtype=bool)
-            f_int = interp1d(quantiles_calc[valid_mask],
-                             ranks_u_calc[valid_mask],
-                             # bounds_error=False,
-                             # fill_value=(0, 1)
-                             )
-            ranks_u[i] = f_int(quantile)
-        return ranks_u
+        return self._inverse_conditional(self.cdf_given_v, ranks_v,
+                                         quantiles, theta=theta)
 
     def sample(self, size, theta=None):
         uu = random_sample(size)
@@ -473,7 +461,7 @@ class Copulae(metaclass=MetaCop):
         # fitting procedure.
         return self.fit_ml(*args, **kwds)
 
-    def fit_ml(self, ranks_u, ranks_v, method=None, verbose=False):
+    def fit_ml(self, ranks_u, ranks_v, method=None, x0=None, verbose=False):
         """Maximum likelihood estimate."""
 
         def neg_log_likelihood(theta):
@@ -492,12 +480,13 @@ class Copulae(metaclass=MetaCop):
                 mask = (dens <= 0) | ~np.isfinite(dens)
                 # if np.any(mask):
                 #     return -1e12
- 
                 dens[mask] = 1e-9
                 loglike = -np.sum(np.log(dens))
             return loglike
 
-        result = minimize(neg_log_likelihood, self.theta_start,
+        if x0 is None:
+            x0 = self.theta_start
+        result = minimize(neg_log_likelihood, x0,
                           bounds=self.theta_bounds,
                           method=method,
                           # options=(dict(disp=True) if verbose else None)
@@ -656,7 +645,7 @@ class Fitted:
         ax.set_title(title)
         fig.tight_layout()
         return fig, ax
-        
+
     def __getstate__(self):
         # this could be a rotated copula, for which the class is
         # generated dynamically. even dill has problems with pickling
@@ -780,13 +769,13 @@ class FrankNeg(FrankPos):
 # frankneg = FrankNeg()
 
 
-# class GumbelBarnett(Archimedian):
-#     """Also Nelsen09"""
-#     theta_start = .5,
-#     theta_bounds = [(1e-9, 1. - 1e-9)]
-#     t, theta = sympy.symbols(("t theta"))
-#     gen_expr = ln(1 - theta * ln(t))
-# gumbelbarnett = GumbelBarnett()
+class GumbelBarnett(Archimedian):
+    """Also Nelsen09"""
+    theta_start = .5,
+    theta_bounds = [(1e-9, 1. - 1e-9)]
+    t, theta = sympy.symbols(("t theta"))
+    gen_expr = ln(1 - theta * ln(t))
+gumbelbarnett = GumbelBarnett()
 
 
 # inv_cdf_given_u fails test
@@ -812,7 +801,7 @@ class FrankNeg(FrankPos):
 
 
 # cdf_given_u fails test
-# class Nelsen07(Archimedian, NoRotations):
+# class Nelsen07(Archimedian, No180):
 #     theta_start = .5,
 #     theta_bounds = [(0, 1)]
 #     t, theta = sympy.symbols(("t", "theta"))
@@ -844,15 +833,16 @@ class Nelsen10(Archimedian):
 nelsen10 = Nelsen10()
 
 
-class Nelsen11(Archimedian):
-    theta_start = .4,
-    theta_bounds = [(1e-6, .5)]
-    uu, vv, t, theta = sympy.symbols(("uu", "vv", "t", "theta"))
-    gen_expr = ln(2 - t ** theta)
-    cop_expr = (uu ** theta * vv ** theta -
-                2 * (1 - uu ** theta) * (1 - vv ** theta)) ** (1 / theta)
-    cop_expr = sympy.Piecewise((cop_expr, cop_expr > 0),
-                               (0, True))
+# cdf_given_u fails test
+# class Nelsen11(Archimedian):
+#     theta_start = .4,
+#     theta_bounds = [(1e-6, .5)]
+#     uu, vv, t, theta = sympy.symbols(("uu", "vv", "t", "theta"))
+#     gen_expr = ln(2 - t ** theta)
+#     cop_expr = (uu ** theta * vv ** theta -
+#                 2 * (1 - uu ** theta) * (1 - vv ** theta)) ** (1 / theta)
+#     cop_expr = sympy.Piecewise((cop_expr, cop_expr > 0),
+#                                (0, True))
 # nelsen11 = Nelsen11()
 
 
@@ -872,14 +862,15 @@ class Nelsen13(Archimedian, NoRotations):
 nelsen13 = Nelsen13()
 
 
-# class Nelsen14(Archimedian, No90, No270):
-#     theta_start = 3.,
-#     theta_bounds = [(1., 60.)]
-#     t, theta = sympy.symbols(("t", "theta"))
-#     gen_expr = (t ** (-1 / theta) - 1) ** theta
-# nelsen14 = Nelsen14()
+class Nelsen14(Archimedian, No90, No270):
+    theta_start = 3.,
+    theta_bounds = [(1., 60.)]
+    t, theta = sympy.symbols(("t", "theta"))
+    gen_expr = (t ** (-1 / theta) - 1) ** theta
+nelsen14 = Nelsen14()
 
 
+# inv_cdf_given_u fails test
 # class Nelsen15(Archimedian, NoRotations):
 #     # TODO: this probably has a real name, look it up!
 #     theta_start = 3.,
@@ -911,7 +902,7 @@ nelsen13 = Nelsen13()
 
 
 # inv_cdf_given_u fails test
-# class Nelsen18(Archimedian, NoRotations):
+# class Nelsen18(Archimedian, No270):
 #     theta_start = 2.5,
 #     theta_bounds = [(2., 10)]
 #     uu, vv, t, theta = sympy.symbols(("uu", "vv", "t", "theta"))
@@ -967,7 +958,7 @@ nelsen20 = Nelsen20()
 # nelsen22 = Nelsen22()
 
 
-class Joe(Copulae, NoRotations):
+class Joe(Copulae, No90, No270):
     par_names = "uu vv theta".split()
     theta_start = 5.,
     theta_bounds = [(1 + 1e-9, 30)]
@@ -992,15 +983,6 @@ class Joe(Copulae, NoRotations):
 joe = Joe()
 
 
-# class Joe180(Archimedian):
-#     theta_start = 2,
-#     theta_bounds = [(1 + 1e-9, theta_large)]
-#     uu, vv, theta = sympy.symbols(("uu", "vv", "theta"))
-#     cop_expr = (1 - (uu ** theta + vv ** theta -
-#                      uu ** theta * vv ** theta) ** (1 / theta))
-# joe180 = Joe180()
-
-
 class Gumbel(Copulae, NoRotations):
     par_names = "uu", "vv", "theta"
     theta_start = 5.,
@@ -1015,30 +997,17 @@ class Gumbel(Copulae, NoRotations):
                          (1 + (yy / xx) ** theta) ** (1 / theta - 1))
     cdf_given_uu_expr = cdf_given_uu_expr.subs({xx: -ln(uu),
                                                 yy: -ln(vv)})
-    # cdf_given_uu_expr = \
-    #     (exp(-((-ln(uu)) ** theta + (-ln(vv)) ** theta) ** (1 / theta)) *
-    #      (1 + (ln(vv) / ln(uu)) ** theta) ** (1 / (theta - 1)) / uu)
-    # def fit(self, uu, vv, *args, **kwds):
-    #     tau = stats.kendalltau(uu, vv).correlation
-    #     self.theta = 1. / (1 - tau),
-    #     return self.theta
 gumbel = Gumbel()
 
 
-class AliMikailHaqPos(Archimedian):
-    theta_start = .8,
-    theta_bounds = [(1e-9, 1.)]
+class AliMikailHaq(Archimedian, No90, No270):
+    theta_start = .9,
+    # theta_bounds = [(1e-9, 1.)]
+    theta_bounds = [(-1 + 1e-6, 1. - 1e-6)]
     t, theta = sympy.symbols(("t", "theta"))
     gen_expr = ln((1 - theta * (1 - t)) / t)
-alimikailhaqpos = AliMikailHaqPos()
-
-
-# class AliMikailHaqNeg(AliMikailHaqPos):
-#     # splitting AliMikailHaq into its positive and negative dependence
-#     # domain hopefully helps the optimizer
-#     theta_start = -.5,
-#     theta_bounds = [(-1., -1e-9)]
-# alimikailhaqneg = AliMikailHaqNeg()
+    known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
+alimikailhaq = AliMikailHaq()
 
 
 class Gaussian(Copulae, NoRotations):
@@ -1122,7 +1091,7 @@ class Gaussian(Copulae, NoRotations):
 # gaussian = Gaussian()
 
 
-class Plackett(Copulae, NoRotations):
+class Plackett(Copulae):
     par_names = "uu", "vv", "delta"
     theta_start = .1,
     theta_bounds = [(1e-4, 20)]
@@ -1151,6 +1120,10 @@ class Galambos(Copulae, No90, No270):
                                    yy ** -delta) ** (-1 / delta)) *
                          (1 - (1 + (xx / yy) ** delta) ** (-1 - 1 / delta)))
     cdf_given_uu_expr = cdf_given_uu_expr.subs({xx: -ln(uu), yy: -ln(vv)})
+    # cdf_given_vv_expr = (uu * exp((xx ** -delta +
+    #                                yy ** -delta) ** (-1 / delta)) *
+    #                      (1 - (1 + (xx / yy) ** delta) ** (-1 - 1 / delta)))
+    # cdf_given_vv_expr = cdf_given_vv_expr.subs({xx: -ln(vv), yy: -ln(uu)})
 galambos = Galambos()
 
 
