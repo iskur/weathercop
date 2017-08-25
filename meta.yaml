@@ -1,0 +1,35 @@
+package:
+  name: weathercop
+  version: "0.1"
+
+source:
+  # git_rev: v0.13.1
+  # git_url: https://github.com/joerick/pyinstrument.git
+  path: weathercop
+
+requirements:
+  build:
+    - python >=3.4
+    - setuptools
+    - numpy
+  run:
+    - python >=3.4
+    - cython
+    - numpy
+    - scipy
+    - matplotlib
+    - sympy
+    - mpmath
+    - pathos
+    - networkx
+    - tqdm
+
+test:
+  imports:
+    - weathercop
+
+# about:
+  # home: https://github.com/joerick/pyinstrument
+  # license: BSD
+  # license_file: LICENSE
+
