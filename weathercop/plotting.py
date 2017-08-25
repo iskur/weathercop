@@ -58,7 +58,8 @@ def clear_def_cache(function, cache_names=None, cache_name_values=None):
 def ccplom(data, k=0, kind="contour", transform=False, varnames=None,
            h_kwds=None, s_kwds=None, title=None, opacity=.1,
            cmap=None, x_bins=15, y_bins=15, display_rho=True,
-           display_asy=True, vmax_fct=1., fontsize=None, **fig_kwds):
+           display_asy=True, vmax_fct=1., fontsize=None, fontcolor="yellow",
+           axs=None, fig=None, **fig_kwds):
     """Cross-Copula-plot matrix. Values that appear on the x-axes are shifted
     back k timesteps. Data is assumed to be a 2 dim arrays with
     observations in rows."""
@@ -77,16 +78,27 @@ def ccplom(data, k=0, kind="contour", transform=False, varnames=None,
         varnames = [str(i) for i in range(n_variables)]
     else:
         n_variables = len(varnames)
-    fig, axes = plt.subplots(n_variables, n_variables,
-                             subplot_kw=dict(aspect="equal"),
-                             **fig_kwds)
+
+    if n_variables == 2:
+        # two variables don't need a plot matrix
+        n_variables = 1
+
+    if fig is None:
+        fig, axs = plt.subplots(n_variables, n_variables,
+                                subplot_kw=dict(aspect="equal"),
+                                **fig_kwds)
+    if n_variables == 1:
+        axs = (axs,),
+
     ranks = np.array([rel_ranks(var) for var in data])
     x_slice = slice(None, None if k == 0 else -k)
     y_slice = slice(k, None)
     for ii in range(n_variables):
         for jj in range(n_variables):
-            ax = axes[ii, jj]
-            if ii == jj:
+            ax = axs[ii][jj]
+            if n_variables == 1:
+                jj = 1
+            if ii == jj and n_variables > 1:
                 ax.set_axis_off()
                 continue
             ranks_x = ranks[jj, x_slice]
@@ -99,16 +111,16 @@ def ccplom(data, k=0, kind="contour", transform=False, varnames=None,
             if display_rho:
                 rho = stats.spearmans_rank(ranks_x, ranks_y)
                 ax.text(.5, .5, r"$\rho = %.3f$" % rho,
-                        fontsize=fontsize, color="yellow",
+                        fontsize=fontsize, color=fontcolor,
                         horizontalalignment="center")
             if display_asy:
                 asy1 = stats.asymmetry1(ranks_x, ranks_y)
                 asy2 = stats.asymmetry2(ranks_x, ranks_y)
                 ax.text(.5, .75, r"$a_1 = %.3f$" % asy1,
-                        fontsize=fontsize, color="yellow",
+                        fontsize=fontsize, color=fontcolor,
                         horizontalalignment="center")
                 ax.text(.5, .25, r"$a_2 = %.3f$" % asy2,
-                        fontsize=fontsize, color="yellow",
+                        fontsize=fontsize, color=fontcolor,
                         horizontalalignment="center")
             ax.set_xlim(0, 1)
             ax.set_ylim(0, 1)
@@ -123,7 +135,7 @@ def ccplom(data, k=0, kind="contour", transform=False, varnames=None,
                 ax.set_xlabel(varnames[jj] +
                               (("(t-%d)" % k) if k else ""))
     # reset the vlims, so that we have the same color scale in all plots
-    for ax in np.ravel(axes):
+    for ax in np.ravel(axs):
         for im in ax.get_images():
             im.set_clim(vmax=vmax_fct * hist2d.h_max)
     if title:
@@ -131,7 +143,7 @@ def ccplom(data, k=0, kind="contour", transform=False, varnames=None,
     else:
         plt.suptitle("k = %d" % k)
     hist2d.clear_cache()
-    return fig, axes
+    return fig, axs
 
 
 @cache(h_max=-np.inf)
