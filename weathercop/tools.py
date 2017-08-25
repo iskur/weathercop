@@ -7,6 +7,7 @@ from hashlib import md5
 
 @contextlib.contextmanager
 def shelve_open(filename, *args, **kwds):
+    filename = str(filename)
     dirname = os.path.dirname(filename)
     if not os.path.exists(dirname):
         os.makedirs(dirname)
@@ -20,6 +21,7 @@ def chdir(dirname):
     """Temporarily change the working directory with a with-statement."""
     old_dir = os.path.abspath(os.path.curdir)
     if dirname:  # could be an empty string
+        dirname = str(dirname)
         if not os.path.exists(dirname):
             os.mkdir(dirname)
         os.chdir(dirname)

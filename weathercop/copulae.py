@@ -25,7 +25,8 @@ from weathercop import cop_conf as conf, stats, tools
 theta_large = 1e3
 
 # here expressions are kept that sympy has problems with
-faillog_file = os.path.join(conf.ufunc_tmp_dir, "known_fail")
+faillog_file = conf.ufunc_tmp_dir / "known_fail"
+conf.ufunc_tmp_dir.mkdir(parents=True, exist_ok=True)
 
 # allow printing of more complex equations
 # from matplotlib import rc
@@ -59,7 +60,8 @@ def ufuncify(cls, name, uargs, expr, *args, verbose=False, **kwds):
 
 
 def mark_failed(key):
-    with open(faillog_file, "r+") as faillog:
+    mode = "r+" if faillog_file.exists() else "w+"
+    with faillog_file.open(mode) as faillog:
         keys = faillog.readlines()
         if (key + "\n") not in keys:
             faillog.write(key + os.linesep)
