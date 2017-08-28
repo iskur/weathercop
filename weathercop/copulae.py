@@ -663,12 +663,14 @@ class Copulae(metaclass=MetaCop):
         return self.theta
 
     def plot_cop_dens(self, theta=None, scatter=True, kind="contourf",
-                      opacity=.1):
-        fig, axs = plt.subplots(ncols=2, subplot_kw=dict(aspect="equal"))
+                      opacity=.1, fig=None, axs=None):
+        if fig is None:
+            fig, axs = plt.subplots(ncols=2, subplot_kw=dict(aspect="equal"))
         self.plot_copula(theta=theta, ax=axs[0])
         self.plot_density(theta=theta, scatter=scatter, kind=kind,
                           opacity=opacity, ax=axs[1])
-        return axs
+        fig.suptitle(self.name)
+        return fig, axs
 
     def plot_density(self, theta=None, scatter=True, ax=None,
                      kind="contourf", opacity=.1, sample_size=1000,
@@ -678,18 +680,18 @@ class Copulae(metaclass=MetaCop):
                 theta = self.theta
             except AttributeError:
                 theta = self.theta_start
+        if ax is None:
+            fig, ax = plt.subplots(subplot_kw=dict(aspect="equal"))
         if s_kwds is None:
             s_kwds = dict()
         if c_kwds is None:
             c_kwds = dict(alpha=.5,
                           linewidth=.25)
         uu = vv = stats.rel_ranks(np.arange(100))
-        density = self.density(uu[None, :], vv[:, None], *theta)
+        density = self.density(uu[None, :], vv[:, None], theta)
         if not isinstance(self, Independence):
             # get rid of large values for visualizations sake
             density[density >= np.sort(density.ravel())[-10]] = np.nan
-            if ax is None:
-                fig, ax = plt.subplots(subplot_kw=dict(aspect="equal"))
             if kind == "contourf":
                 ax.contourf(uu, vv, density, 40, **c_kwds)
             elif kind == "contour":
@@ -716,12 +718,16 @@ class Copulae(metaclass=MetaCop):
         if theta is None:
             try:
                 theta = self.theta
+                if isinstance(theta, sympy.core.symbol.Symbol):
+                    raise AttributeError
             except AttributeError:
                 theta = self.theta_start
         uu = vv = stats.rel_ranks(np.arange(100))
         cc = self.copula_func(uu[None, :], vv[:, None], *theta)
         if ax is None:
             fig, ax = plt.subplots(subplot_kw=dict(aspect="equal"))
+        else:
+            fig = plt.gcf()
         if kind == "contourf":
             ax.contourf(uu, vv, cc, 40)
         elif kind == "contour":
@@ -787,8 +793,8 @@ class Fitted:
                 # else:
                 #     print()
 
-    def plot_qq(self, ax=None, opacity=.25, s_kwds=None, title=None,
-                *args, **kwds):
+    def plot_qq(self, fig=None, ax=None, opacity=.25, s_kwds=None,
+                title=None, *args, **kwds):
         if s_kwds is None:
             s_kwds = dict(marker="o", s=1,
                           facecolors=(0, 0, 0, 0),
@@ -801,7 +807,7 @@ class Fitted:
         if ax is None:
             fig, ax = plt.subplots(
                 # subplot_kw=dict(aspect="equal")
-            )
+                )
         if fig is None:
             fig = plt.gcf()
         ax.scatter(empirical, theoretical - empirical, **s_kwds)
