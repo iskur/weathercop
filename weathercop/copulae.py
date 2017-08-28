@@ -1579,81 +1579,67 @@ for cop_name, obj in all_cops.items():
         if isinstance(obj, norot_cls):
             continue
         rot_str = norot_cls.__name__[len("No"):]
-        new_name = "%s_%s" % (cop_name, rot_str)
         old_type = type(obj)
-        # # look for the same object in the call stack (really hacky!)
-        # found = False
-        # for depth in range(1, 1000):
-        #     try:
-        #         frame = sys._getframe(depth)
-        #     except ValueError:
-        #         break
-        #     try:
-        #         TurnedCop = frame.f_globals[new_name.capitalize()]
-        #         turned_cops[new_name] = frame.f_globals[new_name]
-        #         found = True
-        #         break
-        #     except KeyError:
-        #         continue
-        # if not found:
-        #     TurnedCop = type(new_name,
-        #                      (old_type,),
-        #                      dict(old_type.__dict__))
-        #     turned_cops[new_name] = TurnedCop()
+        new_name = "%s_%s" % (old_type.__name__, rot_str)
         # make the rotated copulas importable
         TurnedCop = type(new_name,
-                         (old_type,),
+                         (old_type,) + old_type.__bases__,
                          dict(old_type.__dict__))
-        turned_cops[new_name] = TurnedCop()
-        globals()[new_name.capitalize()] = TurnedCop
-        globals()[new_name] = turned_cops[new_name]
+        turned_cops[new_name.lower()] = TurnedCop()
+        globals()[new_name] = TurnedCop
+        globals()[new_name.lower()] = turned_cops[new_name.lower()]
 all_cops.update(turned_cops)
 all_cops = OrderedDict((name, obj) for name, obj
                        in sorted(all_cops.items()))
 
-
-frozen_cops = tuple((name, copulas(copulas.theta_start))
-                    for name, copulas in sorted(all_cops.items()))
+frozen_cops = OrderedDict((name, copulas(copulas.theta_start))
+                          for name, copulas in sorted(all_cops.items()))
 
 
 if __name__ == '__main__':
     import doctest
     doctest.testmod()
 
-    from weathercop import cop_conf
-    from weathercop import plotting as cplt
+    # from weathercop import cop_conf
+    # from weathercop import plotting as cplt
 
-    data_filepath = os.path.join(cop_conf.weathercop_dir, "code",
-                                 "vg_data.npz")
-    with np.load(data_filepath) as saved:
-        data_summer = saved["summer"]
-    ranks_u_tm1 = stats.rel_ranks(data_summer[5, :-1])
-    ranks_rh = stats.rel_ranks(data_summer[4, 1:])
+    frozen_cops["galambos"].sample(1000)
 
-    for copula in all_cops.values():
-        # copula.plot_cop_dens()
-        # copula.plot_copula()
-        # copula.plot_density()
-        # plt.title(copula.name)
-        try:
-            fitted_cop = copula.generate_fitted(ranks_u_tm1, ranks_rh,
-                                                # method="TNC",
-                                                verbose=False)
-        except NoConvergence:
-            print("No convergence for %s" % copula.name)
-            continue
-        fig, axs = plt.subplots(ncols=2, subplot_kw=dict(aspect="equal"))
-        fig.suptitle(copula.name + " " +
-                     repr(fitted_cop.theta) +
-                     "\n likelihood: %.2f" % fitted_cop.likelihood)
-        opacity = .1
-        fitted_cop.plot_density(ax=axs[0], opacity=opacity,
-                                scatter=True, sample_size=10000,
-                                kind="contour")
-        cplt.hist2d(ranks_u_tm1, ranks_rh, ax=axs[1],
-                    # kind="contourf",
-                    scatter=False)
-        axs[1].scatter(ranks_u_tm1, ranks_rh,
-                       marker="o", facecolors=(0, 0, 0, 0),
-                       edgecolors=(0, 0, 0, opacity))
-    plt.show()
+    # for frozen_cop in frozen_cops.values():
+    #     frozen_cop.plot_cop_dens()
+    # plt.show()
+
+    # data_filepath = os.path.join(cop_conf.weathercop_dir, "code",
+    #                              "vg_data.npz")
+    # with np.load(data_filepath) as saved:
+    #     data_summer = saved["summer"]
+    # ranks_u_tm1 = stats.rel_ranks(data_summer[5, :-1])
+    # ranks_rh = stats.rel_ranks(data_summer[4, 1:])
+
+    # for copula in all_cops.values():
+    #     # copula.plot_cop_dens()
+    #     # copula.plot_copula()
+    #     # copula.plot_density()
+    #     # plt.title(copula.name)
+    #     try:
+    #         fitted_cop = copula.generate_fitted(ranks_u_tm1, ranks_rh,
+    #                                             # method="TNC",
+    #                                             verbose=False)
+    #     except NoConvergence:
+    #         print("No convergence for %s" % copula.name)
+    #         continue
+    #     fig, axs = plt.subplots(ncols=2, subplot_kw=dict(aspect="equal"))
+    #     fig.suptitle(copula.name + " " +
+    #                  repr(fitted_cop.theta) +
+    #                  "\n likelihood: %.2f" % fitted_cop.likelihood)
+    #     opacity = .1
+    #     fitted_cop.plot_density(ax=axs[0], opacity=opacity,
+    #                             scatter=True, sample_size=10000,
+    #                             kind="contour")
+    #     cplt.hist2d(ranks_u_tm1, ranks_rh, ax=axs[1],
+    #                 # kind="contourf",
+    #                 scatter=False)
+    #     axs[1].scatter(ranks_u_tm1, ranks_rh,
+    #                    marker="o", facecolors=(0, 0, 0, 0),
+    #                    edgecolors=(0, 0, 0, opacity))
+    # plt.show()
