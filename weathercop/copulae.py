@@ -726,8 +726,15 @@ class Copulae(metaclass=MetaCop):
             ax.contourf(uu, vv, cc, 40)
         elif kind == "contour":
             ax.contour(uu, vv, cc, 40)
-        ax.set_title(sympy.printing.latex(self.cop_expr, mode="inline"))
-        # ax.set_title(r"%s" % sympy.printing.latex(self.cop_expr))
+        title = (sympy.printing
+                 .latex(self.cop_expr, mode="inline")
+                 .replace("uu", "u")
+                 .replace("vv", "v"))
+        if "cases" not in title:
+            ax.set_title(title)
+        else:
+            ax.set_title(self.name)
+        return fig, ax
 
 
 class Frozen:
