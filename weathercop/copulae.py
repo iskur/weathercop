@@ -1,8 +1,8 @@
 """Bivariate Copulas intended for Vine Copulas."""
 import functools
 import importlib
-import warnings
 import os
+import warnings
 from abc import ABCMeta, abstractproperty
 from collections import OrderedDict
 
@@ -10,19 +10,21 @@ import numpy as np
 import matplotlib.pyplot as plt
 import sympy
 from mpmath import mp
+from scipy import stats as spstats
 from scipy.interpolate import interp1d
-from scipy.optimize import minimize
+from scipy.optimize import brentq, minimize, newton
 from scipy.special import erf, erfinv
 from scipy.stats import mvn
-from scipy import stats as spstats
 from sympy import exp, ln
 from sympy.utilities import autowrap
+import dill
 
 from weathercop import cop_conf as conf, stats, tools
 
 
 # used wherever theta can be inf in principle
 theta_large = 1e3
+zero, one = 1e-19, 1 - 1e-19
 
 # here expressions are kept that sympy has problems with
 faillog_file = conf.ufunc_tmp_dir / "known_fail"
@@ -32,14 +34,22 @@ conf.ufunc_tmp_dir.mkdir(parents=True, exist_ok=True)
 # from matplotlib import rc
 # rc("text", usetex=True)
 
+rederive = None,
+# rederive = "nelsen16",
+# rederive = "clayton",
+# rederive = "gumbel"
+# rederive = "galambos",
+# rederive = "frank",
+# rederive = "alimikailhaq",
 
-def ufuncify(cls, name, uargs, expr, *args, verbose=False, **kwds):
+
+def ufuncify_cython(cls, name, uargs, expr, *args, verbose=False, **kwds):
     expr_hash = tools.hash_cop(expr)
     module_name = "%s_%s_%s" % (cls.name, name, expr_hash)
     try:
         with tools.chdir(conf.ufunc_tmp_dir):
             ufunc = importlib.import_module("%s_0" % module_name).autofunc_c
-    except ImportError:
+    except (ImportError, AttributeError):
         if verbose:
             print("Compiling %s" % repr(expr))
         _filename_orig = autowrap.CodeWrapper._filename
@@ -57,6 +67,44 @@ def ufuncify(cls, name, uargs, expr, *args, verbose=False, **kwds):
         autowrap.CodeWrapper._module_counter = _module_counter_orig
         autowrap.CodeWrapper._filename = _filename_orig
     return ufunc
+
+
+# from sympy.printing.theanocode import theano_function
+# def ufuncify_theano(cls, name, uargs, expr, *args, verbose=False, **kwds):
+#     with tools.shelve_open(conf.theano_cache) as sh:
+#         expr_hash = tools.hash_cop(expr)
+#         key = "%s_%s_%s" % (cls.name, name, expr_hash)
+#         try:
+#             return sh[key]
+#         except KeyError:
+#             if verbose:
+#                 print("Building theano function for %s" % repr(expr))
+#             dims = {key: 1 for key in uargs}
+#             dtypes = {key: "float64" for key in uargs}
+#             sh[key] = theano_function(uargs, [expr], dims=dims,
+#                                       dtypes=dtypes,
+#                                       on_unused_input="ignore")
+#             return sh[key]
+# def ufuncify(*args, **kwds):
+#     try:
+#         return ufuncify_theano(*args, **kwds)
+#     except KeyError:
+#         return ufuncify_cython(*args, **kwds)
+
+
+def ufuncify_numpy(cls, name, uargs, expr, *args, verbose=False, **kwds):
+    return autowrap.ufuncify(uargs, expr,
+                             tempdir=conf.ufunc_tmp_dir,
+                             verbose=verbose,
+                             backend="numpy",
+                             *args, **kwds)
+
+
+def ufuncify(*args, backend="cython", **kwds):
+    if backend in ("cython", "f2py"):
+        return ufuncify_cython(*args, backend=backend, **kwds)
+    elif backend == "numpy":
+        return ufuncify_numpy(*args, **kwds)
 
 
 def mark_failed(key):
@@ -88,8 +136,8 @@ def swap_symbols(expr, symbol1, symbol2):
     return expr
 
 
-def random_sample(size, bound=1e-12):
-    """Sample in the closed interval (0 + bound, 1 - bound)."""
+def random_sample(size, bound=1e-9):
+    """Sample in the closed interval (bound, 1 - bound)."""
     return (1 - 2 * bound) * np.random.random_sample(size) + bound
 
 
@@ -102,7 +150,9 @@ def positive(func):
             warnings.simplefilter("ignore")
             result = func(*args, **kwds)
             result = np.squeeze(result)
-            result[(result < 0) | (~np.isfinite(result))] = 1e-15
+            result[result < zero] = zero
+            result[result > one] = one
+            # result[(result < 0) | (~np.isfinite(result))] = 1e-15
         return result
     return inner
 
@@ -112,15 +162,39 @@ def broadcast_2d(func):
     def inner(*args, **kwds):
         if isinstance(args[0], Copulae):
             args = args[1:]
-        args = [np.atleast_2d(arg) for arg in args]
-        shape_broad = np.array([arg.shape for arg in args]).max(axis=0)
-        args_broad_raveled = []
-        for array in args:
-            array_broad = np.empty(shape_broad)
-            array_broad[:] = array
-            args_broad_raveled += [array_broad.ravel()]
-        result = func(*args_broad_raveled, **kwds)
-        return result.reshape(shape_broad)
+        try:
+            args = np.nditer(args, flags=['multi_index',
+                                          'zerosize_ok',
+                                          'refs_ok'],
+                             order='C').itviews
+            shape = args[0].shape
+            result = func(*[arg.ravel() for arg in args], **kwds)
+            return result.reshape(shape)
+        except ValueError:
+            args = np.atleast_2d(*args)
+            shape_broad = np.array([arg.shape for arg in args]).max(axis=0)
+            args_broad_raveled = []
+            for array in args:
+                array_broad = np.empty(shape_broad)
+                array_broad[:] = array
+                args_broad_raveled += [array_broad.ravel()]
+            result = func(*args_broad_raveled, **kwds)
+            return result.reshape(shape_broad)
+    return inner
+
+
+def broadcast_1d(func):
+    @functools.wraps(func)
+    def inner(*args, **kwds):
+        if isinstance(args[0], Copulae):
+            args = args[1:]
+        args = np.atleast_1d(*args)
+        max_len = max(arg.size for arg in args)
+        args = [arg.repeat(max_len).astype(float)
+                if arg.size == 1
+                else arg
+                for arg in args]
+        return func(*args, **kwds)
     return inner
 
 
@@ -144,23 +218,33 @@ class MetaCop(ABCMeta):
     def __new__(cls, name, bases, cls_dict):
         new_cls = super().__new__(cls, name, bases, cls_dict)
         new_cls.name = name.lower()
+        if "backend" not in cls_dict:
+            new_cls.backend = MetaCop.backend
         if "cop_expr" in cls_dict:
             # auto-rotate the copula expression
             if name.endswith(("90", "180", "270")):
                 new_cls = MetaCop.rotate_expr(new_cls)
+                new_cls.rotated = True
+            else:
+                new_cls.rotated = False
 
             if "known_fail" in cls_dict:
                 MetaCop.mark_failed(new_cls)
+                known_fail = cls_dict["known_fail"]
+            else:
+                known_fail = None,
             new_cls.dens_func = MetaCop.density_from_cop(new_cls)
             new_cls.cdf_given_u = MetaCop.cdf_given_u(new_cls)
             new_cls.cdf_given_v = MetaCop.cdf_given_v(new_cls)
             new_cls.copula_func = MetaCop.copula_func(new_cls)
-            ufunc = MetaCop.inv_cdf_given_u(new_cls)
-            if ufunc is not None:
-                new_cls.inv_cdf_given_u = ufunc
-            ufunc = MetaCop.inv_cdf_given_v(new_cls)
-            if ufunc is not None:
-                new_cls.inv_cdf_given_v = ufunc
+            if "inv_cdf_given_u" not in known_fail:
+                ufunc = MetaCop.inv_cdf_given_u(new_cls)
+                if ufunc is not None:
+                    new_cls.inv_cdf_given_u = ufunc
+            if "inv_cdf_given_v" not in known_fail:
+                ufunc = MetaCop.inv_cdf_given_v(new_cls)
+                if ufunc is not None:
+                    new_cls.inv_cdf_given_v = ufunc
         elif "dens_expr" in cls_dict and "dens_func" not in cls_dict:
             new_cls.dens_func = MetaCop.density_func(new_cls)
         return new_cls
@@ -179,7 +263,7 @@ class MetaCop(ABCMeta):
         -----
         see p. 271
         """
-        uu, vv = sympy.symbols(("uu vv"))
+        uu, vv = sympy.symbols("uu vv")
         if cls.name.endswith("90"):
             cls.cop_expr = uu - cls.cop_expr.subs({vv: 1 - vv})
         elif cls.name.endswith("180"):
@@ -193,22 +277,22 @@ class MetaCop(ABCMeta):
         uu, vv, *theta = sympy.symbols(cls.par_names)
         ufunc = ufuncify(cls, "copula",
                          [uu, vv] + theta, cls.cop_expr,
-                         backend=MetaCop.backend,
+                         backend=cls.backend,
                          verbose=False)
-        if MetaCop.backend in ("f2py", "cython"):
+        if cls.backend in ("f2py", "cython"):
             ufunc = broadcast_2d(ufunc)
-        return positive(ufunc)
+        return ufunc
 
     def density_func(cls):
         uu, vv, *theta = sympy.symbols(cls.par_names)
         dens_expr = cls.dens_expr
         ufunc = ufuncify(cls, "density",
                          [uu, vv] + theta, dens_expr,
-                         backend=MetaCop.backend,
+                         backend=cls.backend,
                          verbose=False)
-        if MetaCop.backend in ("f2py", "cython"):
+        if cls.backend in ("f2py", "cython"):
             ufunc = broadcast_2d(ufunc)
-        return positive(ufunc)
+        return ufunc
 
     def conditional_cdf(cls, conditioning):
         uu, vv, *theta = sympy.symbols(cls.par_names)
@@ -216,14 +300,17 @@ class MetaCop(ABCMeta):
         with tools.shelve_open(conf.sympy_cache) as sh:
             key = ("%s_cdf_given_%s_%s" %
                    (cls.name, conditioning, tools.hash_cop(cls)))
-            if key not in sh:
+            if key not in sh or cls.name in rederive:
                 print("Generating %s-conditional %s" %
                       (conditioning, cls.name))
                 # a good cop always stays positive!
-                good_cop = sympy.Piecewise((cls.cop_expr,
-                                            cls.cop_expr > 0),
-                                           (0, True))
-                # good_cop = cls.cop_expr
+                # good_cop = sympy.Piecewise((cls.cop_expr,
+                #                             cls.cop_expr > 0),
+                #                            (0, True))
+                good_cop = cls.cop_expr
+                # good_cop = sympy.Piecewise((cls.cop_expr,
+                #                             cls.cop_expr <= one),
+                #                            (one, True))
                 conditional_cdf = sympy.diff(good_cop, conditioning)
                 conditional_cdf = sympy.simplify(conditional_cdf)
                 sh[key] = conditional_cdf
@@ -231,43 +318,35 @@ class MetaCop(ABCMeta):
             setattr(cls, expr_attr, conditional_cdf)
         ufunc = ufuncify(cls, "conditional_cdf",
                          [uu, vv] + theta, conditional_cdf,
-                         backend=MetaCop.backend,
+                         backend=cls.backend,
                          verbose=False)
-        if MetaCop.backend in ("f2py", "cython"):
-            ufunc = broadcast_2d(ufunc)
+        if cls.backend in ("f2py", "cython"):
+            ufunc = broadcast_1d(ufunc)
         return positive(ufunc)
 
     def cdf_given_u(cls):
         return cls.conditional_cdf(sympy.symbols("uu"))
 
     def cdf_given_v(cls):
-        # if we are given an expression for the u-conditional, we can
-        # substitute v for u to get the corresponding v-conditional
-        try:
-            cdf = getattr(cls, "cdf_given_uu_expr")
-            cdf = swap_symbols(cdf, "uu", "vv")
-            setattr(cls, "cdf_given_vv_expr", cdf)
-        except AttributeError:
-            pass
         return cls.conditional_cdf(sympy.symbols("vv"))
 
     def inverse_conditional_cdf(cls, conditioning):
-        uu, vv, qq, theta = sympy.symbols(("uu", "vv", "qq", "theta"))
+        uu, vv, qq, theta = sympy.symbols("uu vv qq theta")
         conditioned = list(set((uu, vv)) - set([conditioning]))[0]
         key = ("%s_inv_cdf_given_%s_%s" %
                (cls.name, conditioning, tools.hash_cop(cls)))
         # keep a log of what does not work in order to not repeat ad
         # nauseum
         try:
-            if (key + os.linesep) in open(faillog_file):
+            if (key + os.linesep) in faillog_file.open():
                 return
         except FileNotFoundError:
             open(faillog_file, "a").close()
         attr_name = "inv_cdf_given_%s_expr" % conditioning
-        # cached sympy derivation
-        if not hasattr(cls, attr_name):
+        if not hasattr(cls, attr_name) or cls.rotated:
+            # cached sympy derivation
             with tools.shelve_open(conf.sympy_cache) as sh:
-                if key not in sh:
+                if key not in sh or cls.name in rederive:
                     print("Generating inverse %s-conditional %s" %
                           (conditioning, cls.name))
                     cdf_given_expr = getattr(cls,
@@ -276,7 +355,7 @@ class MetaCop(ABCMeta):
                     try:
                         inv_cdf = sympy.solve(cdf_given_expr - qq,
                                               conditioned)[0]
-                    except NotImplementedError:
+                    except (NotImplementedError, ValueError, TypeError):
                         warnings.warn("Derivation of inv.-conditional " +
                                       "failed for" +
                                       " %s" % cls.name)
@@ -292,32 +371,32 @@ class MetaCop(ABCMeta):
         # compile sympy expression
         try:
             ufunc = ufuncify(cls, "inv_cdf_given_%s" % conditioning,
-                             [qq, conditioning, theta], inv_cdf,
-                             backend=MetaCop.backend,
+                             [conditioning, qq, theta], inv_cdf,
+                             backend=cls.backend,
                              verbose=False)
-        except autowrap.CodeWrapError:
+        except (autowrap.CodeWrapError, TypeError):
             warnings.warn("Could not compile inv.-conditional for %s" %
                           cls.name)
             mark_failed(key)
             return
-        if MetaCop.backend in ("f2py", "cython"):
-            ufunc = broadcast_2d(ufunc)
+        if cls.backend in ("f2py", "cython"):
+            ufunc = broadcast_1d(ufunc)
         return positive(ufunc)
 
     def inv_cdf_given_u(cls):
         return cls.inverse_conditional_cdf(sympy.symbols("uu"))
 
     def inv_cdf_given_v(cls):
-        if not hasattr(cls, "inv_cdf_given_vv_expr"):
-            # if we are given an expression for the u-conditional, we can
-            # substitute v for u to get the corresponding v-conditional
-            try:
-                inv_cdf = getattr(cls, "inv_cdf_given_uu_expr")
-                uu, vv = sympy.symbols("uu vv")
-                inv_cdf = inv_cdf.subs({uu: vv})
-                setattr(cls, "inv_cdf_given_vv_expr", inv_cdf)
-            except AttributeError:
-                pass
+        # if not hasattr(cls, "inv_cdf_given_vv_expr"):
+        #     # if we are given an expression for the u-conditional, we can
+        #     # substitute v for u to get the corresponding v-conditional
+        #     try:
+        #         inv_cdf = getattr(cls, "inv_cdf_given_uu_expr")
+        #         uu, vv = sympy.symbols("uu vv")
+        #         inv_cdf = inv_cdf.subs({uu: vv})
+        #         setattr(cls, "inv_cdf_given_vv_expr", inv_cdf)
+        #     except AttributeError:
+        #         pass
         return cls.inverse_conditional_cdf(sympy.symbols("vv"))
 
     def density_from_cop(cls):
@@ -327,34 +406,33 @@ class MetaCop(ABCMeta):
         uu, vv, *theta = sympy.symbols(cls.par_names)
         with tools.shelve_open(conf.sympy_cache) as sh:
             key = "%s_density_%s" % (cls.name, tools.hash_cop(cls))
-            if key not in sh:
+            if key not in sh or cls.name in rederive:
                 print("Generating density for %s" % cls.name)
                 dens_expr = sympy.diff(cls.cop_expr, uu, vv)
-                dens_expr = sympy.Piecewise((dens_expr, cls.cop_expr > 0),
-                                            (0, True))
+                # dens_expr = sympy.Piecewise((dens_expr, cls.cop_expr > 0),
+                #                             (0, True))
                 sh[key] = sympy.simplify(dens_expr)
             dens_expr = sh[key]
         # for outer pleasure
         cls.dens_expr = dens_expr
         ufunc = ufuncify(cls, "density",
                          [uu, vv] + theta, dens_expr,
-                         backend=MetaCop.backend,
+                         backend=cls.backend,
                          verbose=False)
-        if MetaCop.backend in ("f2py", "cython"):
+        if cls.backend in ("f2py", "cython"):
             ufunc = broadcast_2d(ufunc)
-        return positive(ufunc)
+        return ufunc
 
 
 class MetaArch(MetaCop):
 
     def __new__(cls, name, bases, cls_dict):
-        # print("in MetaArch with " + name)
         if ("gen_expr" in cls_dict) and ("cop_expr" not in cls_dict):
             gen = cls_dict["gen_expr"]
-            uu, vv, x, t = sympy.symbols(("uu", "vv", "x", "t"))
+            uu, vv, x, t = sympy.symbols("uu vv x t")
             with tools.shelve_open(conf.sympy_cache) as sh:
                 key = "%s_cop_%s" % (name, tools.hash_cop(gen))
-                if key not in sh:
+                if key not in sh or name in rederive:
                     print("Generating inv. gen for %s" % name)
                     if "gen_inv" not in cls_dict:
                         gen_inv = sympy.solve(gen - x, t)[0]
@@ -373,7 +451,7 @@ class Copulae(metaclass=MetaCop):
 
     theta_bounds = [(-np.inf, np.inf)]
     # zero, one = 1e-6, 1 - 1e-6
-    zero, one = 1e-15, 1 - 1e-15
+    zero, one = 1e-19, 1 - 1e-19
 
     @abstractproperty
     def theta_start(self):
@@ -394,42 +472,119 @@ class Copulae(metaclass=MetaCop):
             theta = np.full_like(uu, theta),
         return self.dens_func(uu, vv, *theta)
 
-    def _inverse_conditional(self, conditional_func, ranks, quantiles, theta):
+    def _inverse_conditional(self, conditional_func, ranks, quantiles, theta,
+                             given_v=False):
         """Numeric inversion of conditional_func (inv_cdf_given_u or
         inv_cdf_given_v), to be used as a last resort.
 
         """
         theta = np.array(self.theta if theta is None else theta)
-        ranks1 = np.atleast_1d(ranks)
-        ranks1, quantiles, thetas = map(np.atleast_1d, (ranks,
-                                                        quantiles,
-                                                        theta))
+        ranks1, quantiles, thetas = np.atleast_1d(ranks, quantiles,
+                                                  theta)
         quantiles, thetas = map(np.squeeze, (quantiles, thetas))
         if thetas.size == 1:
             thetas = np.full_like(ranks1, theta)
         if quantiles.size == 1:
             quantiles = np.full_like(ranks1, quantiles)
 
-        ranks2 = np.empty_like(ranks1)
-        ranks2_calc = np.linspace(self.zero, self.one, 500)
-        ranks2_calc = np.concatenate(([0], ranks2_calc, [1]))
+        ranks2 = np.copy(ranks1)
+        ranks2_calc = np.linspace(self.zero, self.one, 1000)
+        tol = zero
         for i, rank1 in enumerate(ranks1):
             quantile, theta = quantiles[i], thetas[i]
-            quantiles_calc = conditional_func(rank1,
-                                              ranks2_calc[1:-1],
-                                              theta)
+
+            def f(rank2):
+                if given_v:
+                    rank_u, rank_v = rank2, rank1
+                else:
+                    rank_u, rank_v = rank1, rank2
+                quantile_calc = conditional_func(rank_u, rank_v, theta)
+                if np.isnan(quantile_calc):
+                    if rank2 < tol:
+                        quantile_calc = 0
+                    elif rank2 > (1 - tol):
+                        quantile_calc = 1
+                    # if np.isclose(rank2, 0):
+                    #     quantile_calc = 0
+                    # elif np.isclose(rank2, 1):
+                    #     quantile_calc = 1
+                return quantile_calc - quantile
+
+            debug = True
+            cls = Clayton
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", RuntimeWarning)
+                skip_else = False
+                try:
+                    x0 = self.x0(rank1, quantile, theta)
+                    rank2 = newton(f, x0=x0)
+                    if not (0 < rank2 < 1):
+                        raise ValueError
+                except RuntimeWarning:
+                    # the elevated warning is not considered for the
+                    # else block. bug in the warnings module?
+                    skip_else = True
+                except RuntimeError:
+                    # if rank1 < tol or rank1 > (1 - tol) :
+                    if np.isclose(rank1, 1) or np.isclose(rank1, 0):
+                        ranks2[i] = rank1
+                        if debug and isinstance(self, cls):
+                            warnings.warn("Used rank2 = rank1 for %f in %s" %
+                                          (rank1, self.name))
+                        continue
+                except ValueError:
+                    pass
+                else:
+                    if skip_else:
+                        continue
+                    # do not trust newton when it delivers extreme values
+                    # if rank2 < tol or rank2 > (1 - tol):
+                    if not (np.isclose(rank2, 0) or np.isclose(rank2, 1)):
+                        ranks2[i] = rank2
+                        if debug and isinstance(self, cls):
+                            warnings.warn("Used newton for rank1 %.6f in %s"
+                                          % (rank1, self.name))
+                        continue
+
+            try:
+                rank2 = brentq(f, 1e-19, 1)
+            except ValueError:
+                pass
+            else:
+                # if not (rank2 < tol or rank2 > (1 - tol)):
+                if not (np.isclose(rank2, 0) or np.isclose(rank2, 1)):
+                    ranks2[i] = rank2
+                    if debug and isinstance(self, cls):
+                        warnings.warn("Used brentq for rank1 %.6f in %s" %
+                                      (rank1, self.name))
+                    continue
+
+            # fall back to linear interpolation
+            if given_v:
+                ranks_u, ranks_v = ranks2_calc, rank1
+            else:
+                ranks_u, ranks_v = rank1, ranks2_calc
+
+            quantiles_calc = conditional_func(ranks_u, ranks_v, theta)
+            # quantiles_calc = conditional_func(rank1,
+            #                                   ranks2_calc,
+            #                                   theta)
             quantiles_calc = np.squeeze(quantiles_calc)
-            quantiles_calc = np.concatenate(([0], quantiles_calc, [1]))
+            quantiles_calc[0] = self.zero
+            quantiles_calc[-1] = self.one
             # if there is more than one zero involved, interpolating
             # between them gives unwanted results.
-            # valid_mask = ((quantiles_calc != 0) & (quantiles_calc != 1))
-            valid_mask = np.ones_like(quantiles_calc, dtype=bool)
-            f_int = interp1d(quantiles_calc[valid_mask],
-                             ranks2_calc[valid_mask],
-                             # bounds_error=False,
-                             # fill_value=(0, 1)
+            f_int = interp1d(quantiles_calc,
+                             ranks2_calc,
+                             # bounds_error=True,
+                             bounds_error=False,
+                             fill_value=(zero, one)
                              )
+            if debug and isinstance(self, cls):
+                warnings.warn("Used interpolation for rank1 %.6f in %s" %
+                              (rank1, self.name))
             ranks2[i] = f_int(quantile)
+
         return ranks2
 
     def inv_cdf_given_u(self, ranks_u, quantiles, theta=None):
@@ -442,7 +597,8 @@ class Copulae(metaclass=MetaCop):
         """Numeric inversion of cdf_given_v, to be used as a last resort.
         """
         return self._inverse_conditional(self.cdf_given_v, ranks_v,
-                                         quantiles, theta=theta)
+                                         quantiles, theta=theta,
+                                         given_v=True)
 
     def sample(self, size, theta=None):
         uu = random_sample(size)
@@ -456,6 +612,13 @@ class Copulae(metaclass=MetaCop):
         """
         theta = self.fit(ranks_u, ranks_v, *args, **kwds)
         return Fitted(self, ranks_u, ranks_v, theta)
+
+    def x0(self, rank, quantile, theta):
+        """Starting-value for newton root finding in the inverse conditionals.
+
+        Replace it with something more meaningfull in childs.
+        """
+        return rank
 
     def fit(self, *args, **kwds):
         # overwrite this function in child implementations, if a
@@ -669,16 +832,16 @@ class Fitted:
     def __repr__(self):
         return ("Fitted(%r, theta=%r)" % (self.copula, self.theta))
 
-    def cdf_given_u(self, *, conditioned, condition):
+    def cdf_given_u(self, t=None, *, conditioned, condition):
         return self.copula.cdf_given_u(condition, conditioned, *self.theta)
 
-    def cdf_given_v(self, *, conditioned, condition):
+    def cdf_given_v(self, t=None, *, conditioned, condition):
         return self.copula.cdf_given_v(conditioned, condition, *self.theta)
 
-    def inv_cdf_given_u(self, *, conditioned, condition):
+    def inv_cdf_given_u(self, t=None, *, conditioned, condition):
         return self.copula.inv_cdf_given_u(condition, conditioned, *self.theta)
 
-    def inv_cdf_given_v(self, *, conditioned, condition):
+    def inv_cdf_given_v(self, t=None, *, conditioned, condition):
         return self.copula.inv_cdf_given_v(conditioned, condition, *self.theta)
 
     def plot_density(self, *args, **kwds):
