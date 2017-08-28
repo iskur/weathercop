@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 import pathos
 from tqdm import tqdm
+import numexpr as ne
 
 from lhglib.contrib import dirks_globals as my, times
 from lhglib.contrib.time_series_analysis import (distributions as dists,
