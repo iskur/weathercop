@@ -227,13 +227,16 @@ class Vine:
         if self.verbose and self.weights == "tau":
             print("Minimum tau for dependence: %.4f" % self.tau_min)
 
-        # first tree
+        if self.verbose:
+            print("Building first tree")
         tree = self._gen_first_tree(ranks)
         set_edge_copulae(tree, self.tau_min)
         trees = [tree]
 
         # 2nd to (d-1)th tree
         for l in range(1, self.d - 1):
+            if self.verbose:
+                print("Building tree %d of %d" % (l + 1, self.d))
             full_graph = nx.Graph()
             # edges from above or last iteration are now nodes
             last_tree = trees[-1]
@@ -272,11 +275,14 @@ class Vine:
             trees += [tree]
         return trees
 
-    def simulate(self, *args, **kwds):
-        sim = self._simulate(*args, **kwds)
+    def simulate(self, randomness=None, *args, **kwds):
+        if randomness is not None:
+            randomness = np.array([randomness[self.varnames.index(name_old)]
+                                   for name_old in self.varnames_old])
+        sim = self._simulate(randomness=randomness, *args, **kwds)
         # reorder variables according to input order
-        return np.array([sim[self.varnames.index(varname)]
-                         for varname in self.varnames_old])
+        return np.array([sim[self.varnames.index(varname_old)]
+                         for varname_old in self.varnames_old])
 
     def quantiles(self, ranks=None, *args, **kwds):
         """Returns the 'quantiles' (in the sense that if they would be used as
@@ -285,16 +291,15 @@ class Vine:
         """
         if ranks is None:
             ranks = self.ranks
-            # ranks = np.array([self.ranks[self.varnames.index(name_old)]
-            #                   for name_old in self.varnames_old])
-        else:
-            # we assume the variables were given in the old/outside
-            # order
-            ranks = np.array([ranks[self.varnames.index(name_old)]
-                              for name_old in self.varnames_old])
+        # sort ranks according to the internal order
+        ranks = np.array([ranks[self.varnames_old.index(name)]
+                          for name in self.varnames])
+        # we assume the variables were given in the old/outside order
+        # ranks = np.array([ranks[self.varnames.index(name_old)]
+        #                   for name_old in self.varnames_old])
         Ps = self._quantiles(ranks, *args, **kwds)
-        return np.array([Ps[self.varnames_old.index(name_new)]
-                         for name_new in self.varnames])
+        return np.array([Ps[self.varnames.index(name_new)]
+                         for name_new in self.varnames_old])
 
     def __getitem__(self, key):
         """Access the vine tree nodes by row and column index of Vine.A."""
@@ -303,7 +308,7 @@ class Vine:
         except ValueError:
             raise TypeError("Key must contain a row and column number.")
         if row >= col:
-            raise IndexError("First index must be >= than second index.")
+            raise IndexError("First index must be >= second index.")
         A = self.A
         conditioned = A[row, col], A[col, col]
         if row == 0:
@@ -630,6 +635,8 @@ class CVine(Vine):
         -----
         See Algorithm 15 on p. 291.
         """
+        if self.verbose:
+            print("Simulating from CVine")
         T_sim = self.T if T is None else T
 
         zero = 1e-15
@@ -653,25 +660,16 @@ class CVine(Vine):
                     q = max(zero, min(one, q))
                 U[j] = q
             Us[:, t] = U
-        if randomness is not None:
-            # why this is necessary, is beyond me :(
-            Us = np.array([Us[self.varnames_old.index(name)]
-                           for name in self.varnames])
         return Us
 
     def _quantiles(self, ranks, **tqdm_kwds):
         """Returns the 'quantiles' (in the sense that if they would be used as
         random numbers in `simulate`, the input data would be
-        reproduced)
+        reproduced).
 
         """
-        if ranks is None:
-            ranks = self.ranks
-        else:
-            # we assume the variables were given in the old/outside
-            # order
-            ranks = np.array([ranks[self.varnames.index(name_old)]
-                              for name_old in self.varnames_old])
+        if self.verbose:
+            print("Obtaining quantiles in CVine")
         T = ranks.shape[1]
         Ps = np.empty_like(ranks)
         Us = ranks
@@ -738,6 +736,8 @@ class RVine(Vine):
         reproduced)
 
         """
+        if self.verbose:
+            print("Obtaining quantiles in RVine")
         zero = 1e-12
         # one = 1 - zero
 
@@ -745,13 +745,6 @@ class RVine(Vine):
             return x
             # return min(one, max(zero, x))
 
-        if ranks is None:
-            ranks = self.ranks
-        else:
-            # we assume the variables were given in the old/outside
-            # order
-            ranks = np.array([ranks[self.varnames.index(name_old)]
-                              for name_old in self.varnames_old])
         T = ranks.shape[1]
         A, M, I = self.A, self.M, self.I
         Ps = np.empty_like(ranks)
@@ -811,6 +804,9 @@ class RVine(Vine):
         -----
         See Algorithm 17 on p. 292.
         """
+        if self.verbose:
+            print("Simulating from RVine")
+
         T_sim = self.T if T is None else T
 
         # zero = 1e-15
@@ -863,10 +859,6 @@ class RVine(Vine):
                         V[l, j] = minmax(cop(conditioned=Z[l, j],
                                              condition=Q[l, j]))
             Us[:, t] = U
-        if randomness is not None:
-            # why this is necessary, is beyond me :(
-            Us = np.array([Us[self.varnames_old.index(name)]
-                           for name in self.varnames])
         return Us
 
 
