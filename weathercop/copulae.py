@@ -897,69 +897,96 @@ class Archimedian(Copulae, metaclass=MetaArch):
     #         return Copulae.sample(self, size, theta)
 
 
-class Clayton(Copulae, No90, No270):
-    par_names = "uu", "vv", "delta"
-    theta_start = 2,
-    theta_bounds = [(1e-8, 10.)]
-    uu, vv, t, delta, qq = sympy.symbols("uu vv t delta qq")
-    cop_expr = (uu ** -delta + vv ** -delta - 1) ** (-1 / delta)
-    dens_expr = ((1 + delta) * (uu * vv) ** (-delta - 1) *
-                 (uu ** -delta + vv ** -delta - 1) ** (-2 - 1 / delta))
-    # gen_expr = 1 / theta * (t ** (-theta) - 1)
+# conditionals are returning values > 1 for theta=3
+class Clayton(Copulae, NoRotations):
+    """p. 168"""
+    # backend = "numpy"
+    par_names = "uu", "vv", "theta"
+    # theta_start = 2.5,
+    theta_start = np.array([2.5])
+    theta_bounds = [(-1 + 1e-8, 10.)]
+    # uu, vv, t, theta = sympy.symbols("uu vv t theta")
+    uu, vv, t, theta, qq = sympy.symbols("uu vv t theta qq")
+    cop_expr = (uu ** -theta + vv ** -theta - 1) ** (-1 / theta)
+    dens_expr = ((1 + theta) * (uu * vv) ** (-theta - 1) *
+                 (uu ** -theta + vv ** -theta - 1) ** (-2 - 1 / theta))
+    # gen_expr = (1 / theta) * (t ** (-theta) - 1)
     # gen_inv_expr = (1 + theta * t) ** (-1 / theta)
-    # cdf_given_uu_expr = ((1 + uu ** delta *
-    #                       (vv ** -delta - 1)) ** (-1 - 1 / delta))
-    # inv_cdf_given_uu_expr = ((qq ** (-delta / (1 + delta)) - 1) *
-    #                          uu ** -delta + 1) ** (-1 / delta)
+
+    cdf_given_uu_expr = (uu ** (1 - theta) *
+                         (1 + uu ** theta *
+                          (vv ** -theta)) ** ((theta + 1) / theta))
+
+    inv_cdf_given_uu_expr = ((qq ** (-theta / (1 + theta)) - 1) *
+                             uu ** -theta + 1) ** (-1 / theta)
+    cdf_given_vv_expr = cdf_given_uu_expr.subs(dict(uu=vv))
+    inv_cdf_given_vv_expr = inv_cdf_given_uu_expr.subs(dict(uu=vv))
+    # known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
 clayton = Clayton()
 
 
-class FrankPos(Archimedian):
-    theta_start = 2.,
-    theta_bounds = [(1e-5, 35)]
+# inverted conditionals fail, fit also
+class Frank(Archimedian, No180):
+    """Also Nelsen05"""
+    theta_start = 2.5,
+    theta_bounds = [(-theta_large, theta_large)]
     xx, uu, vv, t, theta = sympy.symbols("xx uu vv t theta")
     # gen_expr = -ln((exp(-theta * t) - 1) /
     #                (exp(-theta) - 1))
     # gen_inv_expr = -1 / theta * ln(1 + exp(-xx) * (exp(-theta) - 1))
+    # cop_expr = (-theta ** -1 * ln(1 + ((exp(-theta * uu) - 1) *
+    #                                    (exp(-theta * vv) - 1)) /
+    #                               (exp(-theta) - 1)))
     cop_expr = (-theta ** -1 * ln((1 - exp(-theta) -
                                    (1 - exp(-theta * uu)) *
                                    (1 - exp(-theta * vv))) /
                                   (1 - exp(-theta))))
+    dens_expr = ((theta * (1 - exp(-theta)) * (exp(-theta * (uu + vv)))) /
+                 (1 - exp(-theta) -
+                  (1 - exp(-theta * uu)) *
+                  (1 - exp(-theta * vv))))
     # cdf_given_uu_expr = (exp(-theta * uu) * ((1 - exp(-theta)) *
     #                                          (1 - exp(-theta * vv)) ** -1 -
     #                                          (1 - exp(-theta * uu))) ** -1)
     # qq = sympy.symbols("qq")
-    # inv_cdf_given_uu_expr = (-theta ** -1 * ln(1 - (1 - exp(-theta)) /
+    # inv_cdf_given_uu_expr = (-theta ** -1 * ln(1 -
+    #                                            (1 - exp(-theta)) /
     #                                            ((qq ** -1 - 1) *
     #                                             exp(-theta * uu) + 1)))
-# frankpos = FrankPos()
+    # known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
+frank = Frank()
 
 
-class FrankNeg(FrankPos):
-    theta_start = -2.,
-    theta_bounds = [(-35, -1e-5)]
-# frankneg = FrankNeg()
-
-
-class GumbelBarnett(Archimedian):
+# inverse conditionals causing pain
+class GumbelBarnett(Archimedian, No180, No270):
     """Also Nelsen09"""
-    theta_start = .5,
+    theta_start = .25,
     theta_bounds = [(1e-9, 1. - 1e-9)]
-    t, theta = sympy.symbols(("t theta"))
-    gen_expr = ln(1 - theta * ln(t))
+    # t, theta = sympy.symbols("t theta")
+    # gen_expr = ln(1 - theta * ln(t))
+    uu, vv, theta = sympy.symbols("uu vv theta")
+    # cop_expr = (uu + vv - 1 +
+    #             (1 - uu) * (1 - vv) *
+    #             exp(-theta * ln(1 - uu) * ln(1 - vv)))
+    cop_expr = uu * vv * exp(-theta * ln(uu) * ln(vv))
+    # dens_expr = ((-theta +
+    #               (1 - theta * ln(1 - uu)) *
+    #               (1 - theta * ln(1 - vv))) *
+    #              exp(-theta * ln(1 - uu) * ln(1 - vv)))
 gumbelbarnett = GumbelBarnett()
 
 
-# inv_cdf_given_u fails test
-# class Nelsen02(Archimedian):
-#     theta_start = 1.1,
+# # conditionals are not in [0, 1]
+# class Nelsen02(Archimedian, NoRotations):
+#     theta_start = 2.5,
 #     theta_bounds = [(1 + 1e-9, 80)]
-#     uu, vv, t, theta = sympy.symbols(("uu", "vv", "t", "theta"))
+#     uu, vv, t, theta = sympy.symbols("uu vv t theta")
 #     gen_expr = (1 - t) ** theta
-#     cop_expr = (1 - ((1 - uu) ** theta +
-#                      (1 - vv) ** theta) ** (1 / theta))
-#     cop_expr = sympy.Piecewise((cop_expr, cop_expr > 0),
-#                                (0, True))
+#     # cop_expr = (1 - ((1 - uu) ** theta +
+#     #                  (1 - vv) ** theta) ** (1 / theta))
+#     # cop_expr = sympy.Piecewise((cop_expr, cop_expr > 0),
+#     #                            (0, True))
+#     known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
 # nelsen02 = Nelsen02()
 
 
@@ -967,61 +994,63 @@ gumbelbarnett = GumbelBarnett()
 # class Nelsen06(Archimedian):
 #     theta_start = 1.5,
 #     theta_bounds = [(1., theta_large)]
-#     t, theta = sympy.symbols(("t", "theta"))
+#     t, theta = sympy.symbols("t theta")
 #     gen_expr = -ln(1 - (1 - t) ** theta)
 # nelsen06 = Nelsen06()
 
 
-# cdf_given_u fails test
-# class Nelsen07(Archimedian, No180):
+# # does not integrate to one
+# class Nelsen07(Archimedian):
 #     theta_start = .5,
 #     theta_bounds = [(0, 1)]
-#     t, theta = sympy.symbols(("t", "theta"))
+#     t, theta = sympy.symbols("t theta")
 #     # this seems wrong! Why the parentheses around "1 - theta"?
 #     # Should there be an exponent on that?
 #     gen_expr = -ln(theta * t + (1 - theta))
+#     # known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
 # nelsen07 = Nelsen07()
 
 
 # # cdf_given_u fails test
-# class Nelsen08(Archimedian, NoRotations):
+# class Nelsen08(Archimedian):
 #     theta_start = 1.5,
 #     theta_bounds = [(1. + 1e-3, theta_large)]
-#     t, theta = sympy.symbols(("t", "theta"))
+#     t, theta = sympy.symbols("t theta")
 #     gen_expr = (1 - t) / (1 + (theta - 1) * t)
-#     uu, vv = sympy.symbols("uu vv")
+#     # uu, vv = sympy.symbols("uu vv")
 #     # cop_expr = ((theta ** 2 * uu * vv - (1 - uu) * (1 - vv)) /
 #     #             (theta ** 2 - (theta - 1) ** 2 * (1 - uu) * (1 - vv)))
 #     # cop_expr = sympy.Piecewise((cop_expr, cop_expr > 0),
 #     #                            (0, True))
+#     known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
 # nelsen08 = Nelsen08()
 
 
-class Nelsen10(Archimedian):
+class Nelsen10(Archimedian, No180):
     theta_start = .5,
     theta_bounds = [(1e-3, 1.)]
-    t, theta = sympy.symbols(("t theta"))
+    t, theta = sympy.symbols("t theta")
     gen_expr = ln(2 * t ** (-theta) - 1)
 nelsen10 = Nelsen10()
 
 
-# cdf_given_u fails test
-# class Nelsen11(Archimedian):
-#     theta_start = .4,
+# # density does not integrate to 1
+# class Nelsen11(Archimedian, No90, No270):
+#     theta_start = .25,
 #     theta_bounds = [(1e-6, .5)]
-#     uu, vv, t, theta = sympy.symbols(("uu", "vv", "t", "theta"))
+#     uu, vv, t, theta = sympy.symbols("uu vv t theta")
 #     gen_expr = ln(2 - t ** theta)
 #     cop_expr = (uu ** theta * vv ** theta -
 #                 2 * (1 - uu ** theta) * (1 - vv ** theta)) ** (1 / theta)
-#     cop_expr = sympy.Piecewise((cop_expr, cop_expr > 0),
-#                                (0, True))
+#     # cop_expr = sympy.Piecewise((cop_expr, cop_expr > 0),
+#     #                            (0, True))
 # nelsen11 = Nelsen11()
 
 
 class Nelsen12(Archimedian, NoRotations):
     theta_start = 1.5,
     theta_bounds = [(1., 70)]
-    t, theta = sympy.symbols(("t", "theta"))
+    t, theta = sympy.symbols("t theta")
     gen_expr = (1 / t - 1) ** theta
 nelsen12 = Nelsen12()
 
@@ -1029,87 +1058,100 @@ nelsen12 = Nelsen12()
 class Nelsen13(Archimedian, NoRotations):
     theta_start = .5,
     theta_bounds = [(1e-12, 300)]
-    t, theta = sympy.symbols(("t", "theta"))
+    t, theta = sympy.symbols("t theta")
     gen_expr = (1 - ln(t)) ** theta - 1
 nelsen13 = Nelsen13()
 
 
-class Nelsen14(Archimedian, No90, No270):
+class Nelsen14(Archimedian, NoRotations):
     theta_start = 3.,
     theta_bounds = [(1., 60.)]
-    t, theta = sympy.symbols(("t", "theta"))
+    t, theta = sympy.symbols("t theta")
     gen_expr = (t ** (-1 / theta) - 1) ** theta
 nelsen14 = Nelsen14()
 
 
-# inv_cdf_given_u fails test
 # class Nelsen15(Archimedian, NoRotations):
 #     # TODO: this probably has a real name, look it up!
 #     theta_start = 3.,
 #     theta_bounds = [(1., 45)]
-#     t, theta = sympy.symbols(("t", "theta"))
+#     t, theta = sympy.symbols("t theta")
 #     gen_expr = (1 - t ** (1 / theta)) ** theta
 # nelsen15 = Nelsen15()
 
 
-# cdf_given_u fails test
-# class Nelsen16(Archimedian):
-#     theta_start = .5,
-#     theta_bounds = [(1e-3, theta_large)]
-#     uu, vv, S, t, theta = sympy.symbols(("uu vv S t theta"))
-#     gen_expr = (theta / t + 1) * (1 - t)
-#     cop_expr = .5 * (S + sympy.sqrt(S ** 2 + 4 * theta))
-#     cop_expr = cop_expr.subs(S, uu + vv - 1 - theta * (1 / uu + 1 / vv - 1))
-#     known_fail = "inv_cdf_given_uu", "inv_cdf_given_vv"
-# nelsen16 = Nelsen16()
+# minor problems with conditionals
+class Nelsen16(Archimedian, NoRotations):
+    theta_start = .5,
+    theta_bounds = [(1e-3, theta_large)]
+    uu, vv, S, t, theta = sympy.symbols("uu vv S t theta")
+    # gen_expr = (theta / t + 1) * (1 - t)
+    cop_expr = .5 * (S + sympy.sqrt(S ** 2 + 4 * theta))
+    # cop_expr = S + sympy.sqrt(S ** 2 + 4 * theta)
+    cop_expr = cop_expr.subs(S,
+                             uu + vv - 1 - theta * (1 / uu + 1 / vv - 1))
+    # cdf_given_uu_expr = (theta / uu ** 2 + 1.0 -
+    #                      0.5 * (2 * theta / uu ** 2 + 2) *
+    #                      (theta * (-1 + 1 / vv + 1 / uu) - uu - vv + 1) /
+    #                      sqrt(4 * theta + (theta * (-1 + 1 / vv + 1 / uu) -
+    #                                        uu - vv + 1) ** 2))
+    # cdf_given_vv_expr = cdf_given_uu_expr.subs(uu, vv)
+    # cop_expr = sympy.Piecewise((cop_expr, cop_expr > 0),
+    #                            (0, True))
+    known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
+nelsen16 = Nelsen16()
 
 
 # # very slow class construction
 # class Nelsen17(Archimedian):
 #     theta_start = 1,
 #     theta_bounds = [(-theta_large, theta_large)]
-#     t, theta = sympy.symbols(("t", "theta"))
+#     t, theta = sympy.symbols("t theta")
 #     gen_expr = -ln(((1 + t) ** (-theta) - 1) / (2 ** (-theta) - 1))
 # nelsen17 = Nelsen17()
 
 
-# inv_cdf_given_u fails test
-# class Nelsen18(Archimedian, No270):
+# class Nelsen18(Archimedian, NoRotations):
 #     theta_start = 2.5,
 #     theta_bounds = [(2., 10)]
-#     uu, vv, t, theta = sympy.symbols(("uu", "vv", "t", "theta"))
+#     uu, vv, t, theta = sympy.symbols("uu vv t theta")
 #     gen_expr = exp(theta / (t - 1))
-#     cop_expr = 1 + theta / ln(exp(theta / (uu - 1)) +
-#                               exp(theta / (vv - 1)))
-#     cop_expr = sympy.Piecewise((cop_expr, cop_expr > 0),
-#                                (0, True))
+#     # cop_expr = 1 + theta / ln(exp(theta / (uu - 1)) +
+#     #                           exp(theta / (vv - 1)))
+#     # cop_expr = sympy.Piecewise((cop_expr, cop_expr > 0),
+#     #                            (0, True))
+#     # known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
 # nelsen18 = Nelsen18()
 
 
-# cdf_given_u fails test
-# class Nelsen19(Archimedian):
-#     theta_start = .1,
-#     theta_bounds = [(0., .375)]
-#     t, theta = sympy.symbols(("t", "theta"))
+# # conditionals return nan for extremes
+# class Nelsen19(Archimedian, No90):
+#     theta_start = 1.,
+#     theta_bounds = [(1e-9, theta_large)]
+#     t, theta = sympy.symbols("t theta")
 #     gen_expr = exp(theta / t) - exp(theta)
+#     # uu, vv = sympy.symbols("uu vv")
+#     # cop_expr = theta / (ln(exp(theta / uu) +
+#     #                        exp(theta / vv) -
+#     #                        exp(theta)))
+#     # known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
 # nelsen19 = Nelsen19()
 
 
 class Nelsen20(Archimedian, No90, No270):
     theta_start = .05,
     theta_bounds = [(1e-9, .9)]
-    uu, vv, t, theta = sympy.symbols(("uu", "vv", "t", "theta"))
+    uu, vv, t, theta = sympy.symbols("uu vv t theta")
     gen_expr = exp(t ** (-theta)) - mp.e
     cop_expr = (ln(exp(uu ** -theta) +
                    exp(vv ** -theta) - mp.e)) ** (-1 / theta)
 nelsen20 = Nelsen20()
 
 
-# inv_cdf_given_u fails test
 # class Nelsen21(Archimedian):
-#     theta_start = 1.1,
+#     theta_start = 3.,
 #     theta_bounds = [(1., 5)]
-#     uu, vv, t, theta = sympy.symbols(("uu", "vv", "t", "theta"))
+#     uu, vv, t, theta = sympy.symbols("uu vv t theta")
 #     gen_expr = 1 - (1 - (1 - t) ** theta) ** (1 / theta)
 #     # cop_expr = (1 - (1 - ((1 - (1 - uu) ** theta) ** (1 / theta) +
 #     #                       (1 - (1 - vv) ** theta) ** (1 / theta) -
@@ -1119,22 +1161,26 @@ nelsen20 = Nelsen20()
 #     # piece = sympy.Piecewise((piece, piece > 0),
 #     #                         (0, True))
 #     # cop_expr = (1 - (1 - piece ** theta)) ** (1 / theta)
+#     # known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
 # nelsen21 = Nelsen21()
 
 
-# class Nelsen22(Archimedian):
+# class Nelsen22(Archimedian, NoRotations):
+#     from sympy import asin
 #     theta_start = .5,
 #     theta_bounds = [(0, 1)]
-#     t, theta = sympy.symbols(("t", "theta"))
+#     t, theta = sympy.symbols("t theta")
 #     gen_expr = asin(1 - t ** theta)
+#     known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
 # nelsen22 = Nelsen22()
 
 
-class Joe(Copulae, No90, No270):
+# conditional produces values > 1
+class Joe(Copulae, NoRotations):
     par_names = "uu vv theta".split()
     theta_start = 5.,
     theta_bounds = [(1 + 1e-9, 30)]
-    xx, uu, vv, t, theta = sympy.symbols(("xx", "uu", "vv", "t", "theta"))
+    xx, uu, vv, t, theta = sympy.symbols("xx uu vv t theta")
     # gen_expr = -ln(1 - (1 - t) ** theta)
     # gen_inv_expr = 1 - (1 - sympy.exp(-xx)) ** (1 / theta)
     cop_expr = (1 - ((1 - uu) ** theta +
@@ -1146,29 +1192,85 @@ class Joe(Copulae, No90, No270):
                           (1 - uu) ** -theta -
                           (1 - vv) ** theta) ** (-1 + 1 / theta) *
                          (1 - (1 - vv) ** theta))
-    # cdf_given_vv_expr = cdf_given_uu_expr.subs({uu: vv, vv: uu})
-    cdf_given_vv_expr = ((1 +
-                          (1 - uu) ** theta *
-                          (1 - vv) ** -theta -
-                          (1 - uu) ** theta) ** (-1 + 1 / theta) *
-                         (1 - (1 - uu) ** theta))
+    cdf_given_vv_expr = cdf_given_uu_expr.subs({uu: vv, vv: uu})
+    # cdf_given_vv_expr = ((1 +
+    #                       (1 - uu) ** theta *
+    #                       (1 - vv) ** -theta -
+    #                       (1 - uu) ** theta) ** (-1 + 1 / theta) *
+    #                      (1 - (1 - uu) ** theta))
+    # known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
+
+    def __init__(self):
+        uu, p, delta = sympy.symbols("uu p delta")
+        x0_expr = (1 - (((1 - p) ** (-delta / (1 + delta)) - 1) *
+                        (1 - uu) ** -delta + 1) ** (-1 / delta))
+        x0_expr = x0_expr.subs(delta, delta - 1)
+        x0_func = ufuncify(self.__class__, "x0", [uu, p, delta],
+                           x0_expr, backend=MetaArch.backend)
+        self.x0_func = broadcast_2d(x0_func)
+
+    def x0(self, rank, quantile, theta):
+        return self.x0_func(rank, quantile, theta)
 joe = Joe()
 
 
-class Gumbel(Copulae, NoRotations):
-    par_names = "uu", "vv", "theta"
-    theta_start = 5.,
-    theta_bounds = [(1. + 1e-9, 10.)]
-    xx, yy, uu, vv, t, theta = sympy.symbols(("xx yy uu vv t theta"))
-    # gen_expr = (-ln(t)) ** theta
-    # gen_inv_expr = exp(-xx ** (1 / theta))
-    cop_expr = exp(-((-ln(uu)) ** theta +
-                     (-ln(vv)) ** theta) ** (1 / theta))
+class Gumbel(Archimedian, NoRotations):
+    theta_start = 2.5,
+    theta_bounds = [(1 + 1e-9, theta_large)]
+    t, theta = sympy.symbols("t theta")
+    gen_expr = (-ln(t)) ** theta
+    xx, yy, uu, vv, t, theta = sympy.symbols("xx yy uu vv t theta")
     cdf_given_uu_expr = (uu ** -1 * exp(-(xx ** theta +
                                           yy ** theta) ** (1 / theta)) *
                          (1 + (yy / xx) ** theta) ** (1 / theta - 1))
     cdf_given_uu_expr = cdf_given_uu_expr.subs({xx: -ln(uu),
                                                 yy: -ln(vv)})
+    known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
+
+    def _inverse_conditional(self, ranks, quantiles, theta,
+                             given_v=False):
+        theta = np.array(self.theta if theta is None else theta)
+        ranks1, quantiles, thetas = np.atleast_1d(ranks, quantiles,
+                                                  theta)
+        quantiles, thetas = map(np.squeeze, (quantiles, thetas))
+        if thetas.size == 1:
+            thetas = np.full_like(ranks1, theta)
+        if quantiles.size == 1:
+            quantiles = np.full_like(ranks1, quantiles)
+        ranks2 = np.empty_like(ranks1)
+
+        x, y, z, p, delta = sympy.symbols("x y z p delta")
+        h_expr = (z + (delta - 1) * ln(z) -
+                  (x + (delta - 1) * ln(x) - ln(p)))
+        h_prime_expr = 1 + (delta - 1) * z ** -1
+        h_args = [z, x, p, delta]
+
+        if given_v:
+            h_expr = swap_symbols(h_expr, x, y)
+            h_prime_expr = swap_symbols(h_prime_expr, x, y)
+            h_args = [z, y, p, delta]
+
+        h = ufuncify(self.__class__, "h", h_args, h_expr,
+                     backend=self.backend)
+        h_prime = ufuncify(self.__class__, "h_prime", h_args, h_prime_expr,
+                           backend=self.backend)
+        h, h_prime = map(broadcast_1d, (h, h_prime))
+
+        for i, rank1 in enumerate(ranks1):
+            x = -np.log(rank1)
+            z_root = newton(h, x0=x,
+                            fprime=h_prime,
+                            args=(x, quantiles[i], theta))
+            y_root = (z_root ** theta - x ** theta) ** (1 / theta)
+            ranks2[i] = np.exp(-float(y_root))
+        return ranks2
+
+    def inv_cdf_given_u(self, ranks_u, quantiles, theta):
+        return self._inverse_conditional(ranks_u, quantiles, theta)
+
+    def inv_cdf_given_v(self, ranks_v, quantiles, theta):
+        return self._inverse_conditional(ranks_v, quantiles, theta,
+                                         given_v=True)
 gumbel = Gumbel()
 
 
@@ -1176,18 +1278,22 @@ class AliMikailHaq(Archimedian, No90, No270):
     theta_start = .9,
     # theta_bounds = [(1e-9, 1.)]
     theta_bounds = [(-1 + 1e-6, 1. - 1e-6)]
-    t, theta = sympy.symbols(("t", "theta"))
-    gen_expr = ln((1 - theta * (1 - t)) / t)
-    known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
+    t, theta = sympy.symbols("t theta")
+    # gen_expr = ln((1 - theta * (1 - t))) / t
+    uu, vv = sympy.symbols("uu vv")
+    cop_expr = uu * vv / (1 - theta * (1 - uu) * (1 - vv))
+    cdf_given_uu_expr = ((vv * (1 - theta * (1 - vv))) *
+                         (1 - theta * (1 - uu) * (1 - vv)) ** -2)
+    # known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
 alimikailhaq = AliMikailHaq()
 
 
 class Gaussian(Copulae, NoRotations):
     par_names = "uu", "vv", "rho"
-    theta_start = .0,
+    theta_start = .75,
     theta_bounds = [(-1. + 1e-12, 1. - 1e-12)]
     # uu, vv, rho = sympy.symbols(par_names)
-    # xx, yy = sympy.symbols(("xx", "yy"))
+    # xx, yy = sympy.symbols("xx yy")
     # dens_expr = ((1 - rho ** 2) ** (-.5) *
     #              exp(-.5 * (xx ** 2 + yy ** 2 - 2 * rho * xx * yy) *
     #                  (1 - rho ** 2)) *
@@ -1265,37 +1371,171 @@ class Gaussian(Copulae, NoRotations):
 
 class Plackett(Copulae):
     par_names = "uu", "vv", "delta"
-    theta_start = .1,
-    theta_bounds = [(1e-4, 20)]
+    theta_start = 1.5,
+    theta_bounds = [(1e-6, 20)]
     uu, vv, delta, eta = sympy.symbols(par_names + ("eta",))
     cop_expr = (1 / (2 * eta) * (1 + eta * (uu + vv) -
                                  ((1 + eta * (uu + vv)) ** 2 -
                                   4 * delta * eta * uu * vv) ** .5))
     cop_expr = cop_expr.subs(eta, delta - 1)
-    cdf_given_uu_expr = 0.5 - 0.5 * ((eta * uu + 1 - (eta + 2) * vv) /
-                                     ((1 + eta * (uu + vv)) ** 2 -
-                                      4 * delta * eta * uu * vv) ** .5)
-    cdf_given_uu_expr = cdf_given_uu_expr.subs(eta, delta - 1)
-    known_fail = "inv_cdf_given_uu", "inv_cdf_given_vv"
+    # cdf_given_uu_expr = 0.5 - 0.5 * ((eta * uu + 1 - (eta + 2) * vv) /
+    #                                  ((1 + eta * (uu + vv)) ** 2 -
+    #                                   4 * delta * eta * uu * vv) ** .5)
+    # cdf_given_uu_expr = cdf_given_uu_expr.subs(eta, delta - 1)
+    known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
 plackett = Plackett()
 
 
-class Galambos(Copulae, No90, No270):
+class Galambos(Copulae, NoRotations):
+    """p. 174"""
     par_names = "uu", "vv", "delta"
-    theta_start = 2.5,
+    theta_start = 1.8,
     theta_bounds = [(.011, 50)]
     uu, vv, delta = sympy.symbols(par_names)
     cop_expr = uu * vv * exp(((-ln(uu)) ** -delta +
                               (-ln(vv)) ** -delta) ** (-1 / delta))
-    xx, yy = sympy.symbols(("xx", "yy"))
-    cdf_given_uu_expr = (vv * exp((xx ** -delta +
-                                   yy ** -delta) ** (-1 / delta)) *
-                         (1 - (1 + (xx / yy) ** delta) ** (-1 - 1 / delta)))
-    cdf_given_uu_expr = cdf_given_uu_expr.subs({xx: -ln(uu), yy: -ln(vv)})
-    # cdf_given_vv_expr = (uu * exp((xx ** -delta +
-    #                                yy ** -delta) ** (-1 / delta)) *
-    #                      (1 - (1 + (xx / yy) ** delta) ** (-1 - 1 / delta)))
-    # cdf_given_vv_expr = cdf_given_vv_expr.subs({xx: -ln(vv), yy: -ln(uu)})
+    x, y = sympy.symbols("x y")
+    dens_expr = ((cop_expr / (uu * vv)) *
+                 (1 -
+                  (x ** -delta + y ** -delta) ** (-1 - 1 / delta) *
+                  (x ** (-delta - 1) + y ** (-delta - 1)) +
+                  (x ** -delta + y ** -delta) ** (-2 - 1 / delta) *
+                  (x * y) ** (-delta - 1) *
+                 (1 + delta + (x ** -delta + y ** -delta) ** (-1 / delta))))
+    dens_expr = dens_expr.subs(dict(x=-ln(uu), y=-ln(vv)))
+    # cdf_given_uu_expr = (vv *
+    #                      exp((x ** -delta + y ** -delta) ** (-1 / delta)) *
+    #                      (1 - (1 + (x / y) ** delta) ** (-1 - 1 / delta)))
+    # cdf_given_vv_expr = cdf_given_uu_expr.subs(dict(x=-ln(vv), y=-ln(uu)))
+    # cdf_given_uu_expr = cdf_given_uu_expr.subs(dict(x=-ln(uu), y=-ln(vv)))
+    # cdf_given_vv_expr = swap_symbols(cdf_given_vv_expr, uu, vv)
+
+    def __init__(self):
+        x, y, p, delta = sympy.symbols("x y p delta")
+        h_expr = (ln(p) + y -
+                  (x ** -delta + y ** -delta) ** (-1 / delta) -
+                  ln(1 - x ** (-delta - 1) *
+                     (x ** -delta + y ** -delta) ** (-1 / delta - 1)))
+        h_prime_expr = (1 - y ** (-delta - 1) *
+                        (x ** -delta + y ** -delta) ** (-1 / delta - 1) +
+                        (((1 + delta) *
+                          x ** (-delta - 1) *
+                          y ** (-delta - 1) *
+                          (x ** -delta + y ** -delta) ** (-1 / delta - 2)) /
+                         (1 - x ** (-delta - 1) *
+                          (x ** -delta + y ** -delta) ** (-1 / delta - 1))))
+        r = sympy.symbols("r")
+        h1_expr = (ln(p) +
+                   x * r ** (1 / delta) -
+                   x * (1 + r ** -1) ** (-1 / delta) -
+                   ln(1 - (1 + r ** -1) ** (-1 / delta - 1)))
+        h1_prime_expr = (delta ** -1 * x * r ** (1 / delta - 1) -
+                         delta ** -1 * x *
+                         (1 + r ** -1) ** (-1 / delta - 1) * r ** -2 +
+                         ((1 + delta ** -1) *
+                          (1 + r ** -1) ** (-1 / delta - 2) * r ** -2) /
+                         (1 - (1 + r ** -1) ** (-1 / delta - 1)))
+        h_args = [y, x, p, delta]
+        h1_args = [r, x, p, delta]
+        h = ufuncify(self.__class__, "h", h_args, h_expr,
+                     backend=self.backend)
+        h_prime = ufuncify(self.__class__, "h_prime", h_args,
+                           h_prime_expr, backend=self.backend)
+        h1 = ufuncify(self.__class__, "h1", h1_args, h1_expr,
+                      backend=self.backend)
+        h1_prime = ufuncify(self.__class__, "h1_prime", h1_args,
+                            h1_prime_expr, backend=self.backend)
+        (self.h_u,
+         self.h_prime_u,
+         self.h1_u,
+         self.h1_prime_u) = map(broadcast_1d, (h, h_prime, h1,
+                                               h1_prime))
+        h_expr = swap_symbols(h_expr, x, y)
+        h_prime_expr = swap_symbols(h_prime_expr, x, y)
+        h1_expr = swap_symbols(h1_expr, x, y)
+        h1_prime_expr = swap_symbols(h1_prime_expr, x, y)
+        h_args = [x, y, p, delta]
+        h1_args = [r, y, p, delta]
+        h = ufuncify(self.__class__, "h", h_args, h_expr,
+                     backend=self.backend)
+        h_prime = ufuncify(self.__class__, "h_prime", h_args,
+                           h_prime_expr, backend=self.backend)
+        h1 = ufuncify(self.__class__, "h1", h1_args, h1_expr,
+                      backend=self.backend)
+        h1_prime = ufuncify(self.__class__, "h1_prime", h1_args,
+                            h1_prime_expr, backend=self.backend)
+        (self.h_v,
+         self.h_prime_v,
+         self.h1_v,
+         self.h1_prime_v) = map(broadcast_1d, (h, h_prime, h1,
+                                               h1_prime))
+
+    def _inverse_conditional(self, ranks, quantiles, theta,
+                             given_v=False):
+        theta = np.array(self.theta if theta is None else theta)
+        ranks1, quantiles, thetas = np.atleast_1d(ranks, quantiles,
+                                                  theta)
+        quantiles, thetas = map(np.squeeze, (quantiles, thetas))
+        if thetas.size == 1:
+            thetas = np.full_like(ranks1, theta)
+        if quantiles.size == 1:
+            quantiles = np.full_like(ranks1, quantiles)
+        ranks2 = np.empty_like(ranks1)
+
+        if given_v:
+            h, h_prime, h1, h1_prime = (self.h_v, self.h_prime_v,
+                                        self.h1_v, self.h1_prime_v)
+        else:
+            h, h_prime, h1, h1_prime = (self.h_u, self.h_prime_u,
+                                        self.h1_u, self.h1_prime_u)
+
+        tol = zero
+
+        def f(rank2, quantile):
+            if given_v:
+                rank_u, rank_v = rank2, rank1
+                conditional_func = getattr(self, "cdf_given_v")
+            else:
+                rank_u, rank_v = rank1, rank2
+                conditional_func = getattr(self, "cdf_given_u")
+            quantile_calc = conditional_func(rank_u, rank_v, theta)
+            if np.isnan(quantile_calc):
+                if rank2 < tol:
+                    quantile_calc = 0
+                elif rank2 > (1 - tol):
+                    quantile_calc = 1
+                # if np.isclose(rank2, 0):
+                #     quantile_calc = 0
+                # elif np.isclose(rank2, 1):
+                #     quantile_calc = 1
+            return quantile_calc - quantile
+
+        for i, rank1 in enumerate(ranks1):
+            x = -np.log(rank1)
+            try:
+                y_root = newton(h, x0=x,
+                                fprime=h_prime,
+                                args=(x, quantiles[i], theta))
+                ranks2[i] = np.exp(-float(y_root))
+            except RuntimeError as exc:
+                warnings.warn("Newton did not converge.")
+                try:
+                    r_root = newton(h1,
+                                    x0=.5,
+                                    fprime=h1_prime,
+                                    args=(x, quantiles[i], theta))
+                except RuntimeError:
+                    ranks2[i] = brentq(f, 0, 1, args=(quantiles[i],))
+                else:
+                    ranks2[i] = x * float(r_root) ** (1 / theta)
+        return ranks2
+
+    def inv_cdf_given_u(self, ranks_u, quantiles, theta):
+        return self._inverse_conditional(ranks_u, quantiles, theta)
+
+    def inv_cdf_given_v(self, ranks_v, quantiles, theta):
+        return self._inverse_conditional(ranks_v, quantiles, theta,
+                                         given_v=True)
 galambos = Galambos()
 
 
@@ -1305,12 +1545,19 @@ class Independence(Copulae, NoRotations):
     theta_start = None,
     uu, vv, _ = sympy.symbols(par_names)
     cop_expr = uu * vv
+    known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
 
     def fit(self, uu, vv, *args, **kwds):
         return
 
     def sample(self, size, *args, **kwds):
         return random_sample(size), random_sample(size)
+
+    def cdf_given_u(self, uu, vv, *args):
+        return uu
+
+    def cdf_given_v(self, uu, vv, *args):
+        return vv
 
     def inv_cdf_given_u(self, uu, qq, *args):
         return qq
