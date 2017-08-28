@@ -84,6 +84,7 @@ class SeasonalCop:
                                                            timestep))
             self.n_doys = len(self.doys_unique)
             self._doy_mask = self._sliding_theta = self._solution = None
+            self._likelihood = None
 
     def _call_copula_func(self, method_name, conditioned, condition, t=None):
         if t is None:
@@ -285,30 +286,36 @@ class SeasonalCop:
     def __lt__(self, other):
         return self.likelihood < other
 
-    def plot_fourier_fit(self, fft_order=None):
+    def plot_fourier_fit(self, fft_order=None, ax=None):
         """Plots the Fourier approximation of all theta elements."""
         fft_order = self.fft_order if fft_order is None else fft_order
-        fig, axs = plt.subplots(self.len_theta, sharex=True, squeeze=True)
-        if self.len_theta == 1:
-            axs = axs,
-        thetas = self.fourier_approx_new(fft_order)
-        if thetas.shape[1] > 1:
-            for theta_i in range(self.len_theta):
-                axs[theta_i].plot(self.doys_unique,
-                                  self.sliding_theta[theta_i])
-                axs[theta_i].plot(self.doys_unique,
-                                  self.fourier_approx_new(fft_order)[theta_i],
-                                  label="new")
-                axs[theta_i].plot(self.doys_unique,
-                                  self.fourier_approx(fft_order)[theta_i],
-                                  label="old")
-                axs[theta_i].grid(True)
-                axs[theta_i].set_title("%s\nFourier fft_order: %d"
-                                       % (self.copula.name, fft_order))
+        if ax is None:
+            fig, axs = plt.subplots(self.len_theta, sharex=True, squeeze=True)
+            if self.len_theta == 1:
+                axs = axs,
+        else:
+            fig = plt.gcf()
+            axs = ax,
+        for theta_i in range(self.len_theta):
+            axs[theta_i].plot(self.doys_unique,
+                              self.sliding_theta[theta_i])
+            trig_theta0 = np.fft.rfft(self.sliding_theta)[0, :fft_order]
+            theta0 = self.trig2thetas(trig_theta0, self._T)
+            like0 = -np.sum(np.log(self.density(thetas=theta0)))
+            axs[theta_i].plot(self.doys_unique,
+                              self.fourier_approx(fft_order,
+                                                  trig_theta=trig_theta0),
+                              label="prelim %.2f" % like0)
+            axs[theta_i].plot(self.doys_unique,
+                              self.fourier_approx(fft_order),
+                              label="mll %.2f" % -self.likelihood)
+            axs[theta_i].grid(True)
+            axs[theta_i].set_title("%s\nFourier fft_order: %d"
+                                   % (self.copula.name, fft_order))
         plt.legend(loc="best")
         return fig, axs
 
-    def plot_corr(self, sample=None):
+    def plot_corr(self, sample=None, ax=None):
         """Plots correlation over doy.
 
         Notes
@@ -317,9 +324,13 @@ class SeasonalCop:
         theory.
         """
         if sample is None:
-            sample = self.sample()
+            # draw a large sample, so this is closer to asymptopia
+            sample = self.sample(np.concatenate(10 * [self.dtimes]))
         sample = np.array(sample)
-        fig, ax = plt.subplots()
+        if ax is None:
+            fig, ax = plt.subplots()
+        else:
+            fig = plt.gcf()
         corrs_emp = np.empty(self.n_doys)
         corrs_fit = np.empty(self.n_doys)
         for doy_i in range(self.n_doys):
@@ -331,20 +342,49 @@ class SeasonalCop:
                                            sample[1, doy_mask]
                                            )[0, 1]
         ax.plot(self.doys_unique, corrs_emp, label="observed")
-        ax.plot(self.doys_unique, corrs_fit, label="fitted")
+        ax.plot(self.doys_unique, corrs_fit, label="simulated")
         ax.set_title("Correlations (%s)" % self.name)
         ax.legend(loc="best")
         ax.grid(True)
         return fig, ax
 
-    def plot_seasonal_densities(self, opacity=.1, *args, **kwds):
+    def plot_density(self, *args, **kwds):
+        self.copula.plot_density(theta=self.thetas, *args, **kwds)
+
+    def plot_qq(self, fig=None, ax=None, opacity=.25, s_kwds=None,
+                title=None, *args, **kwds):
+        if s_kwds is None:
+            s_kwds = dict(marker="o", s=1,
+                          facecolors=(0, 0, 0, 0),
+                          edgecolors=(0, 0, 0, opacity))
+
+        empirical = cops.bipit(self.ranks_u, self.ranks_v)
+        theoretical = self.copula.copula_func(self.ranks_u,
+                                              self.ranks_v,
+                                              self.thetas)
+        if ax is None:
+            fig, ax = plt.subplots(
+                # subplot_kw=dict(aspect="equal")
+                )
+        if fig is None:
+            fig = plt.gcf()
+        ax.scatter(empirical, theoretical - empirical, **s_kwds)
+        if title is None:
+            title = "qq " + self.name[len("fitted "):]
+        ax.set_title(title)
+        fig.tight_layout()
+        return fig, ax
+
+    def plot_seasonal_densities(self, opacity=.1, skwds=None, *args, **kwds):
+        if skwds is None:
+            skwds = {}
         fig, axs = plt.subplots(nrows=2, ncols=2,
                                 subplot_kw=dict(aspect="equal"))
         axs = np.ravel(axs)
         doys = np.linspace(0, 366, 5)[:-1]
         for ax, doy in zip(axs, doys):
             doy = int(round(doy))
-            theta = self._sliding_theta[doy]
+            theta = self.thetas[doy]
             self.copula.theta = theta
             self.copula.plot_density(ax=ax, scatter=False, *args, **kwds)
             ranks_u = self.ranks_u[self._doy_mask[doy]]
@@ -352,10 +392,57 @@ class SeasonalCop:
             ax.scatter(ranks_u, ranks_v,
                        marker="o",
                        facecolor=(0, 0, 0, 0),
-                       edgecolor=(0, 0, 0, opacity))
+                       edgecolor=(0, 0, 0, opacity),
+                       **skwds)
             ax.set_title(r"doy: %d, $\theta=%.3f$" % (doy, theta))
         fig.suptitle("Seasonal copula densities (%s)" % self.name)
         return fig, axs
+
+
+def phase_rand(*, ranks=None, data_stdn=None, T=None):
+    if ranks is not None:
+        transform = True
+        data_stdn = np.array([dists.norm.ppf(ranks_) for ranks_ in ranks])
+    elif data_stdn is None:
+        raise RuntimeError("Must supply ranks or data_stdn.")
+    else:
+        transform = False
+
+    if T is None:
+        T = data_stdn.shape[1]
+        adjust_variance = False
+    else:
+        adjust_variance = True
+    K = data_stdn.shape[0]
+
+    As = np.fft.fft(data_stdn, n=T)
+    middle_i = As.shape[1] // 2
+    phase_first, phase_middle = np.angle(As[:, [0, middle_i]])
+    # phase randomization with same random phases in both variables
+    phases_lh = np.random.uniform(0, 2 * np.pi,
+                                  T // 2 if T % 2 == 1 else T // 2 - 1)
+    phases_lh = np.array(K * [phases_lh])
+    phases_rh = -phases_lh[:, ::-1]
+    if T % 2 == 0:
+        phases = np.hstack((phase_first[:, None],
+                            phases_lh,
+                            phase_middle[:, None],
+                            phases_rh))
+    else:
+        phases = np.hstack((phase_first[:, None],
+                            phases_lh,
+                            phases_rh))
+
+    A_new = As * np.exp(1j * phases)
+    fft_sim = (np.fft.ifft(A_new)).real
+    if adjust_variance:
+        fft_sim /= fft_sim.std(axis=1)[:, None]
+
+    if transform:
+        # we were given ranks, so we give ranks back
+        fft_sim = np.array([dists.norm.cdf(data) for data in fft_sim])
+
+    return fft_sim
 
 
 @my.cache("scop", "As", "phases", "cop_quantiles", "qq_std")
@@ -372,36 +459,8 @@ def vg_ph(vg_obj, sc_pars):
     if vg_ph.phases is None:
         vg_ph.qq_std = np.array([dists.norm.ppf(q)
                                  for q in vg_ph.cop_quantiles])
-        vg_ph.As = np.fft.fft(vg_ph.qq_std)
-        vg_ph.phases = np.angle(vg_ph.As)
     T = vg_obj.T
-    # phase randomization with same random phases in both variables
-    phases_lh = np.random.uniform(0, 2 * np.pi,
-                                  T // 2 if T % 2 == 1 else T // 2 - 1)
-    phases_lh = np.array([phases_lh, phases_lh])
-    phases_rh = -phases_lh[:, ::-1]
-    if T % 2 == 0:
-        phases = np.hstack((vg_ph.phases[:, 0, None],
-                            phases_lh,
-                            vg_ph.phases[:, vg_ph.phases.shape[1] // 2, None],
-                            phases_rh))
-    else:
-        phases = np.hstack((vg_ph.phases[:, 0, None],
-                            phases_lh,
-                            phases_rh))
-
-    try:
-        A_new = vg_ph.As * np.exp(1j * phases)
-        adjust_variance = False
-    except ValueError:
-        vg_ph.As = np.fft.fft(vg_ph.qq_std, n=T)
-        vg_ph.phases = np.angle(vg_ph.As)
-        A_new = vg_ph.As * np.exp(1j * phases)
-        adjust_variance = True
-
-    fft_sim = (np.fft.ifft(A_new)).real
-    if adjust_variance:
-        fft_sim /= fft_sim.std(axis=1)[:, None]
+    fft_sim = phase_rand(data_stdn=vg_ph.qq_std, T=T)
 
     # from lhglib.contrib.time_series_analysis import time_series as ts
     # fig, axs = plt.subplots(nrows=2, ncols=1, sharex=True)
@@ -470,36 +529,6 @@ def vg_sim(vg_obj, sc_pars):
                                                   qq_u=qq_u, qq_v=qq_v)
     return np.array([dists.norm.ppf(ranks)
                      for ranks in (ranks_u_sim, ranks_v_sim)])
-
-
-# def res_ranks(doys, data, means, sigmas):
-#     ranks_u, ranks_v = np.full((2, len(dtimes)), .5)
-#     for doy_i, doy in enumerate(np.unique(doys)):
-#         mean = means[:, doy_i]
-#         sigma = sigmas[..., doy_i] ** .5
-#         doy_mask = doys == doy
-#         ranks_u[doy_mask] = (dists.norm.cdf((data[0, doy_mask] -
-#                                              mean[0]) /
-#                                             sigma[0, 0]))
-#         ranks_v[doy_mask] = (dists.norm.cdf((data[1, doy_mask] -
-#                                              mean[1]) /
-#                                             sigma[1, 1]))
-#     # ranks_u[np.isclose(ranks_u, 1)] = np.nan
-#     # ranks_v[np.isclose(ranks_v, 1)] = np.nan
-#     return ranks_u, ranks_v
-
-
-# def res_back(doys, ranks, means, sigmas):
-#     data1, data2 = np.empty((2, len(doys)))
-#     for doy_i, doy in enumerate(np.unique(doys)):
-#         mean = means[:, doy_i]
-#         sigma = sigmas[..., doy_i] ** .5
-#         doy_mask = doys == doy
-#         data1[doy_mask] = (dists.norm.ppf(ranks[0, doy_mask]) *
-#                            sigma[0, 0] + mean[0])
-#         data2[doy_mask] = (dists.norm.ppf(ranks[1, doy_mask]) *
-#                            sigma[1, 1] + mean[1])
-#     return data1, data2
 
 
 if __name__ == '__main__':
