@@ -1,15 +1,72 @@
-from concurrent.futures import ProcessPoolExecutor, as_completed
 import numpy as np
 import matplotlib.pyplot as plt
-from weathercop import copulae, cop_conf, stats
+import pathos
+from weathercop import copulae, cop_conf, stats, seasonal_cop as scop
+
+n_nodes = pathos.multiprocessing.cpu_count() - 2
+
+# from concurrent.futures import ProcessPoolExecutor, as_completed
+# pool = ProcessPoolExecutor()
 
 
-pool = ProcessPoolExecutor()
+def generate_fitted(name, cop, ranks_u, ranks_v, verbose=False, **kwds):
+    try:
+        fitted_cop = cop.generate_fitted(ranks_u, ranks_v, **kwds)
+        return fitted_cop
+    except copulae.NoConvergence:
+        if verbose > 1:
+            print("No fit for %s" % cop)
+        return []
 
 
-def mml(ranks_u, ranks_v, cops=copulae.all_cops, verbose=False):
+def mml(ranks_u, ranks_v, cops=copulae.all_cops, dtimes=None,
+        verbose=False, plot=False, **kwds):
+    pool = pathos.pools.ProcessPool(nodes=n_nodes)
+
+    def expand_ar(ar):
+        n_cops = len(cops)
+        return np.tile(ar, (n_cops, 1))
+
+    ranks_u, ranks_v = map(expand_ar, (ranks_u, ranks_v))
+    fitted_cops = pool.imap(generate_fitted, list(cops.keys()),
+                            list(cops.values()), ranks_u, ranks_v)
+    best_cop = max(fitted_cops)
+    if dtimes is not None:
+        cop_seasonal = scop.SeasonalCop(None, dtimes, ranks_u, ranks_v)
+        best_cop = max(best_cop, cop_seasonal)
+    if verbose:
+        print("%s (L=%.2f)" % (best_cop.name, best_cop.likelihood))
+    if plot:
+        n_cops = 9
+        fig, axs = plt.subplots(nrows=int(np.sqrt(n_cops)),
+                                ncols=int(np.sqrt(n_cops)),
+                                subplot_kw=dict(aspect="equal"))
+        axs = np.ravel(axs)
+        for cop, ax in zip(sorted(fitted_cops)[::-1], axs):
+            cop.plot_density(ax=ax, scatter=False)
+            ax.scatter(ranks_u, ranks_v,
+                       marker="x", s=1,
+                       facecolor=(0, 0, 0, 0),
+                       edgecolor=(0, 0, 0, .25),)
+            ax.set_title("%s\n%.2f" % (cop.name[len("fitted "):],
+                                       cop.likelihood),
+                         fontsize=8)
+        fig.tight_layout()
+    # prefer the independence copula explicitly if it is on par with
+    # the best
+    if best_cop.likelihood == 0:
+        if not isinstance(best_cop, copulae.Independence):
+            best_cop = copulae.independence.generate_fitted(ranks_u, ranks_v)
+    return best_cop
+
+
+def mml_futures(ranks_u, ranks_v, cops=copulae.all_cops, dtimes=None,
+                verbose=False, **kwds):
     with ProcessPoolExecutor() as executor:
-        futures = {executor.submit(cop.generate_fitted, ranks_u, ranks_v):
+        # futures = {executor.submit(cop.generate_fitted, ranks_u, ranks_v):
+        #            cop_name
+        #            for cop_name, cop in cops.items()}
+        futures = {executor.submit(_generate_fitted, cop, ranks_u, ranks_v):
                    cop_name
                    for cop_name, cop in cops.items()}
     fitted_cops = []
@@ -22,6 +79,8 @@ def mml(ranks_u, ranks_v, cops=copulae.all_cops, verbose=False):
             continue
         fitted_cop.likelihood
         fitted_cops.append(fitted_cop)
+    if dtimes is not None:
+        fitted_cops += [scop.SeasonalCop(None, dtimes, ranks_u, ranks_v)]
     best_cop = max(fitted_cops)
     if verbose:
         print("%s (L=%.2f)" % (best_cop.name, best_cop.likelihood))
@@ -33,12 +92,12 @@ def mml(ranks_u, ranks_v, cops=copulae.all_cops, verbose=False):
     return best_cop
 
 
-def mml_serial(ranks_u, ranks_v, cops=copulae.all_cops, verbose=False,
-               plot=False):
+def mml_serial(ranks_u, ranks_v, cops=copulae.all_cops, dtimes=None,
+               verbose=False, plot=False, **kwds):
     fitted_cops = []
     for cop_name, cop in cops.items():
         try:
-            fitted_cop = cop.generate_fitted(ranks_u, ranks_v)
+            fitted_cop = cop.generate_fitted(ranks_u, ranks_v, **kwds)
         except copulae.NoConvergence:
             if verbose > 1:
                 print("No fit for %s" % cop_name)
@@ -47,6 +106,8 @@ def mml_serial(ranks_u, ranks_v, cops=copulae.all_cops, verbose=False,
             fitted_cops.append(fitted_cop)
             if verbose > 1:
                 print(fitted_cop.name, fitted_cop.likelihood)
+    if dtimes is not None:
+        fitted_cops += [scop.SeasonalCop(None, dtimes, ranks_u, ranks_v)]
     best_cop = max(fitted_cops)
     if verbose:
         print("%s (L=%.2f)" % (best_cop.name, best_cop.likelihood))
