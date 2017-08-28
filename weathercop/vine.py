@@ -619,6 +619,10 @@ class Vine:
 
 class CVine(Vine):
 
+    def __init__(self, *args, central_node=None, **kwds):
+        self.central_node_name = central_node
+        super().__init__(*args, **kwds)
+    
     def _best_tree(self, full_graph):
         nodes = full_graph.nodes()
         taus = np.array([[1
@@ -626,7 +630,10 @@ class CVine(Vine):
                           full_graph[node1][node2]["tau"]
                           for node1 in nodes]
                          for node2 in nodes])
-        central_node_i = np.argmax(np.sum(np.abs(taus), axis=0))
+        if self.central_node_name is None:
+            central_node_i = np.argmax(np.sum(np.abs(taus), axis=0))
+        else:
+            central_node_i = self.varnames.index(self.central_node_name)
         central_node = nodes[central_node_i]
         other_nodes = sorted(list(set(nodes) - set([central_node])))
         new_graph = nx.Graph()
