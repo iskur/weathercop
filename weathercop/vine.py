@@ -81,23 +81,39 @@ def get_cond_labels(node1, node2, prefix=""):
     return key1, key2
 
 
-def set_edge_copulae(tree, tau_min, verbose=True):
+def set_edge_copulae(tree, tau_min=None, verbose=True, **kwds):
     """Fits a copula to the ranks at all nodes and sets conditional
     ranks and copula methods as edge attributes.
     """
-    for node1, node2 in sorted(tree.edges_iter()):
+    # for node1, node2 in sorted(tree.edges_iter()):
+    for node1, node2 in tree.edges_iter():
         edge = tree[node1][node2]
         ranks1_key, ranks2_key = get_cond_labels(node1, node2)
         ranks1 = edge["ranks_" + ranks1_key]
         ranks2 = edge["ranks_" + ranks2_key]
-        if abs(edge["tau"]) > tau_min:
-            copula = find_copula.mml_serial(ranks1, ranks2,
-                                            verbose=verbose)
-            # copula = find_copula.mml(ranks1, ranks2)
+        cop_key = get_cop_key(node1, node2)
+        if tau_min is None:
+            try:
+                copula = edge[cop_key]
+            except KeyError:
+                print("switched %s -> %s" % (cop_key,
+                                             get_cop_key(node2, node1)))
+                node1, node2 = node2, node1
+                ranks1_key, ranks2_key = get_cond_labels(node1, node2)
+                ranks1 = edge["ranks_" + ranks1_key]
+                ranks2 = edge["ranks_" + ranks2_key]
+                cop_key = get_cop_key(node1, node2)
+                copula = edge[cop_key]
         else:
-            if verbose:
-                print("chose independence")
-            copula = cops.independence.generate_fitted(ranks1, ranks2)
+            if abs(edge["tau"]) > tau_min:
+                # copula = find_copula.mml_serial(ranks1, ranks2,
+                #                                 verbose=verbose, **kwds)
+                copula = find_copula.mml(ranks1, ranks2,
+                                         verbose=verbose, **kwds)
+            else:
+                if verbose:
+                    print("chose independence")
+                copula = cops.independence.generate_fitted(ranks1, ranks2)
         clabel1 = get_clabel(node2, node1)  # u|v
         clabel2 = get_clabel(node1, node2)  # v|u
         edge["ranks_%s" % clabel1] = \
@@ -108,9 +124,10 @@ def set_edge_copulae(tree, tau_min, verbose=True):
             # the preconditioned set would make retrieving overly complicated
             clabel1 = clabel1[:clabel1.index(";")]
             clabel2 = clabel2[:clabel2.index(";")]
+        if tau_min is not None:
+            edge[cop_key] = copula
         # we depend on these keys to start with a capital "C" when
         # relabeling later on
-        edge["Copula_%s_%s" % (clabel1[0], clabel2[0])] = copula
         edge["C^_%s" % clabel1] = copula.inv_cdf_given_v
         edge["C^_%s" % clabel2] = copula.inv_cdf_given_u
         edge["C_%s" % clabel1] = copula.cdf_given_v
@@ -120,7 +137,7 @@ def set_edge_copulae(tree, tau_min, verbose=True):
 class Vine:
 
     def __init__(self, ranks, k=0, varnames=None, verbose=True,
-                 build_trees=True):
+                 build_trees=True, weights="tau"):
         """Vine copula.
 
         Parameter
@@ -136,6 +153,7 @@ class Vine:
             If None, nodes will be numbered
         build_trees : boolean, optional
             If False, don't build vine trees.
+        weights : str ("tau" or "likelihood"), optional
         """
         self.ranks = ranks
         self.k = k
@@ -151,6 +169,7 @@ class Vine:
         # old order.
         self.varnames_old = None
         self.verbose = verbose
+        self.weights = weights
         if build_trees:
             self.trees = self._gen_trees(ranks)
             # property cache
@@ -160,6 +179,8 @@ class Vine:
 
     @property
     def tau_min(self):
+        if self.weights != "tau":
+            return None
         # minimum absolute tau to reject dependence at 5% significance
         # level -> use the independence copula, then (see Genest and
         # Favre, 2007)
@@ -176,24 +197,34 @@ class Vine:
             for node2, ranks2 in enumerate(ranks[node1:], start=node1):
                 if node1 != node2:
                     ranks2 = ranks2[self.k:] if self.k > 0 else ranks2
-                    tau = spstats.kendalltau(ranks1, ranks2).correlation
                     ranks1_key, ranks2_key = \
                         get_cond_labels(node1, node2, "ranks_")
-                    ranks_dict = {ranks1_key: ranks1,
-                                  ranks2_key: ranks2,
-                                  "ranks_u": ranks1,
-                                  "ranks_v": ranks2}
-                    # as networkx minimizes the spanning tree, we have
-                    # to invert the weights
+                    edge_dict = {ranks1_key: ranks1,
+                                 ranks2_key: ranks2,
+                                 "ranks_u": ranks1,
+                                 "ranks_v": ranks2}
+                    tau = spstats.kendalltau(ranks1, ranks2).correlation
+                    if self.weights == "tau":
+                        # as networkx minimizes the spanning tree, we have
+                        # to invert the weights
+                        weight = 1 - abs(tau)
+                    elif self.weights == "likelihood":
+                        cop_key = get_cop_key(node1, node2)
+                        copula = find_copula.mml(ranks1,
+                                                 ranks2,
+                                                 verbose=self.verbose,
+                                                 dtimes=self.dtimes)
+                        weight = -copula.likelihood
+                        edge_dict[cop_key] = copula
                     full_graph.add_edge(node1, node2,
-                                        weight=(1 - abs(tau)), tau=tau,
-                                        **ranks_dict)
+                                        weight=weight, tau=tau,
+                                        **edge_dict)
         tree = self._best_tree(full_graph)
         return tree
 
     def _gen_trees(self, ranks):
         """Generate the vine trees."""
-        if self.verbose:
+        if self.verbose and self.weights == "tau":
             print("Minimum tau for dependence: %.4f" % self.tau_min)
 
         # first tree
@@ -208,7 +239,7 @@ class Vine:
             last_tree = trees[-1]
             last_edges = sorted(last_tree.edges())
             full_graph.add_nodes_from(last_edges)
-            for node1, node2 in itertools.combinations(last_edges, 2):
+            for node1, node2 in sorted(itertools.combinations(last_edges, 2)):
                 # do these edges share exactly one node?
                 proximity_condition = set(node1) & set(node2)
                 if len(proximity_condition) == 1:
@@ -219,13 +250,25 @@ class Vine:
                     ranks1 = edge1[ranks1_key]
                     ranks2 = edge2[ranks2_key]
                     tau = spstats.kendalltau(ranks1, ranks2).correlation
-                    ranks_dict = {ranks1_key: ranks1,
-                                  ranks2_key: ranks2}
+                    edge_dict = {ranks1_key: ranks1,
+                                 ranks2_key: ranks2}
+                    if self.weights == "tau":
+                        weight = 1 - abs(tau)
+                    elif self.weights == "likelihood":
+                        copula = find_copula.mml(ranks1,
+                                                 ranks2,
+                                                 verbose=self.verbose,
+                                                 dtimes=self.dtimes)
+                        clabel1 = get_clabel(node2, node1)  # u|v
+                        clabel2 = get_clabel(node1, node2)  # v|u
+                        cop_key = "Copula_%s_%s" % (clabel1[0], clabel2[0])
+                        edge_dict[cop_key] = copula
+                        weight = -copula.likelihood
                     full_graph.add_edge(node1, node2,
-                                        weight=(1 - abs(tau)), tau=tau,
-                                        **ranks_dict)
+                                        weight=weight, tau=tau,
+                                        **edge_dict)
             tree = self._best_tree(full_graph)
-            set_edge_copulae(tree, self.tau_min)
+            set_edge_copulae(tree, self.tau_min, dtimes=self.dtimes)
             trees += [tree]
         return trees
 
@@ -352,6 +395,10 @@ class Vine:
                         # graphs (networkx.DiGraph)
                         if new_key.startswith("C"):
                             new_key = new_key[:-3] + new_key[-1:-4:-1]
+                        # if new_key.startswith("ranks_") and "|" in new_key:
+                        #     if ";" in new_key:
+                        #         new_key = new_key[:new_key.index(";")]
+                        #     new_key = new_key[:-3] + new_key[-1:-4:-1]
                     # we expect to have an ordered preconditioned set!
                     part1, *part2 = new_key.split(";")
                     if part2:
@@ -421,7 +468,14 @@ class Vine:
                     node1, node2 = sorted((node1, node2))
                     edge = tree[node1][node2]
                     cop_key = get_cop_key(node1, node2)
-                    cop_name = edge[cop_key].name[len("fitted "):]
+                    try:
+                        copula = edge[cop_key]
+                    except KeyError:
+                        print("switched ", cop_key)
+                        node1, node2 = node2, node1
+                        cop_key = get_cop_key(node1, node2)
+                        copula = edge[cop_key]
+                    cop_name = copula.name[len("fitted "):]
                     tau = edge["tau"]
                     label = ("%s\n" % cop_name) + (r"$\tau=%.2f$" % tau)
                     elabels[(node1, node2)] = label
@@ -453,12 +507,13 @@ class Vine:
             edge = tree[node1][node2]
             ranks1 = edge["ranks_u"]
             ranks2 = edge["ranks_v"]
-            # ranks1_key, ranks2_key = get_cond_labels(node1, node2)
-            # ranks1 = edge["ranks_" + ranks1_key]
-            # ranks2 = edge["ranks_" + ranks2_key]
-
             cop_key = get_cop_key(node1, node2)
-            cop = edge[cop_key]
+            try:
+                cop = edge[cop_key]
+            except KeyError:
+                print("switched ", cop_key)
+                cop_key = get_cop_key(node2, node1)
+                cop = edge[cop_key]
             cop.plot_density(ax=ax, kind="contour", scatter=False,
                              c_kwds=c_kwds)
             ax.set_title("%s (%.2f)" % (cop.name[len("fitted "):],
@@ -506,14 +561,19 @@ class Vine:
         fig, axs = plt.subplots(len(self.trees), self.d - 1,
                                 sharey=True
                                 # subplot_kw=dict(aspect="equal")
-        )
+                                )
         # first tree, showing actual observations
         tree = self.trees[0]
         for ax_i, (node1, node2) in enumerate(tree.edges()):
             ax = axs[0, ax_i]
             edge = tree[node1][node2]
             cop_key = get_cop_key(node1, node2)
-            cop = edge[cop_key]
+            try:
+                cop = edge[cop_key]
+            except KeyError:
+                print("switched ", cop_key)
+                cop_key = get_cop_key(node2, node1)
+                cop = edge[cop_key]
             cop.plot_qq(ax=ax, s_kwds=s_kwds)
             ax.set_title("%s (%.2f)" % (cop.name[len("fitted "):],
                                         cop.likelihood))
