@@ -1,5 +1,4 @@
 import itertools
-import os
 import re
 from collections import Iterable
 
@@ -8,9 +7,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import networkx as nx
 from scipy import stats as spstats
+import pathos
 from tqdm import tqdm
 
-from weathercop import cop_conf, copulae as cops, find_copula, stats
+from weathercop import copulae as cops, find_copula, stats
+from lhglib.contrib import dirks_globals as my
+from lhglib.contrib.time_series_analysis import distributions as dists
+
+n_nodes = pathos.multiprocessing.cpu_count() - 2
 
 
 def flat_set(*args):
@@ -137,7 +141,7 @@ def set_edge_copulae(tree, tau_min=None, verbose=True, **kwds):
 class Vine:
 
     def __init__(self, ranks, k=0, varnames=None, verbose=True,
-                 build_trees=True, weights="tau"):
+                 build_trees=True, dtimes=None, weights="tau"):
         """Vine copula.
 
         Parameter
@@ -153,10 +157,13 @@ class Vine:
             If None, nodes will be numbered
         build_trees : boolean, optional
             If False, don't build vine trees.
+        dtimes : (T,) array of datetime objects, optional
+            If not None, seasonally changing copulas will be fitted.
         weights : str ("tau" or "likelihood"), optional
         """
         self.ranks = ranks
         self.k = k
+        self.dtimes = dtimes
         self.d, self.T = ranks.shape
         if varnames is None:
             self.varnames = list(range(self.d))
@@ -230,7 +237,7 @@ class Vine:
         if self.verbose:
             print("Building first tree")
         tree = self._gen_first_tree(ranks)
-        set_edge_copulae(tree, self.tau_min)
+        set_edge_copulae(tree, self.tau_min, dtimes=self.dtimes)
         trees = [tree]
 
         # 2nd to (d-1)th tree
@@ -639,28 +646,51 @@ class CVine(Vine):
             print("Simulating from CVine")
         T_sim = self.T if T is None else T
 
-        zero = 1e-15
-        one = 1 - zero
         if randomness is None:
             Ps = np.random.rand(self.d, T_sim)
         else:
-            Ps = np.array([randomness[self.varnames.index(name_old)]
-                           for name_old in self.varnames_old])
-        Us = np.empty_like(Ps)
-        Us[0] = Ps[0]
-        for t in tqdm(range(T_sim), **tqdm_kwds):
-            U, P = Us[:, t], Ps[:, t]
+            Ps = randomness
+
+        zero = 1e-15
+        one = 1 - zero
+        # Us = np.empty_like(Ps)
+        # Us[0] = Ps[0]
+
+        def sim_one(t, P):
+            U = np.empty(len(P))
+            U[0] = P[0]
             U[1] = self[0, 1]["C^_1|0"](conditioned=P[1],
-                                        condition=P[0])
+                                        condition=P[0], t=t)
             for j in range(2, self.d):
                 q = P[j]
                 for l in range(j - 1, -1, -1):
                     cop = self[l, j]["C^_%d|%d" % (j, l)]
-                    q = cop(conditioned=q, condition=P[l])
+                    q = cop(conditioned=q, condition=P[l], t=t)
+                    # if not np.isfinite(q):
+                    #     import ipdb; ipdb.set_trace()
                     q = max(zero, min(one, q))
                 U[j] = q
-            Us[:, t] = U
-        return Us
+            return U
+
+        pool = pathos.pools.ProcessPool(nodes=n_nodes)
+        Us = pool.map(sim_one, range(T_sim), Ps.T)
+
+        # for t in tqdm(range(T_sim), **tqdm_kwds):
+        #     U, P = Us[:, t], Ps[:, t]
+        #     U[1] = self[0, 1]["C^_1|0"](conditioned=P[1],
+        #                                 condition=P[0], t=t)
+        #     for j in range(2, self.d):
+        #         q = P[j]
+        #         for l in range(j - 1, -1, -1):
+        #             cop = self[l, j]["C^_%d|%d" % (j, l)]
+        #             q = cop(conditioned=q, condition=P[l], t=t)
+        #             # if not np.isfinite(q):
+        #             #     import ipdb; ipdb.set_trace()
+        #             q = max(zero, min(one, q))
+        #         U[j] = q
+        #     Us[:, t] = U
+
+        return np.array(Us).T
 
     def _quantiles(self, ranks, **tqdm_kwds):
         """Returns the 'quantiles' (in the sense that if they would be used as
@@ -677,13 +707,16 @@ class CVine(Vine):
         for t in tqdm(range(T), **tqdm_kwds):
             U, P = Us[:, t], Ps[:, t]
             P[1] = self[0, 1]["C_1|0"](conditioned=U[1],
-                                       condition=P[0])
+                                       condition=P[0], t=t)
             for j in range(2, self.d):
                 q = U[j]
                 for l in range(j):
                     cop = self[l, j]["C_%d|%d" % (j, l)]
                     q = cop(conditioned=q,
-                            condition=P[l])
+                            condition=P[l], t=t)
+                    # if not np.isfinite(q):
+                    #     print(self[l, j])
+                    #     import ipdb; ipdb.set_trace()
                 P[j] = q
             Ps[:, t] = P
         return Ps
@@ -813,29 +846,27 @@ class RVine(Vine):
         zero = 1e-12
         # one = 1 - zero
 
-        def minmax(x):
-            return x
-            # return min(one, max(zero, x))
-
         A, M, I = self.A, self.M, self.I
         if randomness is None:
             Ps = np.random.rand(self.d, T_sim)
         else:
-            Ps = np.array([randomness[self.varnames.index(name_old)]
-                           for name_old in self.varnames_old])
+            Ps = randomness
+
         Us = np.empty_like(Ps)
         Us[0] = Ps[0]
         Q, V, Z = [np.empty_like(A, dtype=float) for _ in range(3)]
-        for t in tqdm(range(T_sim), **tqdm_kwds):
-            # Q[:] = V[:] = Z[:] = np.nan
+
+        def sim_one(t, P):
+            # Q, V, Z = [np.empty_like(A, dtype=float) for _ in range(4)]
             Q[:] = V[:] = Z[:] = zero
-            U, P = Us[:, t], Ps[:, t]
-            U[1] = minmax(self[0, 1]["C^_1|0"](conditioned=P[1],
-                                               condition=P[0]))
+            U = np.empty(len(P))
+            U[0] = P[0]
+            U[1] = self[0, 1]["C^_1|0"](conditioned=P[1],
+                                        condition=P[0], t=t)
             Q[1, 1] = P[1]
             if I[0, 1]:
-                V[0, 1] = minmax(self[0, 1]["C_0|1"](conditioned=U[0],
-                                                     condition=U[1]))
+                V[0, 1] = self[0, 1]["C_0|1"](conditioned=U[0],
+                                              condition=U[1], t=t)
             for j in range(2, self.d):
                 Q[j, j] = P[j]
                 for l in range(j - 1, 0, -1):
@@ -845,21 +876,60 @@ class RVine(Vine):
                         s = V[l - 1, M[l, j]]
                     Z[l, j] = s
                     cop = self[l, j]["C^_%d|%d" % (j, A[l, j])]
-                    Q[l, j] = minmax(cop(conditioned=Q[l + 1, j],
-                                         condition=s))
+                    Q[l, j] = cop(conditioned=Q[l + 1, j],
+                                  condition=s, t=t)
                 cop = self[0, j]["C^_%d|%d" % (j, A[0, j])]
-                U[j] = Q[0, j] = minmax(cop(conditioned=Q[1, j],
-                                            condition=U[A[0, j]]))
+                U[j] = Q[0, j] = cop(conditioned=Q[1, j],
+                                     condition=U[A[0, j]], t=t)
                 cop = self[0, j]["C_%d|%d" % (A[0, j], j)]
-                V[0, j] = minmax(cop(conditioned=U[A[0, j]],
-                                     condition=U[j]))
+                V[0, j] = cop(conditioned=U[A[0, j]],
+                              condition=U[j], t=t)
                 for l in range(1, j):
                     if I[l, j]:
                         cop = self[l, j]["C_%d|%d" % (A[l, j], j)]
-                        V[l, j] = minmax(cop(conditioned=Z[l, j],
-                                             condition=Q[l, j]))
-            Us[:, t] = U
-        return Us
+                        V[l, j] = cop(conditioned=Z[l, j],
+                                      condition=Q[l, j], t=t)
+            return U
+
+        pool = pathos.pools.ProcessPool(nodes=n_nodes)
+        Us = pool.map(sim_one, range(T_sim), Ps.T)
+        
+        # for t in tqdm(range(T_sim), **tqdm_kwds):
+        #     # Q[:] = V[:] = Z[:] = np.nan
+        #     Q[:] = V[:] = Z[:] = zero
+        #     U, P = Us[:, t], Ps[:, t]
+        #     U[1] = self[0, 1]["C^_1|0"](conditioned=P[1],
+        #                                 condition=P[0])
+        #     Q[1, 1] = P[1]
+        #     if I[0, 1]:
+        #         V[0, 1] = self[0, 1]["C_0|1"](conditioned=U[0],
+        #                                       condition=U[1])
+        #     for j in range(2, self.d):
+        #         Q[j, j] = P[j]
+        #         for l in range(j - 1, 0, -1):
+        #             if A[l, j] == M[l, j]:
+        #                 s = Q[l, A[l, j]]
+        #             else:
+        #                 s = V[l - 1, M[l, j]]
+        #             Z[l, j] = s
+        #             cop = self[l, j]["C^_%d|%d" % (j, A[l, j])]
+        #             Q[l, j] = cop(conditioned=Q[l + 1, j],
+        #                           condition=s)
+        #         cop = self[0, j]["C^_%d|%d" % (j, A[0, j])]
+        #         U[j] = Q[0, j] = cop(conditioned=Q[1, j],
+        #                              condition=U[A[0, j]])
+        #         cop = self[0, j]["C_%d|%d" % (A[0, j], j)]
+        #         V[0, j] = cop(conditioned=U[A[0, j]],
+        #                       condition=U[j])
+        #         for l in range(1, j):
+        #             if I[l, j]:
+        #                 cop = self[l, j]["C_%d|%d" % (A[l, j], j)]
+        #                 V[l, j] = cop(conditioned=Z[l, j],
+        #                               condition=Q[l, j])
+        #     Us[:, t] = U
+        # return Us
+
+        return np.array(Us).T
 
 
 if __name__ == '__main__':

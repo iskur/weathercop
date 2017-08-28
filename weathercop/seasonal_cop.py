@@ -3,7 +3,8 @@ import warnings
 
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy import stats as spstats
+from scipy.optimize import minimize
+import pathos
 from tqdm import tqdm
 
 from lhglib.contrib import dirks_globals as my, times
@@ -11,12 +12,14 @@ from lhglib.contrib.time_series_analysis import (distributions as dists,
                                                  spectral)
 from weathercop import copulae as cops, stats
 
+n_nodes = pathos.multiprocessing.cpu_count() - 2
+
 
 @functools.total_ordering
 class SeasonalCop:
 
     def __init__(self, copula, dtimes, ranks_u, ranks_v, *,
-                 window_len=15, fft_order=4, verbose=False):
+                 window_len=15, fft_order=3, verbose=False):
         """Seasonally adapting copula.
 
         Parameter
@@ -32,18 +35,36 @@ class SeasonalCop:
         verbose : boolean, optional
         """
         if copula is None:
-            my_cops = list(cops.all_cops.values())  # + [cops.Gaussian()]
-            scops = [SeasonalCop(cop,
-                                 dtimes,
-                                 ranks_u,
-                                 ranks_v,
-                                 window_len=window_len,
-                                 verbose=verbose)
-                     for cop in tqdm(my_cops)
-                     if not isinstance(cop, cops.Independence)]
+            my_cops = [cop for cop in cops.all_cops.values()
+                       if not isinstance(cop, cops.Independence)]
+
+            def expand_ar(ar):
+                if np.ndim(ar) == 2:
+                    return ar
+                n_cops = len(my_cops)
+                return np.tile(ar, (n_cops, 1))
+
+            dtimes, ranks_u, ranks_v = map(expand_ar,
+                                           (dtimes, ranks_u, ranks_v))
+            # pool = pathos.pools.ProcessPool(nodes=n_nodes)
+            pool = pathos.pools.ThreadPool()
+            scops = pool.imap(SeasonalCop, my_cops, dtimes, ranks_u,
+                              ranks_v, window_len=window_len,
+                              verbose=verbose)
+
+            # scops = [SeasonalCop(cop,
+            #                      dtimes,
+            #                      ranks_u,
+            #                      ranks_v,
+            #                      window_len=window_len,
+            #                      verbose=verbose)
+            #          for cop in tqdm(my_cops)
+            #          if not isinstance(cop, cops.Independence)]
+
             # become the copula with the best likelihood
             self.__dict__ = max(scops).__dict__
         else:
+            self.pool = pathos.pools.ProcessPool(nodes=n_nodes)
             self.copula = copula
             self.dtimes = dtimes
             self.ranks_u = ranks_u
@@ -64,6 +85,28 @@ class SeasonalCop:
             self.n_doys = len(self.doys_unique)
             self._doy_mask = self._sliding_theta = self._solution = None
 
+    def _call_copula_func(self, method_name, conditioned, condition, t=None):
+        if t is None:
+            theta = self.thetas
+        else:
+            theta = self.thetas[t % self.n_doys]
+        method = getattr(self.copula, method_name)
+        return method(conditioned, condition, np.squeeze(theta))
+
+    def cdf_given_u(self, t=None, *, conditioned, condition):
+        return self._call_copula_func("cdf_given_u", condition, conditioned, t)
+
+    def cdf_given_v(self, t=None, *, conditioned, condition):
+        return self._call_copula_func("cdf_given_v", condition, conditioned, t)
+
+    def inv_cdf_given_u(self, t=None, *, conditioned, condition):
+        return self._call_copula_func("inv_cdf_given_u", condition,
+                                      conditioned, t)
+
+    def inv_cdf_given_v(self, t=None, *, conditioned, condition):
+        return self._call_copula_func("inv_cdf_given_v", condition,
+                                      conditioned, t)
+    
     @property
     def doy_mask(self):
         """Returns a (n_unique_doys, T) ndarray"""
@@ -120,25 +163,33 @@ class SeasonalCop:
     @property
     def solution(self):
         if self._solution is None:
-            trans = [np.fft.rfft(sl_theta) for sl_theta in self.sliding_theta]
+            trans = np.fft.rfft(self.sliding_theta)
             self._solution = np.array(trans)
+            self._T = self.doys * 2 * np.pi / 365
+            self.thetas = self.trig2thetas(self._solution, self._T)
         return self._solution
 
-    def fourier_approx_new(self, fft_order=4, trig_theta=None):
-        if trig_theta is None:
-            trig_theta = self.solution
+    @property
+    def solution_mll(self):
+        A = np.zeros(self.T, dtype=complex)
+        fft_order = self.fft_order
 
-        _fourier_approx = \
-            np.empty((self.len_theta, self.n_doys))
-        for ii, trans_theta in enumerate(trig_theta):
-            # find the fft_order biggest amplitudes
-            ii_below = np.argsort(np.abs(trans_theta)
-                                  )[:len(trans_theta) - fft_order - 1]
-            thetas = np.copy(trans_theta)
-            thetas[ii_below] = 0
-            _fourier_approx[ii] = np.fft.irfft(thetas, self.n_doys)
+        def mml(A_parts):
+            real, imag = A_parts.reshape(2, -1)
+            A[:fft_order].real = real
+            A[:fft_order].imag = imag
+            thetas = self.trig2thetas(A)
+            density = self.density(thetas=thetas)
+            return np.nansum(ne.evaluate("""-(log(density))"""))
 
-        return _fourier_approx
+        if self._solution is None:
+            trig_theta0 = np.fft.rfft(self.sliding_theta)[0, :fft_order]
+            x0 = trig_theta0.real, trig_theta0.imag
+            self._solution = minimize(mml, x0,
+                                      options=dict(disp=True)
+                                      ).x
+        self.thetas = self.trig2thetas(self._solution, self._T)
+        return self._solution
 
     def fourier_approx(self, fft_order=4, trig_theta=None):
         if trig_theta is None:
@@ -146,13 +197,12 @@ class SeasonalCop:
 
         _fourier_approx = \
             np.empty((len(self.copula.theta_start), self.n_doys))
-        for ii, trans_theta in enumerate(trig_theta):
-            approx = np.fft.irfft(trans_theta[:fft_order + 1], self.n_doys)
-            lower_bound, upper_bound = self.copula.theta_bounds[ii]
-            approx[approx < lower_bound] = lower_bound
-            approx[approx > upper_bound] = upper_bound
-            _fourier_approx[ii] = approx
-        return _fourier_approx
+        approx = np.fft.irfft(trig_theta[:fft_order + 1], self.n_doys)
+        lower_bound, upper_bound = self.copula.theta_bounds[0]
+        approx[approx < lower_bound] = lower_bound
+        approx[approx > upper_bound] = upper_bound
+        _fourier_approx[0] = approx
+        return _fourier_approx[0]
 
     def fit(self, ranks_u=None, ranks_v=None, **kwds):
         if ranks_u is not None:
@@ -169,13 +219,14 @@ class SeasonalCop:
             except AttributeError:
                 _T = self._T = (2 * np.pi / 365 * self.doys)[np.newaxis, :]
         doys = np.atleast_1d(365 * np.squeeze(_T) / (2 * np.pi))
-        doys_ii = np.where(my.isclose(self.doys_unique, doys[:, None]))[1]
+        doys_ii = np.where(np.isclose(self.doys_unique, doys[:, None]))[1]
         if len(doys_ii) < len(doys):
             doys_ii = [my.val2ind(self.doys_unique, doy) for doy in doys]
         fourier_thetas = self.fourier_approx(fft_order, trig_theta)
-        return np.array([fourier_thetas[:, doy_i] for doy_i in doys_ii]).T
+        thetas = np.array([fourier_thetas[doy_i] for doy_i in doys_ii])
+        return np.squeeze(thetas.T)
 
-    def density(self, dtimes=None, ranks_u=None, ranks_v=None):
+    def density(self, dtimes=None, ranks_u=None, ranks_v=None, thetas=None):
         if dtimes is None:
             dtimes = self.dtimes
             doys = self.doys
@@ -186,8 +237,9 @@ class SeasonalCop:
         if ranks_v is None:
             ranks_v = self.ranks_v
         _T = doys * 2 * np.pi / 365
-        thetas = self.trig2thetas(self.solution, _T)
-        return self.copula.density(ranks_u, ranks_v, thetas)
+        if thetas is None:
+            thetas = self.trig2thetas(self.solution, _T)
+        return self.pool.map(self.copula.density, ranks_u, ranks_v, thetas)
 
     def quantiles(self, dtimes=None, ranks_u=None, ranks_v=None):
         if dtimes is None:
@@ -223,8 +275,12 @@ class SeasonalCop:
 
     @property
     def likelihood(self):
-        density = self.density()
-        return np.sum(np.log(density))
+        if self._likelihood is None:
+            density = self.density()
+            self._likelihood = np.sum(ne.evaluate("""log(density)"""))
+            if self.verbose:
+                print("\t%s: %.3f" % (self.copula.name, self._likelihood))
+        return self._likelihood
 
     def __lt__(self, other):
         return self.likelihood < other
@@ -474,88 +530,3 @@ if __name__ == '__main__':
     plt.show()
     vg_ph.clear_cache()
 
-    # # var1_i = met_vg.var_names.index("theta")
-    # # var2_i = met_vg.var_names.index("R")
-    # var1_i, var2_i = 0, 1
-    # dtimes = met_vg.times
-    # doys = times.datetime2doy(dtimes)
-    # # ranks_u = stats.rel_ranks(met_vg.residuals[var1_i])
-    # # ranks_v = stats.rel_ranks(met_vg.residuals[var2_i])
-    # # ranks_u = dists.norm.cdf(met_vg.residuals[var1_i])
-    # # ranks_v = dists.norm.cdf(met_vg.residuals[var2_i])
-    # res1 = met_vg.residuals[var1_i]
-    # res2 = met_vg.residuals[var2_i]
-    # means = met_vg.Bs[:, 0, :]
-    # ranks_u, ranks_v = res_ranks(doys,
-    #                              np.array([res1, res2]),
-    #                              means,
-    #                              met_vg.sigma_us)
-
-    # # my.hist(ranks_u, 20, dists.norm)
-    # # my.hist(ranks_v, 20, dists.norm)
-    # # plt.show()
-
-    # # res1_back, res2_back = res_back(doys, np.array([ranks_u, ranks_v]),
-    # #                                 means, met_vg.sigma_us)
-    # # import numpy.testing as npt
-    # # npt.assert_almost_equal(res1, res1_back)
-    # # npt.assert_almost_equal(res2, res2_back)
-
-    # window_len = 15
-    # my_cops = list(cops.all_cops.values()) + [cops.Gaussian()]
-    # fin_mask = (~np.isclose(ranks_u, 1)) & (~np.isclose(ranks_v, 1))
-    # scops = [SeasonalCop(cop,
-    #                      dtimes[fin_mask],
-    #                      ranks_u[fin_mask],
-    #                      ranks_v[fin_mask],
-    #                      window_len=window_len,
-    #                      verbose=False)
-    #          for cop in tqdm(my_cops)
-    #          if not isinstance(cop, cops.Independence)]
-    # # for scop in sorted(scops):
-    # #     print(scop.copula.name, scop.likelihood)
-    # #     scop.plot_fourier_fit()
-    # # plt.show()
-    # scop = max(scops)
-    # scop.plot_corr()
-    # scop.plot_seasonal_densities()
-    # print("Using ", scop.name)
-
-    # # targetted increase in temperature
-    # T = np.sum(fin_mask)
-    # theta_incr = 0
-    # simt_var, sim_var = met_vg.simulate(theta_incr=theta_incr, T=T,
-    #                                     primary_var=varnames[0])
-    # qq_u = dists.norm.cdf(
-    #     dists.norm.ppf(np.random.random(T)) + met_vg.m[0])
-    # qq_v = np.random.random(T)
-    # ranks_sim = np.array(scop.sample(qq_u=qq_u, qq_v=qq_v))
-    # residuals_sim = np.array(res_back(doys[fin_mask], ranks_sim,
-    #                                   means, met_vg.sigma_us))
-    # # start_str, stop_str = vg.times.datetime2str(dtimes[[0, -1]])
-    # met_vg.verbose = True
-    # simt, sim = met_vg.simulate(
-    #     # start_str=start_str,
-    #     # stop_str=stop_str,
-    #     T=T,
-    #     residuals=residuals_sim,
-    #     primary_var=varnames[0]
-    #     )
-    # met_vg.residuals = residuals_sim
-    # # met_vg.plot_all()
-
-    # def mask_me(data):
-    #     if "R" in varnames:
-    #         return data[:, data[varnames.index("R")] > 0]
-    #     else:
-    #         return data
-    
-    # c_kwds = dict(transform=True, kind="img", varnames=varnames)
-    # fig, axs = plotting.ccplom(mask_me(sim_var), **c_kwds)
-    # fig.suptitle("VAR")
-    # fig, axs = plotting.ccplom(mask_me(sim), **c_kwds)
-    # fig.suptitle("VAR-Cop")
-    # fig, axs = plotting.ccplom(mask_me(met_vg.data_raw),
-    #                            **c_kwds)
-    # fig.suptitle("Observed")
-    # plt.show()
