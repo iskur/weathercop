@@ -23,10 +23,15 @@ requirements:
     - pathos
     - networkx
     - tqdm
+    - future
+    # lhglib requirements, delete this, once vg is properly packaged
+    - pandas
+    - pytables
+    - pep8
 
 test:
   imports:
-    - weathercop
+    - weathercop.vine
 
 # about:
   # home: https://github.com/joerick/pyinstrument
