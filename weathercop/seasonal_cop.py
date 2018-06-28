@@ -74,7 +74,7 @@ class SeasonalCop:
             self.fft_order = fft_order
             self.verbose = verbose
 
-            self.name = "seasonal " + copula.name
+            self.name = f"seasonal {copula.name}"
             self.T = len(ranks_u)
             self.len_theta = len(self.copula.theta_start)
             self.doys = times.datetime2doy(dtimes)
@@ -108,7 +108,7 @@ class SeasonalCop:
     def inv_cdf_given_v(self, t=None, *, conditioned, condition):
         return self._call_copula_func("inv_cdf_given_v", condition,
                                       conditioned, t)
-    
+
     @property
     def doy_mask(self):
         """Returns a (n_unique_doys, T) ndarray"""
@@ -281,7 +281,9 @@ class SeasonalCop:
             density = self.density()
             self._likelihood = np.sum(ne.evaluate("""log(density)"""))
             if self.verbose:
-                print("\t%s: %.3f" % (self.copula.name, self._likelihood))
+                print(f"\t{self.copula.name}: {self.likelihood:.3f}")
+            # if self.verbose:
+            #     print(f"\t{self.copula.name}: {self.likelihood:.3f} (asymm)")
         return self._likelihood
 
     def __lt__(self, other):

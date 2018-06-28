@@ -29,36 +29,38 @@ def flat_set(*args):
 
 def get_label(node1, node2):
     node1, node2 = map(flat_set, (node1, node2))
-    conditioned = "".join(["%d" % no for no in
-                           node1 ^ node2])
-    condition = "".join(["%d" % no for no in
-                         node1 & node2])
-    return "%s|%s" % (conditioned, condition)
+    conditioned = "".join(["%d" % no for no in (node1 ^ node2)])
+    condition = "".join([f"%d" % no for no in (node1 & node2)])
+    return f"{conditioned}|{condition}"
 
 
 def get_clabel(node1, node2, prefix=""):
     node1, node2 = map(flat_set, (node1, node2))
     c1 = tuple(node2 - node1)[0]
     c2 = tuple(node1 - node2)[0]
-    condition = "".join(["%d" % no for no in
-                         sorted(node1 & node2)])
-    clabel = "%s|%s" % (c1, c2)
+    condition = "".join([f"{no}" for no in sorted(node1 & node2)])
+    clabel = f"{c1}|{c2}"
     if condition:
-        clabel = "%s;%s" % (clabel, condition)
+        clabel = f"{clabel};{condition}"
     return prefix + clabel
 
 
-def get_cop_key(node1, node2):
+def get_last_nodes(node1, node2):
     node1, node2 = map(flat_set, (node1, node2))
     n1 = (node1 - node2).pop()
     n2 = (node2 - node1).pop()
-    return "Copula_%d_%d" % (n1, n2)
+    return n1, n2
+
+
+def get_cop_key(node1, node2):
+    n1, n2 = get_last_nodes(node1, node2)
+    return f"Copula_{n1}_{n2}"
 
 
 def get_cond_labels(node1, node2, prefix=""):
     if isinstance(node1, int):
-        key1 = "%s%d|%d" % (prefix, node1, node2)
-        key2 = "%s%d|%d" % (prefix, node2, node1)
+        key1 = f"{prefix}{node1}|{node2}"
+        key2 = f"{prefix}{node2}|{node1}"
         return key1, key2
     conditioned1 = flat_set(node1[0]) ^ flat_set(node1[1])
     conditioned2 = flat_set(node2[0]) ^ flat_set(node2[1])
@@ -74,14 +76,12 @@ def get_cond_labels(node1, node2, prefix=""):
             (prefix,
              tuple(p)[0],
              tuple(conditioned1 - p)[0],
-             "".join(["%d" % no for no in
-                      sorted(condition1)])))
+             "".join([f"{no}" for no in sorted(condition1)])))
     key2 = ("%s%s|%s;%s" %
             (prefix,
              tuple(q)[0],
              tuple(conditioned2 - q)[0],
-             "".join(["%d" % no for no in
-                      sorted(condition2)])))
+             "".join([f"{no}" for no in sorted(condition2)])))
     return key1, key2
 
 
@@ -93,8 +93,8 @@ def set_edge_copulae(tree, tau_min=None, verbose=True, **kwds):
     for node1, node2 in tree.edges_iter():
         edge = tree[node1][node2]
         ranks1_key, ranks2_key = get_cond_labels(node1, node2)
-        ranks1 = edge["ranks_" + ranks1_key]
-        ranks2 = edge["ranks_" + ranks2_key]
+        ranks1 = edge[f"ranks_{ranks1_key}"]
+        ranks2 = edge[f"ranks_{ranks2_key}"]
         cop_key = get_cop_key(node1, node2)
         if tau_min is None:
             try:
@@ -104,14 +104,16 @@ def set_edge_copulae(tree, tau_min=None, verbose=True, **kwds):
                                              get_cop_key(node2, node1)))
                 node1, node2 = node2, node1
                 ranks1_key, ranks2_key = get_cond_labels(node1, node2)
-                ranks1 = edge["ranks_" + ranks1_key]
-                ranks2 = edge["ranks_" + ranks2_key]
+                ranks1 = edge[f"ranks_{ranks1_key}"]
+                ranks2 = edge[f"ranks_{ranks2_key}"]
                 cop_key = get_cop_key(node1, node2)
                 copula = edge[cop_key]
         else:
             if abs(edge["tau"]) > tau_min:
                 # copula = find_copula.mml_serial(ranks1, ranks2,
                 #                                 verbose=verbose, **kwds)
+                if names:
+                    print(f"{names[node1]} - {names[node2]}")
                 copula = find_copula.mml(ranks1, ranks2,
                                          verbose=verbose, **kwds)
             else:
@@ -120,10 +122,11 @@ def set_edge_copulae(tree, tau_min=None, verbose=True, **kwds):
                 copula = cops.independence.generate_fitted(ranks1, ranks2)
         clabel1 = get_clabel(node2, node1)  # u|v
         clabel2 = get_clabel(node1, node2)  # v|u
-        edge["ranks_%s" % clabel1] = \
-            copula.cdf_given_v(conditioned=ranks1, condition=ranks2)
-        edge["ranks_%s" % clabel2] = \
-            copula.cdf_given_u(conditioned=ranks2, condition=ranks1)
+        edge[f"ranks_{clabel1}"] = copula.cdf_given_v(conditioned=ranks1,
+                                                      condition=ranks2)
+        edge[f"ranks_{clabel2}"] = copula.cdf_given_u(conditioned=ranks2,
+                                                      condition=ranks1)
+
         if ";" in clabel1:
             # the preconditioned set would make retrieving overly complicated
             clabel1 = clabel1[:clabel1.index(";")]
@@ -132,10 +135,10 @@ def set_edge_copulae(tree, tau_min=None, verbose=True, **kwds):
             edge[cop_key] = copula
         # we depend on these keys to start with a capital "C" when
         # relabeling later on
-        edge["C^_%s" % clabel1] = copula.inv_cdf_given_v
-        edge["C^_%s" % clabel2] = copula.inv_cdf_given_u
-        edge["C_%s" % clabel1] = copula.cdf_given_v
-        edge["C_%s" % clabel2] = copula.cdf_given_u
+        edge[f"C^_{clabel1}"] = copula.inv_cdf_given_v
+        edge[f"C^_{clabel2}"] = copula.inv_cdf_given_u
+        edge[f"C_{clabel1}"] = copula.cdf_given_v
+        edge[f"C_{clabel2}"] = copula.cdf_given_u
 
 
 class Vine:
@@ -232,10 +235,10 @@ class Vine:
     def _gen_trees(self, ranks):
         """Generate the vine trees."""
         if self.verbose and self.weights == "tau":
-            print("Minimum tau for dependence: %.4f" % self.tau_min)
+            print(f"Minimum tau for dependence: {self.tau_min:.4f}")
 
         if self.verbose:
-            print("Building first tree")
+            print(f"Building tree 1 of {self.d - 1}")
         tree = self._gen_first_tree(ranks)
         set_edge_copulae(tree, self.tau_min, dtimes=self.dtimes)
         trees = [tree]
@@ -243,7 +246,7 @@ class Vine:
         # 2nd to (d-1)th tree
         for l in range(1, self.d - 1):
             if self.verbose:
-                print("Building tree %d of %d" % (l + 1, self.d))
+                print(f"Building tree {l + 1} of {self.d - 1}")
             full_graph = nx.Graph()
             # edges from above or last iteration are now nodes
             last_tree = trees[-1]
@@ -272,6 +275,8 @@ class Vine:
                         clabel1 = get_clabel(node2, node1)  # u|v
                         clabel2 = get_clabel(node1, node2)  # v|u
                         cop_key = "Copula_%s_%s" % (clabel1[0], clabel2[0])
+                        # cop_key = "Copula_%s_%s" % (clabel1, clabel2)
+                        cop_key = f"Copula_{clabel1}_{clabel2}"
                         edge_dict[cop_key] = copula
                         weight = -copula.likelihood
                     full_graph.add_edge(node1, node2,
@@ -371,7 +376,7 @@ class Vine:
         # relabel to get a diagonal of {0, ..., d - 1}
         olds = "".join(str(no) for no in np.diag(A))
         news = "".join(str(no) for no in range(self.d))
-        relable_table = "".maketrans(olds, news)
+        relabel_table = "".maketrans(olds, news)
         relabel_mapping = {old: new for new, old in enumerate(np.diag(A))}
         # and don't forget the variable names, so we can return data
         # in the expected order!
@@ -397,7 +402,7 @@ class Vine:
                 node1_new, node2_new = map(relabel_func, (node1, node2))
                 new_dict = {}
                 for key, val in tree[node1][node2].items():
-                    new_key = key.translate(relable_table)
+                    new_key = key.translate(relabel_table)
                     if node1_new > node2_new:
                         # this is critical! node identifiers in edge
                         # representations are sorted, resulting in
@@ -450,14 +455,14 @@ class Vine:
         fig, axs = plt.subplots(nrows, 2)
         axs = np.ravel(axs)
         for tree_i, (ax, tree) in enumerate(zip(axs, self.trees)):
-            ax.set_title(r"$T_%d$" % tree_i,
+            ax.set_title(rf"$T_{tree_i}$",
                          # fontsize=20
                          )
             if tree_i == 0:
-                labels = {i: "%d: %s" % (i, varname)
+                labels = {i: f"{i}: {varname}"
                           for i, varname in enumerate(self.varnames)}
             elif tree_i == 1:
-                labels = {(node1, node2): "%d%d" % (node1, node2)
+                labels = {(node1, node2): f"{node1}{node2}"
                           for node1, node2 in tree.nodes()}
             else:
                 labels = {(node1, node2): get_label(node1, node2)
@@ -469,7 +474,7 @@ class Vine:
 
             if edge_labels == "nodes":
                 if tree_i == 0:
-                    elabels = {(node1, node2): "%d%d" % (node1, node2)
+                    elabels = {(node1, node2): f"{node1}{node2}"
                                for node1, node2 in tree.edges()}
                 else:
                     elabels = {(node1, node2): get_label(node1, node2)
@@ -489,7 +494,7 @@ class Vine:
                         copula = edge[cop_key]
                     cop_name = copula.name[len("fitted "):]
                     tau = edge["tau"]
-                    label = ("%s\n" % cop_name) + (r"$\tau=%.2f$" % tau)
+                    label = (f"{cop_name}\n") + (rf"$\tau={tau:.2f}$")
                     elabels[(node1, node2)] = label
             else:
                 elabels = None
@@ -839,7 +844,7 @@ class RVine(Vine):
             timesteps in source data.
         randomness : (K, T) array or None, optional
             Random ranks to be used. None means iid uniform ranks.
-        
+
         Notes
         -----
         See Algorithm 17 on p. 292.
