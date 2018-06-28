@@ -84,7 +84,9 @@ cpdef norm_cdf_given_u(double[:] uu,
     vdSqrt(<int> n, &tmp_in[0], &sqrt[0])
 
     for i in prange(n, nogil=True):
-        tmp_in[i] = rho[i] * erfinv_u[i] - erfinv_v[i] * sqrt[i]
+        # this gives a nice picture in test_normal.test_conditional!
+        # tmp_in[i] = rho[i] * erfinv_u[i] - erfinv_v[i] * sqrt[i]
+        tmp_in[i] = (rho[i] * erfinv_u[i] - erfinv_v[i]) / sqrt[i]
     vdErf(<int> n, &tmp_in[0], &tmp_out[0])
     for i in xrange(n):
         result[i] = -.5 * tmp_out[i] + .5
