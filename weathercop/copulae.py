@@ -21,6 +21,7 @@ import dill
 
 from weathercop import cop_conf as conf, stats, tools
 
+from weathercop.normal_conditional import norm_inv_cdf_given_u, norm_cdf_given_u
 
 # used wherever theta can be inf in principle
 theta_large = 1e3
@@ -1289,41 +1290,21 @@ alimikailhaq = AliMikailHaq()
 
 
 class Gaussian(Copulae, NoRotations):
-    par_names = "uu", "vv", "rho"
+    par_names = "uu", "vv", "theta"
     theta_start = .75,
     theta_bounds = [(-1. + 1e-12, 1. - 1e-12)]
-    # uu, vv, rho = sympy.symbols(par_names)
-    # xx, yy = sympy.symbols("xx yy")
-    # dens_expr = ((1 - rho ** 2) ** (-.5) *
-    #              exp(-.5 * (xx ** 2 + yy ** 2 - 2 * rho * xx * yy) *
-    #                  (1 - rho ** 2)) *
-    #              exp(0.5 * (xx ** 2 + yy ** 2)))
-    # uni_inv = sympy.sqrt(2) * error_functions.erfinv(2 * xx - 1)
-    # dens_expr = dens_expr.subs(xx, uni_inv.subs(xx, uu))
-    # dens_expr = dens_expr.subs(yy, uni_inv.subs(xx, vv))
-    # dens_func = np.vectorize(sympy.lambdify((uu, vv, rho), dens_expr,))
+    symmetry1 = symmetry2 = True
 
-    # def dens_func(self, uu, vv, rho):
-    #     rho = np.squeeze(rho)
-    #     erfu = erfinv(2 * uu - 1)
-    #     erfv = erfinv(2 * vv - 1)
-    #     return ((-rho ** 2 + 1) ** (-0.5) *
-    #             np.exp((-rho ** 2 + 1) *
-    #                    (2.0 * rho * erfu * erfv -
-    #                     erfu ** 2 - erfv ** 2)) *
-    #             np.exp(erfu ** 2 + erfv ** 2))
-
-    def dens_func(self, uu, vv, rho):
+    def dens_func(self, uu, vv, theta):
         uu, vv = np.atleast_1d(uu, vv)
         xx = spstats.norm.ppf(uu).reshape(uu.shape)
         yy = spstats.norm.ppf(vv).reshape(vv.shape)
-        return ((1 - rho ** 2) ** (-.5) *
-                np.exp(-.5 * (xx ** 2 + yy ** 2 - 2 * rho * xx * yy) *
-                       (1 - rho ** 2)) *
+        return ((1 - theta ** 2) ** (-.5) *
+                np.exp(-.5 * (xx ** 2 + yy ** 2 - 2 * theta * xx * yy) *
+                       (1 - theta ** 2)) *
                 np.exp(0.5 * (xx ** 2 + yy ** 2)))
 
-    def copula_func(self, uu, vv, rho):
-        rho = np.squeeze(rho)
+    def copula_func(self, uu, vv, theta):
         uu, vv = np.atleast_1d(uu, vv)
         uu_normal = spstats.norm.ppf(uu)
         vv_normal = spstats.norm.ppf(vv)
@@ -1343,45 +1324,60 @@ class Gaussian(Copulae, NoRotations):
             quantiles[i] = mvn.mvndst(lower,
                                       np.array([u_normal, v_normal]),
                                       infin,
-                                      rho
+                                      theta[i]
                                       )[1]
         if broadcast:
             quantiles = quantiles.reshape(uu.size, vv.size)
         return quantiles
 
-    def cdf_given_u(self, uu, vv, rho):
-        rho = np.squeeze(rho)
-        return (-0.5 * erf((rho *
-                            erfinv(2 * uu - 1) -
-                            erfinv(2 * vv - 1)) /
-                           np.sqrt(-rho ** 2 + 1)) + 0.5)
+    def cdf_given_u_(self, uu, vv, theta):
+        theta = np.squeeze(theta)
+        return (-0.5 * erf((theta *
+                       erfinv(2 * uu - 1) -
+                       erfinv(2 * vv - 1)) /
+                      np.sqrt(-theta ** 2 + 1))
+           + 0.5)
 
-    def cdf_given_v(self, uu, vv, rho):
-        return self.cdf_given_u(vv, uu, rho)
-        # rho = np.squeeze(rho)
-        # return (-0.5 * erf((rho *
-        #                     erfinv(2 * uu - 1) -
-        #                     erfinv(2 * vv - 1)) /
-        #                    np.sqrt(-rho ** 2 + 1)) + 0.5)
+    def cdf_given_u(self, uu, vv, theta):
+        qq = np.empty_like(uu)
+        norm_cdf_given_u(uu, vv, theta, qq)
+        return qq
+
+    def inv_cdf_given_u_(self, uu, qq, theta):
+        # theta = np.squeeze(theta)
+        return (.5 * (1 +
+                 erf(theta *
+                     erfinv(2 * uu - 1) -
+                     erfinv(-2 * (qq - .5)) *
+                     np.sqrt(-theta ** 2 + 1))))
+
+    def inv_cdf_given_u(self, uu, qq, theta):
+        vv = np.empty_like(uu)
+        norm_inv_cdf_given_u(uu, qq, theta, vv)
+        return vv
+    
+    def cdf_given_v(self, uu, vv, theta):
+        return self.cdf_given_u(vv, uu, theta)
 
     def fit(self, ranks_u, ranks_v, *args, **kwds):
         return np.corrcoef(ranks_u, ranks_v)[0, 1],
-# gaussian = Gaussian()
+gaussian = Gaussian()
 
 
-class Plackett(Copulae):
-    par_names = "uu", "vv", "delta"
-    theta_start = 1.5,
+class Plackett(Copulae, NoRotations):
+# class Plackett(Copulae):    
+    par_names = "uu", "vv", "theta"
+    theta_start = 2.,
     theta_bounds = [(1e-6, 20)]
-    uu, vv, delta, eta = sympy.symbols(par_names + ("eta",))
+    uu, vv, theta, eta = sympy.symbols(par_names + ("eta",))
     cop_expr = (1 / (2 * eta) * (1 + eta * (uu + vv) -
-                                 ((1 + eta * (uu + vv)) ** 2 -
-                                  4 * delta * eta * uu * vv) ** .5))
-    cop_expr = cop_expr.subs(eta, delta - 1)
-    # cdf_given_uu_expr = 0.5 - 0.5 * ((eta * uu + 1 - (eta + 2) * vv) /
-    #                                  ((1 + eta * (uu + vv)) ** 2 -
-    #                                   4 * delta * eta * uu * vv) ** .5)
-    # cdf_given_uu_expr = cdf_given_uu_expr.subs(eta, delta - 1)
+                                 sympy.sqrt((1 + eta * (uu + vv)) ** 2 -
+                                            4 * theta * eta * uu * vv)))
+    cop_expr = cop_expr.subs(eta, theta - 1)
+    cdf_given_uu_expr = 0.5 - 0.5 * ((eta * uu + 1 - (eta + 2) * vv) /
+                                     sympy.sqrt((1 + eta * (uu + vv)) ** 2 -
+                                                4 * theta * eta * uu * vv))
+    cdf_given_uu_expr = cdf_given_uu_expr.subs(eta, theta - 1)
     known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
 plackett = Plackett()
 
