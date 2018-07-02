@@ -363,8 +363,8 @@ class Vine:
 
     def simulate(self, randomness=None, *args, **kwds):
         if randomness is not None:
-            randomness = np.array([randomness[self.varnames.index(name_old)]
-                                   for name_old in self.varnames_old])
+            randomness = np.array([randomness[self.varnames_old.index(name)]
+                                   for name in self.varnames])
         sim = self._simulate(randomness=randomness, *args, **kwds)
         # reorder variables according to input order
         return np.array([sim[self.varnames.index(varname_old)]
@@ -378,14 +378,12 @@ class Vine:
         if ranks is None:
             ranks = self.ranks
         # sort ranks according to the internal order
+        # we assume the variables were given in the old/outside order
         ranks = np.array([ranks[self.varnames_old.index(name)]
                           for name in self.varnames])
-        # we assume the variables were given in the old/outside order
-        # ranks = np.array([ranks[self.varnames.index(name_old)]
-        #                   for name_old in self.varnames_old])
         Ps = self._quantiles(ranks, *args, **kwds)
-        return np.array([Ps[self.varnames.index(name_new)]
-                         for name_new in self.varnames_old])
+        return np.array([Ps[self.varnames.index(name_old)]
+                         for name_old in self.varnames_old])
 
     def __getitem__(self, key):
         """Access the vine tree nodes by row and column index of Vine.A."""
