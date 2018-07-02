@@ -159,12 +159,13 @@ def get_cond_labels(node1, node2, prefix=""):
     return key1, key2
 
 
-def set_edge_copulae(tree, tau_min=None, verbose=True, **kwds):
+def set_edge_copulae(tree, *, tau_min=None, names=None, verbose=True,
+                     **kwds):
     """Fits a copula to the ranks at all nodes and sets conditional
     ranks and copula methods as edge attributes.
     """
-    # for node1, node2 in sorted(tree.edges_iter()):
-    for node1, node2 in tree.edges_iter():
+    for node1, node2 in tree.edges():
+        node1, node2 = sorted((node1, node2))
         edge = tree[node1][node2]
         ranks1_key, ranks2_key = get_cond_labels(node1, node2)
         ranks1 = edge[f"ranks_{ranks1_key}"]
@@ -184,11 +185,10 @@ def set_edge_copulae(tree, tau_min=None, verbose=True, **kwds):
                 copula = edge[cop_key]
         else:
             if abs(edge["tau"]) > tau_min:
-                # copula = find_copula.mml_serial(ranks1, ranks2,
-                #                                 verbose=verbose, **kwds)
                 if names:
                     print(f"{names[node1]} - {names[node2]}")
                 copula = find_copula.mml(ranks1, ranks2,
+                                         plot=False,
                                          verbose=verbose, **kwds)
             else:
                 if verbose:
@@ -218,7 +218,8 @@ def set_edge_copulae(tree, tau_min=None, verbose=True, **kwds):
 class Vine:
 
     def __init__(self, ranks, k=0, varnames=None, verbose=True,
-                 build_trees=True, dtimes=None, weights="tau"):
+                 build_trees=True, dtimes=None, weights="tau",
+                 tau_min=None, debug=False, **kwds):
         """Vine copula.
 
         Parameter
@@ -237,6 +238,7 @@ class Vine:
         dtimes : (T,) array of datetime objects, optional
             If not None, seasonally changing copulas will be fitted.
         weights : str ("tau" or "likelihood"), optional
+        tau_min : None or float, optional
         """
         self.ranks = ranks
         self.k = k
@@ -253,7 +255,9 @@ class Vine:
         # old order.
         self.varnames_old = None
         self.verbose = verbose
+        self.debug = debug
         self.weights = weights
+        self.tau_min = tau_min
         if build_trees:
             self.trees = self._gen_trees(ranks)
             # property cache
@@ -263,14 +267,24 @@ class Vine:
 
     @property
     def tau_min(self):
-        if self.weights != "tau":
-            return None
-        # minimum absolute tau to reject dependence at 5% significance
-        # level -> use the independence copula, then (see Genest and
-        # Favre, 2007)
-        n = self.T - self.k
-        return 1.96 / np.sqrt((9 * n * (n - 1)) /
-                              (2 * (2 * n + 5)))
+        if self._tau_min is None:
+            if self.weights != "tau":
+                return None
+            # minimum absolute tau to reject dependence at 5% significance
+            # level -> use the independence copula, then (see Genest and
+            # Favre, 2007)
+            n = self.T - self.k
+            return 1.96 / np.sqrt((9 * n * (n - 1)) /
+                                  (2 * (2 * n + 5)))
+        return self._tau_min
+
+    @tau_min.setter
+    def tau_min(self, value):
+        self._tau_min = value
+
+    @tau_min.deleter
+    def tau_min(self):
+        self._tau_min = None
 
     def _gen_first_tree(self, ranks):
         # this does the unexpensive work of finding the first tree
@@ -286,7 +300,12 @@ class Vine:
                     edge_dict = {ranks1_key: ranks1,
                                  ranks2_key: ranks2,
                                  "ranks_u": ranks1,
-                                 "ranks_v": ranks2}
+                                 "ranks_v": ranks2,
+                                 # some additional information for
+                                 # later introspection
+                                 "tree": 0,
+                                 "node_u": node1,
+                                 "node_v": node2}
                     tau = spstats.kendalltau(ranks1, ranks2).correlation
                     if self.weights == "tau":
                         # as networkx minimizes the spanning tree, we have
@@ -297,13 +316,15 @@ class Vine:
                         copula = find_copula.mml(ranks1,
                                                  ranks2,
                                                  verbose=self.verbose,
-                                                 dtimes=self.dtimes)
+                                                 dtimes=self.dtimes,
+                                                 plot=False
+                                                 )
                         weight = -copula.likelihood
                         edge_dict[cop_key] = copula
                     full_graph.add_edge(node1, node2,
                                         weight=weight, tau=tau,
                                         **edge_dict)
-        tree = self._best_tree(full_graph)
+        tree = self._best_tree(full_graph, tree_i=0)
         return tree
 
     def _gen_trees(self, ranks):
@@ -314,7 +335,8 @@ class Vine:
         if self.verbose:
             print(f"Building tree 1 of {self.d - 1}")
         tree = self._gen_first_tree(ranks)
-        set_edge_copulae(tree, self.tau_min, dtimes=self.dtimes)
+        set_edge_copulae(tree, tau_min=self.tau_min,
+                         dtimes=self.dtimes, names=self.varnames)
         trees = [tree]
 
         # 2nd to (d-1)th tree
@@ -338,26 +360,33 @@ class Vine:
                     ranks2 = edge2[ranks2_key]
                     tau = spstats.kendalltau(ranks1, ranks2).correlation
                     edge_dict = {ranks1_key: ranks1,
-                                 ranks2_key: ranks2}
+                                 ranks2_key: ranks2,
+                                 # some additional information for
+                                 # later introspection
+                                 "tree": l,
+                                 "node_u": get_last_nodes(node1, node2)[0],
+                                 "node_v": get_last_nodes(node2, node1)[0],
+                                 "node_u_full": node1,
+                                 "node_v_full": node2}
                     if self.weights == "tau":
                         weight = 1 - abs(tau)
                     elif self.weights == "likelihood":
                         copula = find_copula.mml(ranks1,
                                                  ranks2,
                                                  verbose=self.verbose,
-                                                 dtimes=self.dtimes)
-                        clabel1 = get_clabel(node2, node1)  # u|v
-                        clabel2 = get_clabel(node1, node2)  # v|u
-                        cop_key = "Copula_%s_%s" % (clabel1[0], clabel2[0])
-                        # cop_key = "Copula_%s_%s" % (clabel1, clabel2)
+                                                 dtimes=self.dtimes,
+                                                 plot=False
+                                                 )
+                        clabel1 = get_clabel(node2, node1)[0]  # u|v
+                        clabel2 = get_clabel(node1, node2)[0]  # v|u
                         cop_key = f"Copula_{clabel1}_{clabel2}"
                         edge_dict[cop_key] = copula
                         weight = -copula.likelihood
                     full_graph.add_edge(node1, node2,
                                         weight=weight, tau=tau,
                                         **edge_dict)
-            tree = self._best_tree(full_graph)
-            set_edge_copulae(tree, self.tau_min, dtimes=self.dtimes)
+            tree = self._best_tree(full_graph, tree_i=l)
+            set_edge_copulae(tree, tau_min=self.tau_min, dtimes=self.dtimes)
             trees += [tree]
         return trees
 
@@ -464,14 +493,25 @@ class Vine:
                     container += [relabel_func(item)]
                 else:
                     container += [relabel_mapping[item]]
-            return tuple(sorted(container))
+            return tuple(container)
 
         # relabel nodes and edges
+        if self.debug:
+            print(f"\nRelabeling nodes: {relabel_mapping}")
         new_trees = []
-        for tree in self.trees:
+        for tree_i, tree in enumerate(self.trees):
             new_tree = nx.Graph()
+            if self.debug:
+                print(f"Tree: {tree_i}")
             for node1, node2 in tree.edges():
-                node1_new, node2_new = map(relabel_func, (node1, node2))
+                edge = tree[node1][node2]
+                node1_new, node2_new = map(relabel_func,
+                                           (edge["node_u"],
+                                            edge["node_v"]))
+                if self.debug and (node1_new > node2_new):
+                    print(f"{node1} -> {node1_new},", end=" ")
+                    print(f"{node2} -> {node2_new}")
+                    print(f"({node1}, {node2}) -> ({node1_new}, {node2_new})")
                 new_dict = {}
                 for key, val in tree[node1][node2].items():
                     new_key = key.translate(relabel_table)
@@ -484,17 +524,24 @@ class Vine:
                         # graphs (networkx.DiGraph)
                         if new_key.startswith("C"):
                             new_key = new_key[:-3] + new_key[-1:-4:-1]
-                        # if new_key.startswith("ranks_") and "|" in new_key:
-                        #     if ";" in new_key:
-                        #         new_key = new_key[:new_key.index(";")]
-                        #     new_key = new_key[:-3] + new_key[-1:-4:-1]
                     # we expect to have an ordered preconditioned set!
                     part1, *part2 = new_key.split(";")
                     if part2:
                         part2 = "".join(sorted(*part2))
                         new_key = ";".join((part1, part2))
+                    if (self.debug and
+                            (node1_new > node2_new) and
+                            (new_key != key)):
+                        print(f"{key} -> {new_key}")
+                    if new_key == "node_u":
+                        val = node1_new
+                    elif new_key == "node_v":
+                        val = node2_new
                     new_dict[new_key] = val
-                new_tree.add_edge(node1_new, node2_new, new_dict)
+                node1_new, node2_new = map(relabel_func, (node1, node2))
+                new_tree.add_edge(node1_new, node2_new, **new_dict)
+            if self.debug:
+                print()
             new_trees.append(new_tree)
         self.trees = new_trees
 
@@ -592,6 +639,7 @@ class Vine:
         # first tree, showing actual observations
         tree = self.trees[0]
         for ax_i, (node1, node2) in enumerate(tree.edges()):
+            node1, node2 = sorted((node1, node2))
             ax = axs[0, ax_i]
             edge = tree[node1][node2]
             ranks1 = edge["ranks_u"]
@@ -699,24 +747,25 @@ class CVine(Vine):
     def __init__(self, *args, central_node=None, **kwds):
         self.central_node_name = central_node
         super().__init__(*args, **kwds)
-    
-    def _best_tree(self, full_graph):
-        nodes = full_graph.nodes()
-        taus = np.array([[1
-                          if node1 == node2 else
-                          full_graph[node1][node2]["tau"]
-                          for node1 in nodes]
-                         for node2 in nodes])
-        if self.central_node_name is None:
-            central_node_i = np.argmax(np.sum(np.abs(taus), axis=0))
+
+    def _best_tree(self, full_graph, tree_i):
+        nodes = list(full_graph.nodes())
+        weights = np.array([[1
+                             if node1 == node2 else
+                             full_graph[node1][node2]["weight"]
+                             for node1 in nodes]
+                            for node2 in nodes])
+        if self.central_node_name is None or tree_i > 0:
+            central_node_i = np.argmin(np.sum(weights, axis=0))
         else:
             central_node_i = self.varnames.index(self.central_node_name)
         central_node = nodes[central_node_i]
         other_nodes = sorted(list(set(nodes) - set([central_node])))
         new_graph = nx.Graph()
         for other_node in other_nodes:
+            edge_dict = full_graph[central_node][other_node]
             new_graph.add_edge(central_node, other_node,
-                               full_graph[central_node][other_node])
+                               **edge_dict)
         return new_graph
 
     def _simulate(self, T=None, randomness=None, **tqdm_kwds):
@@ -786,7 +835,10 @@ class DVine(Vine):
 
 class RVine(Vine):
 
-    def _best_tree(self, full_graph):
+    def __init__(self, *args, **kwds):
+        super().__init__(*args, **kwds)
+
+    def _best_tree(self, full_graph, tree_i):
         """
         Notes
         -----
@@ -1024,9 +1076,6 @@ def vg_ph(vg_obj, sc_pars, refit=False):
         phases = np.hstack((vg_ph.phases[:, 0, None],
                             phases_lh,
                             phases_rh))
-
-    if np.any(~np.isfinite(vg_ph.cop_quantiles)):
-        import ipdb; ipdb.set_trace()
 
     try:
         A_new = vg_ph.As * np.exp(1j * phases)
