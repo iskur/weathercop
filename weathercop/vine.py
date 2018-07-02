@@ -1,20 +1,94 @@
 import itertools
+import multiprocessing
 import re
 from collections import Iterable
+from contextlib import suppress
+from itertools import repeat
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import networkx as nx
-from scipy import stats as spstats
-import pathos
+import pyximport
+import scipy.stats as spstats
 from tqdm import tqdm
+# import pyximport
 
-from weathercop import copulae as cops, find_copula, stats
-from lhglib.contrib import dirks_globals as my
-from lhglib.contrib.time_series_analysis import distributions as dists
+from vg import helpers as my
+from vg.time_series_analysis import distributions as dists
+from weathercop import (cop_conf, copulae as cops, find_copula,
+                        seasonal_cop, stats, tools)
 
-n_nodes = pathos.multiprocessing.cpu_count() - 2
+# pyximport.install(setup_args={
+#     # 'include_dirs': np.get_include(),
+#     'include_dirs': [np.get_include(), "~/anaconda/envs/python3/include/"]
+#     # 'gdb_debug': True
+#     },
+#                   reload_support=True)
+from weathercop import normal_conditional
+
+
+if cop_conf.PROFILE:
+    def csim_one(args):
+        # this is a function and not a method, so it can be pickled by
+        # multiprocessing
+        t, P, cvine, zero, one = args
+        U = np.empty(len(P))
+        U[0] = P[0]
+        U[1] = cvine[0, 1]["C^_1|0"](conditioned=P[None, 1],
+                                     condition=P[None, 0],
+                                     t=t)
+        for j in range(2, cvine.d):
+            q = P[None, j]
+            for l in range(j - 1, -1, -1):
+                cop = cvine[l, j][f"C^_{j}|{l}"]
+                q = cop(conditioned=q,
+                        condition=P[None, l],
+                        t=t)
+            U[j] = q
+        return U
+else:
+    pyximport.install(setup_args={'include_dirs': np.get_include(),
+                                  # 'gdb_debug': True
+                                  },
+                      reload_support=True)
+    from weathercop.cvine import csim_one
+
+
+if cop_conf.PROFILE:
+    def cquant_one(args):
+        t, U, cvine, zero, one = args
+        P = np.empty(len(U))
+        P[0] = U[0]
+        P[1] = cvine[0, 1]["C_1|0"](conditioned=U[None, 1],
+                                    condition=P[None, 0],
+                                    t=t)
+        P[1] = max(zero, min(one, P[1]))
+        for j in range(2, cvine.d):
+            q = U[None, j]
+            for l in range(j):
+                cop = cvine[l, j][f"C_{j}|{l}"]
+                # q_old = q[0]
+                q = cop(conditioned=q,
+                        condition=P[None, l],
+                        t=t)
+            P[j] = q
+        return P
+else:
+    pyximport.install(setup_args={'include_dirs': np.get_include(),
+                                  # 'gdb_debug': True
+                                  },
+                      reload_support=True)
+    from weathercop.cvine import cquant_one
+
+
+n_nodes = multiprocessing.cpu_count() - 1
+
+
+def clear_vine_cache():
+    for suffix in ("bak dat dir".split()):
+        with suppress(FileNotFoundError):
+            cop_conf.vine_cache.with_suffix(f".she.{suffix}").unlink()
 
 
 def flat_set(*args):
@@ -665,43 +739,19 @@ class CVine(Vine):
 
         zero = 1e-15
         one = 1 - zero
-        # Us = np.empty_like(Ps)
-        # Us[0] = Ps[0]
 
-        def sim_one(t, P):
-            U = np.empty(len(P))
-            U[0] = P[0]
-            U[1] = self[0, 1]["C^_1|0"](conditioned=P[1],
-                                        condition=P[0], t=t)
-            for j in range(2, self.d):
-                q = P[j]
-                for l in range(j - 1, -1, -1):
-                    cop = self[l, j]["C^_%d|%d" % (j, l)]
-                    q = cop(conditioned=q, condition=P[l], t=t)
-                    # if not np.isfinite(q):
-                    #     import ipdb; ipdb.set_trace()
-                    q = max(zero, min(one, q))
-                U[j] = q
-            return U
-
-        pool = pathos.pools.ProcessPool(nodes=n_nodes)
-        Us = pool.map(sim_one, range(T_sim), Ps.T)
-
-        # for t in tqdm(range(T_sim), **tqdm_kwds):
-        #     U, P = Us[:, t], Ps[:, t]
-        #     U[1] = self[0, 1]["C^_1|0"](conditioned=P[1],
-        #                                 condition=P[0], t=t)
-        #     for j in range(2, self.d):
-        #         q = P[j]
-        #         for l in range(j - 1, -1, -1):
-        #             cop = self[l, j]["C^_%d|%d" % (j, l)]
-        #             q = cop(conditioned=q, condition=P[l], t=t)
-        #             # if not np.isfinite(q):
-        #             #     import ipdb; ipdb.set_trace()
-        #             q = max(zero, min(one, q))
-        #         U[j] = q
-        #     Us[:, t] = U
-
+        if cop_conf.PROFILE:
+            Us = [csim_one((t, Ps[:, t], self, zero, one))
+                  for t in range(T_sim)]
+        else:
+            with multiprocessing.Pool(n_nodes) as pool:
+                Us = pool.map(csim_one,
+                              zip(range(T_sim),
+                                  Ps.T,
+                                  repeat(self),
+                                  repeat(zero),
+                                  repeat(one)),
+                              chunksize=int(T_sim / n_nodes))
         return np.array(Us).T
 
     def _quantiles(self, ranks, **tqdm_kwds):
@@ -713,25 +763,23 @@ class CVine(Vine):
         if self.verbose:
             print("Obtaining quantiles in CVine")
         T = ranks.shape[1]
-        Ps = np.empty_like(ranks)
         Us = ranks
-        Ps[0] = Us[0]
-        for t in tqdm(range(T), **tqdm_kwds):
-            U, P = Us[:, t], Ps[:, t]
-            P[1] = self[0, 1]["C_1|0"](conditioned=U[1],
-                                       condition=P[0], t=t)
-            for j in range(2, self.d):
-                q = U[j]
-                for l in range(j):
-                    cop = self[l, j]["C_%d|%d" % (j, l)]
-                    q = cop(conditioned=q,
-                            condition=P[l], t=t)
-                    # if not np.isfinite(q):
-                    #     print(self[l, j])
-                    #     import ipdb; ipdb.set_trace()
-                P[j] = q
-            Ps[:, t] = P
-        return Ps
+        zero = 1e-6
+        one = 1 - zero
+
+        if cop_conf.PROFILE:
+            Ps = [cquant_one((t, Us[:, t], self, zero, one))
+                  for t in range(T)]
+        else:
+            with multiprocessing.Pool(n_nodes) as pool:
+                Ps = pool.map(cquant_one,
+                              zip(range(T),
+                                  Us.T,
+                                  repeat(self),
+                                  repeat(zero),
+                                  repeat(one)),
+                              chunksize=(T // n_nodes))
+        return np.array(Ps).T
 
 
 class DVine(Vine):
@@ -802,35 +850,37 @@ class RVine(Vine):
             # correctly invert the simulating algorithm
             # Q[:] = V[:] = Z[:] = np.nan
             U, P = Us[:, t], Ps[:, t]
-            P[1] = self[0, 1]["C_1|0"](conditioned=U[1],
-                                       condition=P[0])
+            P[1] = self[0, 1]["C_1|0"](conditioned=U[None, 1],
+                                       condition=P[None, 0], t=t)
             Q[1, 1] = P[1]
             if I[0, 1]:
-                V[0, 1] = minmax(self[0, 1]["C_0|1"](conditioned=U[0],
-                                                     condition=U[1]))
+                V[0, 1] = minmax(self[0, 1]["C_0|1"](conditioned=U[None, 0],
+                                                     condition=U[None, 1],
+                                                     t=t))
             for j in range(2, self.d):
                 Q[0, j] = U[j]
                 cop = self[0, j]["C_%d|%d" % (j, A[0, j])]
-                Q[1, j] = cop(conditioned=U[j],
-                              condition=U[A[0, j]])
+                Q[1, j] = cop(conditioned=U[None, j],
+                              condition=U[None, A[0, j]], t=t)
                 cop = self[0, j]["C_%d|%d" % (A[0, j], j)]
-                V[0, j] = minmax(cop(conditioned=U[A[0, j]],
-                                     condition=U[j]))
+                V[0, j] = minmax(cop(conditioned=U[None, A[0, j]],
+                                     condition=U[None, j], t=t))
                 for l in range(1, j):
                     if A[l, j] == M[l, j]:
-                        s = Q[l, A[l, j]]
+                        s = Q[None, l, A[l, j]]
                     else:
-                        s = V[l - 1, M[l, j]]
+                        s = V[None, l - 1, M[l, j]]
                     Z[l, j] = s
                     cop = self[l, j]["C_%d|%d" % (j, A[l, j])]
-                    Q[l + 1, j] = minmax(cop(conditioned=Q[l, j],
-                                             condition=s))
+                    Q[l + 1, j] = minmax(cop(conditioned=Q[None, l, j],
+                                             condition=s, t=t))
                 P[j] = Q[j, j]
                 for l in range(1, j):
                     if I[l, j]:
                         cop = self[l, j]["C_%d|%d" % (A[l, j], j)]
-                        V[l, j] = minmax(cop(conditioned=Z[l, j],
-                                             condition=Q[l, j]))
+                        V[l, j] = minmax(cop(conditioned=Z[None, l, j],
+                                             condition=Q[None, l, j],
+                                             t=t))
             Ps[:, t] = P
         return Ps
 
@@ -858,7 +908,6 @@ class RVine(Vine):
         zero = 1e-12
         # one = 1 - zero
 
-        A, M, I = self.A, self.M, self.I
         if randomness is None:
             Ps = np.random.rand(self.d, T_sim)
         else:
@@ -866,106 +915,106 @@ class RVine(Vine):
 
         Us = np.empty_like(Ps)
         Us[0] = Ps[0]
-        Q, V, Z = [np.empty_like(A, dtype=float) for _ in range(3)]
+        Q, V, Z = np.empty((3,) + self.A.shape)
 
-        def sim_one(t, P):
-            # Q, V, Z = [np.empty_like(A, dtype=float) for _ in range(4)]
-            Q[:] = V[:] = Z[:] = zero
-            U = np.empty(len(P))
-            U[0] = P[0]
-            U[1] = self[0, 1]["C^_1|0"](conditioned=P[1],
-                                        condition=P[0], t=t)
-            Q[1, 1] = P[1]
-            if I[0, 1]:
-                V[0, 1] = self[0, 1]["C_0|1"](conditioned=U[0],
-                                              condition=U[1], t=t)
-            for j in range(2, self.d):
-                Q[j, j] = P[j]
-                for l in range(j - 1, 0, -1):
-                    if A[l, j] == M[l, j]:
-                        s = Q[l, A[l, j]]
-                    else:
-                        s = V[l - 1, M[l, j]]
-                    Z[l, j] = s
-                    cop = self[l, j]["C^_%d|%d" % (j, A[l, j])]
-                    Q[l, j] = cop(conditioned=Q[l + 1, j],
-                                  condition=s, t=t)
-                cop = self[0, j]["C^_%d|%d" % (j, A[0, j])]
-                U[j] = Q[0, j] = cop(conditioned=Q[1, j],
-                                     condition=U[A[0, j]], t=t)
-                cop = self[0, j]["C_%d|%d" % (A[0, j], j)]
-                V[0, j] = cop(conditioned=U[A[0, j]],
-                              condition=U[j], t=t)
-                for l in range(1, j):
-                    if I[l, j]:
-                        cop = self[l, j]["C_%d|%d" % (A[l, j], j)]
-                        V[l, j] = cop(conditioned=Z[l, j],
-                                      condition=Q[l, j], t=t)
-            return U
+        if cop_conf.PROFILE:
+            Us = [rsim_one((t, Ps[:, t], self, zero, Q, V, Z))
+                  for t in range(T_sim)]
 
-        pool = pathos.pools.ProcessPool(nodes=n_nodes)
-        Us = pool.map(sim_one, range(T_sim), Ps.T)
-        
-        # for t in tqdm(range(T_sim), **tqdm_kwds):
-        #     # Q[:] = V[:] = Z[:] = np.nan
-        #     Q[:] = V[:] = Z[:] = zero
-        #     U, P = Us[:, t], Ps[:, t]
-        #     U[1] = self[0, 1]["C^_1|0"](conditioned=P[1],
-        #                                 condition=P[0])
-        #     Q[1, 1] = P[1]
-        #     if I[0, 1]:
-        #         V[0, 1] = self[0, 1]["C_0|1"](conditioned=U[0],
-        #                                       condition=U[1])
-        #     for j in range(2, self.d):
-        #         Q[j, j] = P[j]
-        #         for l in range(j - 1, 0, -1):
-        #             if A[l, j] == M[l, j]:
-        #                 s = Q[l, A[l, j]]
-        #             else:
-        #                 s = V[l - 1, M[l, j]]
-        #             Z[l, j] = s
-        #             cop = self[l, j]["C^_%d|%d" % (j, A[l, j])]
-        #             Q[l, j] = cop(conditioned=Q[l + 1, j],
-        #                           condition=s)
-        #         cop = self[0, j]["C^_%d|%d" % (j, A[0, j])]
-        #         U[j] = Q[0, j] = cop(conditioned=Q[1, j],
-        #                              condition=U[A[0, j]])
-        #         cop = self[0, j]["C_%d|%d" % (A[0, j], j)]
-        #         V[0, j] = cop(conditioned=U[A[0, j]],
-        #                       condition=U[j])
-        #         for l in range(1, j):
-        #             if I[l, j]:
-        #                 cop = self[l, j]["C_%d|%d" % (A[l, j], j)]
-        #                 V[l, j] = cop(conditioned=Z[l, j],
-        #                               condition=Q[l, j])
-        #     Us[:, t] = U
-        # return Us
-
+        with multiprocessing.Pool(n_nodes) as pool:
+            Us = pool.map(rsim_one,
+                          zip(range(T_sim), Ps.T, repeat(self),
+                              repeat(zero), repeat(Q),
+                              repeat(V), repeat(Z)),
+                          chunksize=int(T_sim / n_nodes))
         return np.array(Us).T
 
-@my.cache("vine", "As", "phases", "cop_quantiles", "qq_std")
-def vg_ph(vg_obj, sc_pars):
-    if vg_ph.vine is None:
-        ranks = np.array([dists.norm.cdf(values)
-                          for values in vg_obj.data_trans])
-        vg_ph.vine = CVine(ranks, varnames=vg_obj.var_names,
-                           dtimes=vg_obj.times,
-                           # weights="likelihood",
-                           weights="tau",
-                           central_node=vg_obj.primary_var[0])
+
+def rsim_one(args):
+    t, P, rvine, zero, Q, V, Z = args
+    I, A, M = rvine.I, rvine.A, rvine.M
+    Q[:] = V[:] = Z[:] = zero
+    U = np.empty(len(P))
+    U[0] = P[0]
+    U[1] = rvine[0, 1]["C^_1|0"](conditioned=P[None, 1],
+                                 condition=P[None, 0], t=t)
+    Q[1, 1] = P[1]
+    if I[0, 1]:
+        V[0, 1] = rvine[0, 1]["C_0|1"](conditioned=U[None, 0],
+                                       condition=U[None, 1],
+                                       t=t)
+    for j in range(2, rvine.d):
+        Q[j, j] = P[j]
+        for l in range(j - 1, 0, -1):
+            if A[l, j] == M[l, j]:
+                s = Q[None, l, A[l, j]]
+            else:
+                s = V[None, l - 1, M[l, j]]
+            Z[l, j] = s
+            cop = rvine[l, j][f"C^_{j}|{A[l, j]}"]
+            Q[l, j] = cop(conditioned=Q[None, l + 1, j],
+                          condition=s,
+                          t=t)
+        cop = rvine[0, j]["C^_%d|%d" % (j, A[0, j])]
+        U[j] = Q[0, j] = cop(conditioned=Q[None, 1, j],
+                             condition=U[None, A[0, j]],
+                             t=t)
+        cop = rvine[0, j]["C_%d|%d" % (A[0, j], j)]
+        V[0, j] = cop(conditioned=U[None, A[0, j]],
+                      condition=U[None, j],
+                      t=t)
+        for l in range(1, j):
+            if I[l, j]:
+                cop = rvine[l, j]["C_%d|%d" % (A[l, j], j)]
+                V[l, j] = cop(conditioned=Z[None, l, j],
+                              condition=Q[None, l, j],
+                              t=t)
+    return U
+
+
+@my.cache("data_means", "data_std", "vine", "As", "phases", "cop_quantiles",
+          "qq_std")
+def vg_ph(vg_obj, sc_pars, refit=False):
+    weights = "tau"
+    if vg_ph.vine is None or refit:
+        data_means = vg_obj.data_trans.mean(axis=1)[:, None]
+        data_std = vg_obj.data_trans.std(axis=1)[:, None]
+        ranks = dists.norm.cdf(vg_obj.data_trans)
+        with tools.shelve_open(cop_conf.vine_cache) as sh:
+            key = "_".join(("_".join(vg_obj.var_names),
+                            vg_obj.met_file,
+                            weights,
+                            vg_obj.primary_var[0]))
+            key = tools.gen_hash(key)
+            try:
+                if refit:
+                    raise KeyError("Refitting vine")
+                vine = sh[key]
+            except KeyError:
+                vine = CVine(ranks,
+                             varnames=vg_obj.var_names,
+                             dtimes=vg_obj.times,
+                             weights=weights,
+                             central_node=vg_obj.primary_var[0])
+                sh[key] = vine
+        vg_ph.data_means = data_means
+        vg_ph.data_std = data_std
+        vg_ph.vine = vine
         vg_ph.cop_quantiles = np.array(vg_ph.vine.quantiles())
         # attach SeasonalCop instance to vg so that does not get lost.
         vg_obj.vine = vg_ph.vine
     if vg_ph.phases is None:
-        vg_ph.qq_std = np.array([dists.norm.ppf(q)
-                                 for q in vg_ph.cop_quantiles])
-        vg_ph.qq_std = my.interp_nan(vg_ph.qq_std)
+        qq_std = dists.norm.ppf(vg_ph.cop_quantiles)
+        qq_std[~np.isfinite(qq_std)] = np.nan
+        vg_ph.qq_std = my.interp_nan(qq_std)
         vg_ph.As = np.fft.fft(vg_ph.qq_std)
         vg_ph.phases = np.angle(vg_ph.As)
     T = vg_obj.T
     # phase randomization with same random phases in all variables
-    phases_lh = np.random.uniform(0, 2 * np.pi,
-                                  T // 2 if T % 2 == 1 else T // 2 - 1)
+    phases_lh = np.random.choice(vg_ph.phases[vg_obj.primary_var_ii[0]],
+                                 T // 2 if T % 2 == 1 else T // 2 - 1)
+    # phases_lh = np.random.uniform(-np.pi, np.pi,
+    #                               T // 2 if T % 2 == 1 else T // 2 - 1)
     phases_lh = np.array(vg_obj.K * [phases_lh])
     phases_rh = -phases_lh[:, ::-1]
     if T % 2 == 0:
