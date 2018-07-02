@@ -430,6 +430,15 @@ class Vine:
             condition = tuple(sorted(A[:row, col]))
         return self.edge_map[row][conditioned, condition]
 
+    def __iter__(self):
+        ii, jj = np.triu_indices_from(self.A, k=1)
+        return iter(self[i, j] for i, j in zip(ii, jj))
+
+    def __str__(self):
+        return "\n".join("tree {tree}: {node_u} <-> {node_v}"
+                         .format(**edge)
+                         for edge in self)
+
     @property
     def edge_map(self):
         if self._edge_map is None:
@@ -558,7 +567,7 @@ class Vine:
             self._edge_map = None
         return self._A
 
-    def plot(self, edge_labels="nodes"):
+    def plot(self, edge_labels="copulas"):
         """Plot vine structure.
 
         Parameter
@@ -740,6 +749,52 @@ class Vine:
                 ax.set_axis_off()
         fig.tight_layout()
         return fig, axs
+
+    def plot_seasonal(self):
+        if self.dtimes is None:
+            print("We are not seasonal (hint:pass dtimes to init)")
+        figs, axs = [], []
+        for edge in self:
+            cop_key, copula = [(key, value)
+                               for key, value in edge.items()
+                               if key.startswith("Copula_")][0]
+            if not isinstance(copula, seasonal_cop.SeasonalCop):
+                continue
+            fig, axs_ = plt.subplots(nrows=3, ncols=2,
+                                     # subplot_kw=dict(aspect="equal")
+                                     )
+            node1 = flat_set(edge["node_u"])
+            node2 = flat_set(edge["node_v"])
+            condition = node1 & node2
+            if condition:
+                condition = " ".join(self.varnames[i] for i in condition)
+                condition = " (given %s)" % condition
+            else:
+                condition = ""
+            var1 = node1 - node2
+            var2 = node2 - node1
+            varname1 = self.varnames[list(var1)[0]]
+            varname2 = self.varnames[list(var2)[0]]
+            plot_doys = np.linspace(0, 366, 5)[:-1]
+            copula.plot_corr(fig=fig, ax=axs_[0, 0],
+                             title="Correlation")
+            for plot_doy in plot_doys:
+                axs_[0, 0].axvline(plot_doy, color="gray")
+            copula.plot_fourier_fit(fig=fig, ax=axs_[0, 1],
+                                    title=r"Fourier approximation of $\theta$")
+            for plot_doy in plot_doys:
+                axs_[0, 1].axvline(plot_doy, color="gray")
+            copula.plot_seasonal_densities(fig=fig, axs=axs_[1:],
+                                           plot_doys=plot_doys)
+            title = ("tree:{tree}, {varname1}-{varname2}{condition}, {copula}"
+                     .format(tree=edge["tree"], varname1=varname1,
+                             varname2=varname2, condition=condition,
+                             copula=copula.name[len("seasonal "):]))
+            fig.suptitle(title)
+            fig.tight_layout(rect=(0, 0, 1, .95))
+            figs += [fig]
+            axs += [axs_]
+        return figs, axs
 
 
 class CVine(Vine):
@@ -1090,18 +1145,38 @@ def vg_ph(vg_obj, sc_pars, refit=False):
     if adjust_variance:
         fft_sim /= fft_sim.std(axis=1)[:, None]
 
+    # adjust means
+    fft_sim -= fft_sim.mean(axis=1)[:, None]
+    # fft_sim += vg_ph.data_means
+
+    # change in mean scenario
+    prim_i = vg_obj.primary_var_ii
+    fft_sim[prim_i] += sc_pars.m[prim_i]
+    fft_sim[prim_i] += sc_pars.m_t[prim_i]
+    qq = dists.norm.cdf(fft_sim)
+    eps = 1e-12
+    qq[qq > (1 - eps)] = 1 - eps
+    qq[qq < eps] = eps
+    # print(np.mean(qq, axis=1))
+    ranks_sim = vg_ph.vine.simulate(randomness=qq)
+    # print(np.mean(ranks_sim, axis=1))
+    data_sim = dists.norm.ppf(ranks_sim)
+    data_sim[~np.isfinite(data_sim)] = np.nan
+    data_sim = my.interp_nan(data_sim)
+    data_sim += vg_ph.data_means
+
     # from lhglib.contrib.time_series_analysis import time_series as ts
     # fig, axs = plt.subplots(nrows=vg_obj.K, ncols=1, sharex=True)
     # for i, ax in enumerate(axs):
     #     freqs = np.fft.fftfreq(T)
     #     ax.bar(freqs, phases[i], width=.5 / T, label="surrogate")
     #     ax.bar(freqs, vg_ph.phases[i], width=.5 / T, label="data")
-    # axs[0].legend(loc="best")
+    #     axs[0].legend(loc="best")
 
     # my.hist(vg_ph.phases.T, 20)
 
     # vg_ph.vine.plot(edge_labels="copulas")
-    # vg_ph.vine.plot_tplom()
+    # # vg_ph.vine.plot_tplom()
     # vg_ph.vine.plot_qqplom()
     # fig, axs = ts.plot_cross_corr(vg_ph.qq_std)
     # fig, axs = ts.plot_cross_corr(fft_sim, linestyle="--", axs=axs, fig=fig)
@@ -1109,37 +1184,41 @@ def vg_ph(vg_obj, sc_pars, refit=False):
     # for i, ax in enumerate(axs):
     #     ax.plot(vg_ph.qq_std[i])
     #     ax.plot(fft_sim[i], linestyle="--")
-    # plt.show()
+    #     plt.show()
 
-    # change in mean scenario
-    prim_i = vg_obj.primary_var_ii
-    fft_sim[prim_i] += sc_pars.m[prim_i]
-    fft_sim[prim_i] += sc_pars.m_t[prim_i]
-    qq = np.array([dists.norm.cdf(values) for values in fft_sim])
-    eps = 1e-12
-    qq[qq > (1 - eps)] = 1 - eps
-    qq[qq < eps] = eps
-    ranks_sim = vg_ph.vine.simulate(randomness=qq)
-    return np.array([dists.norm.ppf(ranks) for ranks in ranks_sim])
+    return data_sim
 
 
 if __name__ == '__main__':
     # for deterministic networkx graphs!
     # np.random.seed(2)
 
-    from lhglib.contrib.veathergenerator import vg, vg_plotting, vg_base
-    from lhglib.contrib.veathergenerator import config_konstanz_disag as conf
-    vg.conf = vg_plotting.conf = vg_base.conf = conf
-    met_vg = vg.VG(("theta", "ILWR", "rh", "R"), verbose=True)
+    import vg
+    import time
+    from vg import vg_plotting, vg_base
+    import config_konstanz_disag as vg_conf
+    vg.conf = vg_plotting.conf = vg_base.conf = vg_conf
+    met_vg = vg.VG(("theta", "ILWR", "rh", "R"), verbose=True,
+                   dump_data=False)
+
+    before = time.time()
+    met_vg.simulate(sim_func=vg_ph, theta_incr=.0,
+                    # sim_func_kwds=dict(refit=True)
+                    )
+    print(time.time() - before)
+
     ranks = np.array([stats.rel_ranks(values)
                       for values in met_vg.data_trans])
     cvine = CVine(ranks, varnames=met_vg.var_names,
-                  # dtimes=met_vg.times,
+                  dtimes=met_vg.times,
                   # weights="likelihood"
                   )
     # quantiles = cvine.quantiles()
     # assert np.all(np.isfinite(quantiles))
-    # sim = cvine.simulate(randomness=quantiles)
+    before = time.time()
+    for _ in range(2):
+        sim = cvine.simulate()
+    print(time.time() - before)
 
     # cov = [[1.5, 1., -1., 1.5],
     #        [1., 1., 0., .5],
