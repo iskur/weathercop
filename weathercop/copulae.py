@@ -1632,7 +1632,7 @@ class Independence(Copulae, NoRotations):
     known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
 
     def fit(self, uu, vv, *args, **kwds):
-        return
+        return 0
 
     def sample(self, size, *args, **kwds):
         return random_sample(size), random_sample(size)
@@ -1648,6 +1648,12 @@ class Independence(Copulae, NoRotations):
 
     def inv_cdf_given_v(self, vv, qq, *args):
         return qq
+
+    def generate_fitted(self, ranks_u, ranks_v, *args, **kwds):
+        """Returns a Fitted instance that contains ranks_u, ranks_v and the
+        fitted theta.
+        """
+        return Fitted(self, ranks_u, ranks_v, None)
 independence = Independence()
 
 
