@@ -1269,6 +1269,7 @@ class Joe(Copulae, NoRotations):
     par_names = "uu vv theta".split()
     theta_start = 5.,
     theta_bounds = [(1 + 1e-9, 30)]
+    bad_attrs = "x0_func",
     xx, uu, vv, t, theta = sympy.symbols("xx uu vv t theta")
     # gen_expr = -ln(1 - (1 - t) ** theta)
     # gen_inv_expr = 1 - (1 - sympy.exp(-xx)) ** (1 / theta)
@@ -1296,10 +1297,12 @@ class Joe(Copulae, NoRotations):
         x0_expr = x0_expr.subs(delta, delta - 1)
         x0_func = ufuncify(self.__class__, "x0", [uu, p, delta],
                            x0_expr, backend=MetaArch.backend)
-        self.x0_func = broadcast_2d(x0_func)
+        self.x0_func = x0_func
 
     def x0(self, rank, quantile, theta):
-        return self.x0_func(rank, quantile, theta)
+        return self.x0_func(np.array([rank]),
+                            np.array([quantile]),
+                            np.array([theta]))
 joe = Joe()
 
 
