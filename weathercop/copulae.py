@@ -120,6 +120,11 @@ def mark_failed(key):
             faillog.write(key + os.linesep)
 
 
+def clear_sympy_cache():
+    for suffix in ("bak dat dir".split()):
+        conf.sympy_cache.wit_suffix(".she.%s" % suffix).unlink()
+
+
 def swap_symbols(expr, symbol1, symbol2):
     """Substitute symbol1 and symbol2 in the given sympy expression.
 
