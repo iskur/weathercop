@@ -672,75 +672,99 @@ class Copulae(metaclass=MetaCop):
     def plot_cop_dens(self, theta=None, scatter=True, kind="contourf",
                       opacity=.1):
         fig, axs = plt.subplots(ncols=2, subplot_kw=dict(aspect="equal"))
-        self.plot_copula(theta=theta, ax=axs[0])
+        self.plot_copula(theta=theta, fig=fig, ax=axs[0])
         self.plot_density(theta=theta, scatter=scatter, kind=kind,
-                          opacity=opacity, ax=axs[1])
-        return axs
+                          opacity=opacity, fig=fig, ax=axs[1])
+        return fig, axs
 
-    def plot_density(self, theta=None, scatter=True, ax=None,
-                     kind="contourf", opacity=.1, sample_size=1000,
-                     s_kwds=None, c_kwds=None):
+    def plot_density(self, *, theta=None, scatter=True, fig=None,
+                     ax=None, kind="contourf", opacity=.1,
+                     sample_size=1000, s_kwds=None, c_kwds=None):
         if theta is None:
             try:
-                theta = self.theta
+                theta = self.theta,
+                if isinstance(theta, sympy.core.symbol.Symbol):
+                    raise AttributeError
             except AttributeError:
-                theta = self.theta_start
+                theta = self.theta_start,
         if s_kwds is None:
             s_kwds = dict()
         if c_kwds is None:
             c_kwds = dict(alpha=.5,
-                          linewidth=.25)
-        uu = vv = stats.rel_ranks(np.arange(100))
-        density = self.density(uu[None, :], vv[:, None], *theta)
+                          # linewidth=.25
+                          )
+        n_per_dim = 100
+        uu = vv = stats.rel_ranks(np.arange(n_per_dim))
+        theta_dens = tuple(np.repeat(the, n_per_dim ** 2)
+                           for the in theta[0])
+        density = (self
+                   .density(uu.repeat(n_per_dim),
+                            np.tile(vv, n_per_dim),
+                            *theta_dens)
+                   .reshape(n_per_dim, n_per_dim)
+                   )
+        if fig is None or ax is None:
+            fig, ax = plt.subplots(subplot_kw=dict(aspect="equal"))
         if not isinstance(self, Independence):
             # get rid of large values for visualizations sake
             density[density >= np.sort(density.ravel())[-10]] = np.nan
-            if ax is None:
-                fig, ax = plt.subplots(subplot_kw=dict(aspect="equal"))
             if kind == "contourf":
                 ax.contourf(uu, vv, density, 40, **c_kwds)
             elif kind == "contour":
                 ax.contour(uu, vv, density, 40, **c_kwds)
+
         if scatter:
-            try:
-                u_sample, v_sample = self.sample(size=1000, theta=theta)
-                ax.scatter(u_sample, v_sample,
-                           marker="o",
-                           facecolor=(0, 0, 0, 0),
-                           edgecolor=(0, 0, 0, opacity),
-                           **s_kwds)
-            except ValueError:
-                warnings.warn("Sampling %s does not work" % self.name)
+            sample_size = 1000
+            theta_sample = tuple(np.repeat(the, sample_size)
+                                 for the in theta[0])
+            u_sample, v_sample = self.sample(sample_size,
+                                             *theta_sample)
+            ax.scatter(u_sample, v_sample,
+                       marker="o",
+                       facecolor=(0, 0, 0, 0),
+                       edgecolor=(0, 0, 0, opacity),
+                       **s_kwds)
         ax.set_xticks([])
         ax.set_yticks([])
         ax.set_xticklabels([])
         ax.set_yticklabels([])
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
-        return ax
+        fig.suptitle(fr"{self.name} $\theta$ = {theta[0][0]:.3f}")
+        return fig, ax
 
-    def plot_copula(self, theta=None, ax=None, kind="contourf"):
+    def plot_copula(self, theta=None, fig=None, ax=None,
+                    n_per_dim=100, kind="contourf"):
         if theta is None:
             try:
                 theta = self.theta
+                if isinstance(theta, sympy.core.symbol.Symbol):
+                    raise AttributeError
             except AttributeError:
-                theta = self.theta_start
-        uu = vv = stats.rel_ranks(np.arange(100))
-        cc = self.copula_func(uu[None, :], vv[:, None], *theta)
+                # theta = tuple(self.theta_start)
+                theta = tuple(np.repeat(the, n_per_dim ** 2)
+                              for the in self.theta_start)
+        uu = vv = stats.rel_ranks(np.arange(n_per_dim))
+        cc = self.copula_func(uu.repeat(n_per_dim),
+                              np.tile(vv, n_per_dim),
+                              *theta)
+        cc = cc.reshape(n_per_dim, n_per_dim)
         if ax is None:
             fig, ax = plt.subplots(subplot_kw=dict(aspect="equal"))
         if kind == "contourf":
-            ax.contourf(uu, vv, cc, 40)
+            cax = ax.contourf(uu, vv, cc, 40, vmin=0, vmax=1)
         elif kind == "contour":
-            ax.contour(uu, vv, cc, 40)
-        title = (sympy.printing
-                 .latex(self.cop_expr, mode="inline")
-                 .replace("uu", "u")
-                 .replace("vv", "v"))
-        if "cases" not in title:
-            ax.set_title(title)
+            cax = ax.contour(uu, vv, cc, 40, vmin=0, vmax=1)
+        if hasattr(self, "cop_expr"):
+            title = (sympy.printing
+                     .latex(self.cop_expr, mode="inline")
+                     .replace("uu", "u")
+                     .replace("vv", "v"))
+            if "cases" not in title:
+                ax.set_title(title)
         else:
             ax.set_title(self.name)
+        fig.colorbar(cax)
         return fig, ax
 
 
@@ -797,16 +821,9 @@ class Fitted:
                 print(4 * " ",
                       self.name[len("fitted "):],
                       self.likelihood, end="")
-                # n_nonfin = np.sum(~mask)
-                # if n_nonfin:
-                #     print(" # nonfinite ",
-                #           np.sum(~mask),
-                #           )
-                # else:
-                #     print()
 
-    def plot_qq(self, ax=None, opacity=.25, s_kwds=None, title=None,
-                *args, **kwds):
+    def plot_qq(self, ax=None, fig=None, opacity=.25, s_kwds=None,
+                title=None, *args, **kwds):
         if s_kwds is None:
             s_kwds = dict(marker="o", s=1,
                           facecolors=(0, 0, 0, 0),
@@ -828,6 +845,49 @@ class Fitted:
         ax.set_title(title)
         fig.tight_layout()
         return fig, ax
+
+    def plot_density(self, *, scatter=True, ax=None, kind="contourf",
+                     opacity=.1, n_per_dim=100, s_kwds=None,
+                     c_kwds=None):
+        theta = self.theta
+        if s_kwds is None:
+            s_kwds = dict()
+        if c_kwds is None:
+            c_kwds = dict(alpha=.5,
+                          linewidth=.25)
+        uu = vv = stats.rel_ranks(np.arange(n_per_dim))
+        density = (self
+                   .density(uu.repeat(n_per_dim),
+                            np.tile(vv, n_per_dim),
+                            np.repeat(theta[0][0],
+                                      n_per_dim * n_per_dim))
+                   .reshape(n_per_dim, n_per_dim)
+                   )
+        if ax is None:
+            fig, ax = plt.subplots(subplot_kw=dict(aspect="equal"))
+        density_valid = not np.all(np.isnan(density))
+        if density_valid and not isinstance(self.copula, Independence):
+            # get rid of large values for visualizations sake
+            density[density >= np.sort(density.ravel())[-10]] = np.nan
+            if kind == "contourf":
+                ax.contourf(uu, vv, density, 40, **c_kwds)
+            elif kind == "contour":
+                ax.contour(uu, vv, density, 40, **c_kwds)
+
+        if scatter:
+            ax.scatter(self.ranks_u, self.ranks_v,
+                       marker="o",
+                       facecolor=(0, 0, 0, 0),
+                       edgecolor=(0, 0, 0, opacity),
+                       **s_kwds)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        plt.gcf().suptitle(fr"{self.name} $\theta$ = {theta[0].mean():.3f}")
+        return ax
 
     def __getstate__(self):
         # this could be a rotated copula, for which the class is
