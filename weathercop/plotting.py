@@ -201,7 +201,7 @@ def plot_cross_corr(data, varnames=None, max_lags=10, figsize=None, fig=None,
         for var_j in range(K):
             # want to set the same colors as before when called with a given
             # fig and axs
-            colors = plt.rcParams["axes.color_cycle"]
+            colors = plt.rcParams["axes.prop_cycle"]
             color = colors[var_j % len(colors)]
             lines += axs[var_i].plot(lags, cross_corrs[:, var_i, var_j],
                                      color=color, *args, **kwds)
