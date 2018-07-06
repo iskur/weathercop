@@ -1499,6 +1499,14 @@ class Galambos(Copulae, NoRotations):
     par_names = "uu", "vv", "delta"
     theta_start = 1.8,
     theta_bounds = [(.011, 50)]
+    bad_attrs = ("h_v",
+                 "h_prime_v",
+                 "h1_v",
+                 "h1_prime_v",
+                 "h_u",
+                 "h_prime_u",
+                 "h1_u",
+                 "h1_prime_u")
     uu, vv, delta = sympy.symbols(par_names)
     cop_expr = uu * vv * exp(((-ln(uu)) ** -delta +
                               (-ln(vv)) ** -delta) ** (-1 / delta))
@@ -1553,11 +1561,12 @@ class Galambos(Copulae, NoRotations):
                       backend=self.backend)
         h1_prime = ufuncify(self.__class__, "h1_prime", h1_args,
                             h1_prime_expr, backend=self.backend)
+
         (self.h_u,
          self.h_prime_u,
          self.h1_u,
-         self.h1_prime_u) = map(broadcast_1d, (h, h_prime, h1,
-                                               h1_prime))
+         self.h1_prime_u) = map(gen_arr_fun, (h, h_prime, h1, h1_prime))
+
         h_expr = swap_symbols(h_expr, x, y)
         h_prime_expr = swap_symbols(h_prime_expr, x, y)
         h1_expr = swap_symbols(h1_expr, x, y)
@@ -1575,8 +1584,7 @@ class Galambos(Copulae, NoRotations):
         (self.h_v,
          self.h_prime_v,
          self.h1_v,
-         self.h1_prime_v) = map(broadcast_1d, (h, h_prime, h1,
-                                               h1_prime))
+         self.h1_prime_v) = map(gen_arr_fun, (h, h_prime, h1, h1_prime))
 
     def _inverse_conditional(self, ranks, quantiles, theta,
                              given_v=False):
@@ -1599,43 +1607,50 @@ class Galambos(Copulae, NoRotations):
 
         tol = zero
 
-        def f(rank2, quantile):
+        def f(rank2, rank1, quantile, theta):
             if given_v:
                 rank_u, rank_v = rank2, rank1
                 conditional_func = getattr(self, "cdf_given_v")
             else:
                 rank_u, rank_v = rank1, rank2
                 conditional_func = getattr(self, "cdf_given_u")
-            quantile_calc = conditional_func(rank_u, rank_v, theta)
+            quantile_calc = conditional_func(np.array([rank_u]),
+                                             np.array([rank_v]),
+                                             np.array([theta]))
             if np.isnan(quantile_calc):
                 if rank2 < tol:
                     quantile_calc = 0
                 elif rank2 > (1 - tol):
                     quantile_calc = 1
-                # if np.isclose(rank2, 0):
-                #     quantile_calc = 0
-                # elif np.isclose(rank2, 1):
-                #     quantile_calc = 1
-            return quantile_calc - quantile
+            return np.squeeze(quantile_calc - quantile)
 
         for i, rank1 in enumerate(ranks1):
             x = -np.log(rank1)
             try:
-                y_root = newton(h, x0=x,
+                y_root = newton(h,
+                                x0=x,
                                 fprime=h_prime,
-                                args=(x, quantiles[i], theta))
+                                args=(np.array([x]),
+                                      np.array([quantiles[i]]),
+                                      np.array([thetas[i]])))
                 ranks2[i] = np.exp(-float(y_root))
             except RuntimeError as exc:
-                warnings.warn("Newton did not converge.")
+                # warnings.warn("Newton did not converge.")
                 try:
                     r_root = newton(h1,
                                     x0=.5,
                                     fprime=h1_prime,
-                                    args=(x, quantiles[i], theta))
+                                    args=(np.array([x]),
+                                          np.array([quantiles[i]]),
+                                          np.array([thetas[i]])))
                 except RuntimeError:
-                    ranks2[i] = brentq(f, 0, 1, args=(quantiles[i],))
+                    ranks2[i] = brentq(f, 0, 1,
+                                       args=(ranks1[i],
+                                             quantiles[i],
+                                             thetas[i])
+                                       )
                 else:
-                    ranks2[i] = x * float(r_root) ** (1 / theta)
+                    ranks2[i] = x * float(r_root) ** (1 / thetas[i])
         return ranks2
 
     def inv_cdf_given_u(self, ranks_u, quantiles, theta):
