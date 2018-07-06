@@ -1,39 +1,86 @@
-import numpy as np
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from contextlib import suppress
+from itertools import repeat
+
 import matplotlib.pyplot as plt
-import pathos
-from weathercop import copulae, cop_conf, stats, seasonal_cop as scop
+import numpy as np
 
-n_nodes = pathos.multiprocessing.cpu_count() - 2
-
-# from concurrent.futures import ProcessPoolExecutor, as_completed
-# pool = ProcessPoolExecutor()
+from weathercop import cop_conf, copulae, seasonal_cop as scop, stats
 
 
-def generate_fitted(name, cop, ranks_u, ranks_v, verbose=False, **kwds):
+n_nodes = multiprocessing.cpu_count() - 1
+
+
+def generate_fitted(args, verbose=False, **kwds):
+    name, cop, ranks_u, ranks_v = args
     try:
         fitted_cop = cop.generate_fitted(ranks_u, ranks_v, **kwds)
         return fitted_cop
     except copulae.NoConvergence:
         if verbose > 1:
             print("No fit for %s" % cop)
-        return []
+        return -np.inf
 
 
 def mml(ranks_u, ranks_v, cops=copulae.all_cops, dtimes=None,
-        verbose=False, plot=False, **kwds):
-    pool = pathos.pools.ProcessPool(nodes=n_nodes)
+        verbose=False, plot=False, asymmetry=False, **kwds):
+    """Find fitted copula with maximum likelihood.
 
-    def expand_ar(ar):
-        n_cops = len(cops)
-        return np.tile(ar, (n_cops, 1))
-
-    ranks_u, ranks_v = map(expand_ar, (ranks_u, ranks_v))
-    fitted_cops = pool.imap(generate_fitted, list(cops.keys()),
-                            list(cops.values()), ranks_u, ranks_v)
+    Parameter
+    ---------
+    ranks_u : (T,) float array
+    ranks_v : (T,) float array
+    cops : sequence of copulae.Copulae classes, optional
+    dtimes : None or 1d array of datetime objects, optional
+        If not None, SeasonalCop instances are also candidates.
+    verbose : boolean, optional
+    plot : boolean, optional
+    asymmetry : boolean, optional
+        Avoid symmetric copulae for asymmetric data
+    """
+    if asymmetry:
+        for asy_type in (1, 2):
+            asy_func = getattr(stats, f"asymmetry{asy_type}")
+            asy_data = asy_func(ranks_u, ranks_v)
+            if abs(asy_data) > .002:
+                if verbose:
+                    print(f"Asymmetry type {asy_type}: "
+                          f"{asy_data:.4f}")
+                attr_name = f"symmetry{asy_type}"
+                cops = {cop_name: cop
+                        for cop_name, cop in cops.items()
+                        if not getattr(cop, attr_name)}
+        # if none of the copulas offer the asymmetries, fall back to
+        # the full set of copula families
+        if not cops:
+            if verbose:
+                print(f"None of the copulas offer the asymmetries.")
+            cops = copulae.all_cops
+        with suppress(KeyError):
+            del cops["independence"]
+    if cop_conf.PROFILE:
+        fitted_cops = map(generate_fitted,
+                          zip(list(cops.keys()),
+                              list(cops.values()),
+                              repeat(ranks_u),
+                              repeat(ranks_v))
+                          )
+    else:
+        with multiprocessing.Pool(n_nodes) as pool:
+            fitted_cops = pool.map(generate_fitted,
+                                   zip(list(cops.keys()),
+                                       list(cops.values()),
+                                       repeat(ranks_u),
+                                       repeat(ranks_v)),
+                                   # chunksize=int(len(cops) / n_nodes)
+                                   )
     best_cop = max(fitted_cops)
     if dtimes is not None:
-        cop_seasonal = scop.SeasonalCop(None, dtimes, ranks_u, ranks_v)
+        cop_seasonal = scop.SeasonalCop(None, dtimes, ranks_u, ranks_v,
+                                        my_cops=list(cops.values()))
         best_cop = max(best_cop, cop_seasonal)
+        # best_cop = cop_seasonal
     if verbose:
         print("%s (L=%.2f)" % (best_cop.name, best_cop.likelihood))
     if plot:
@@ -66,7 +113,7 @@ def mml_futures(ranks_u, ranks_v, cops=copulae.all_cops, dtimes=None,
         # futures = {executor.submit(cop.generate_fitted, ranks_u, ranks_v):
         #            cop_name
         #            for cop_name, cop in cops.items()}
-        futures = {executor.submit(_generate_fitted, cop, ranks_u, ranks_v):
+        futures = {executor.submit(generate_fitted, cop, ranks_u, ranks_v):
                    cop_name
                    for cop_name, cop in cops.items()}
     fitted_cops = []
