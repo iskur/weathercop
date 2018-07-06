@@ -979,6 +979,9 @@ class Archimedian(Copulae, metaclass=MetaArch):
     par_names = "uu", "vv", "theta"
 
 
+class BB(Copulae, metaclass=MetaArch):
+    """Two-parameter, bivariate Copulas."""
+    par_names = "uu", "vv", "theta", "delta"
 
 
 # # conditionals are returning values > 1 for theta=3
@@ -1660,6 +1663,104 @@ class Galambos(Copulae, NoRotations):
         return self._inverse_conditional(ranks_v, quantiles, theta,
                                          given_v=True)
 galambos = Galambos()
+
+
+# class BB1(BB, No90, No270):
+#     theta_start = 1., 2.
+#     theta_bounds = ((1e-12, theta_large),
+#                     (1, theta_large))
+#     # s, theta, delta = sympy.symbols("t theta delta")
+#     # gen_expr = (1 + s ** (1 / delta)) ** (-1 / theta)
+#     uu, vv, theta, delta = sympy.symbols("uu vv theta delta")
+#     cop_expr = (1 + ((uu ** -theta - 1) ** delta +
+#                      (vv ** -theta - 1) ** delta) ** (1 / delta)
+#                 ) ** (-1 / theta)
+#     x, y = sympy.symbols("x y")
+#     cdf_given_uu_expr = ((1 + (x + y) ** (1 / delta)) ** (-1 / theta - 1) *
+#                          (x + y) ** (1 / delta - 1) *
+#                          x ** (1 - 1 / delta) *
+#                          uu ** (-theta - 1))
+#     cdf_given_uu_expr = cdf_given_uu_expr.subs(
+#         dict(x=(uu ** -theta - 1) ** delta,
+#              y=(vv ** -theta - 1) ** delta))
+# bb1 = BB1()
+
+
+# class BB2(BB, No270):
+#     theta_start = 2., 2.
+#     theta_bounds = ((1e-5, theta_large),
+#                     (1e-5, theta_large))
+#     # t, theta, delta = sympy.symbols("t theta delta")
+#     # gen_expr = (1 + delta ** -1 * ln(1 + t)) ** (-1 / theta)
+#     uu, vv, theta, delta = sympy.symbols("uu vv theta delta")
+#     cop_expr = (1 + delta ** -1 *
+#                 ln(exp(delta * (uu ** -theta - 1)) +
+#                    exp(delta * (vv ** -theta - 1))
+#                    - 1)) ** (-1 / theta)
+#     x, y = sympy.symbols("x y")
+#     cdf_given_uu_expr = ((1 + delta ** -1 *
+#                           ln(x + y + 1)) ** (-1 / theta - 1) *
+#                          (x + y + 1) ** -1 *
+#                          (x + 1) * uu ** (-theta - 1))
+#     cdf_given_uu_expr = cdf_given_uu_expr.subs(
+#         dict(x=exp(delta * (uu ** -theta - 1)) - 1,
+#              y=exp(delta * (vv ** -theta - 1)) - 1))
+# bb2 = BB2()
+
+
+# class BB3(BB, No90, No270):
+#     theta_start = 1.5, .5
+#     theta_bounds = ((1, theta_large),
+#                     (1e-12, theta_large))
+#     uu, vv, theta, delta = sympy.symbols("uu vv theta delta")
+#     cop_expr = exp(-(delta ** -1 *
+#                      ln(exp(delta * uu ** theta) +
+#                         exp(delta * vv ** theta) - 1)) ** (1 / theta))
+#     cop_expr = cop_expr.subs(dict(uu=-ln(uu), vv=-ln(vv)))
+#     # t, theta, delta = sympy.symbols("t theta delta")
+#     # gen_expr = exp(-(delta ** -1 * ln(1 + t) ** (1 / theta)))
+# bb3 = BB3()
+
+
+# class BB4(BB, No90, No270):
+#     theta_start = 1., 1.
+#     theta_bounds = ((1e-12, theta_large),
+#                     (1e-12, theta_large))
+#     uu, vv, theta, delta = sympy.symbols("uu vv theta delta")
+#     cop_expr = (uu ** -theta + vv ** -theta - 1 -
+#                 ((uu ** -theta - 1) ** -delta +
+#                  (vv ** -theta - 1) ** -delta) ** (-1 / delta)
+#                 ) ** (-1 / theta)
+# bb4 = BB4()
+
+
+# class BB5(BB, No90, No270):
+#     theta_start = 1., .1
+#     theta_bounds = [(1, theta_large),
+#                     (1e-12, theta_large)]
+#     uu, vv, x, y, theta, delta = sympy.symbols("uu vv x y theta delta")
+#     cop_expr = exp(-(x ** theta + y ** theta -
+#                      (x ** (-theta * delta) +
+#                       y ** (-theta * delta)) ** (-1 / delta)
+#                      ) ** (1 / theta))
+#     cop_expr = cop_expr.subs(dict(x=-ln(uu), y=-ln(vv)))
+# bb5 = BB5()
+
+
+# class BB6(BB):
+#     theta_start = 5., 2.
+#     theta_bounds = [(1., theta_large),
+#                     (1., theta_large)]
+#     # uu, vv, theta, delta = sympy.symbols("uu vv theta delta")
+#     # cop_expr = (1 - (1 - exp(-((-ln(1 - uu ** theta)) ** delta +
+#     #                            (-ln(1 - vv ** theta)) ** delta
+#     #                            ) ** delta
+#     #                          ) ** (1 / delta)
+#     #                  ) ** (1 / theta))
+#     # cop_expr = cop_expr.subs(dict(uu=(1 - uu), vv=(1 - vv)))
+#     t, theta, delta = sympy.symbols("t theta delta")
+#     gen_expr = 1 - (1 - exp(-t ** (1 / delta))) ** (1 / theta)
+# bb6 = BB6()
 
 
 class Independence(Copulae, NoRotations):
