@@ -10,18 +10,15 @@ from contextlib import suppress
 import numpy as np
 import matplotlib.pyplot as plt
 import sympy
-from mpmath import mp
 from scipy import stats as spstats
 from scipy.interpolate import interp1d
 from scipy.optimize import brentq, minimize, newton
 from scipy.special import erf, erfinv
-from scipy.stats import mvn
 from sympy import exp, ln
 from sympy.utilities import autowrap
-import dill
 
+from scipy.stats import mvn
 from weathercop import cop_conf as conf, stats, tools
-
 from weathercop.normal_conditional import norm_inv_cdf_given_u, norm_cdf_given_u
 
 # used wherever theta can be inf in principle
