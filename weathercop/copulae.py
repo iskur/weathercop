@@ -5,6 +5,7 @@ import os
 import warnings
 from abc import ABCMeta, abstractproperty
 from collections import OrderedDict
+from contextlib import suppress
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -184,19 +185,8 @@ def broadcast_2d(func):
     return inner
 
 
-def broadcast_1d(func):
-    @functools.wraps(func)
-    def inner(*args, **kwds):
-        if isinstance(args[0], Copulae):
-            args = args[1:]
-        args = np.atleast_1d(*args)
-        max_len = max(arg.size for arg in args)
-        args = [arg.repeat(max_len).astype(float)
-                if arg.size == 1
-                else arg
-                for arg in args]
-        return func(*args, **kwds)
-    return inner
+def gen_arr_fun(fun):
+    return lambda x, *args: fun(np.atleast_1d(x), *args)
 
 
 def bipit(ranks_u, ranks_v):
@@ -219,12 +209,15 @@ class MetaCop(ABCMeta):
     def __new__(cls, name, bases, cls_dict):
         new_cls = super().__new__(cls, name, bases, cls_dict)
         new_cls.name = name.lower()
+        with suppress(TypeError):
+            new_cls.n_par = len(new_cls.par_names) - 2
         if "backend" not in cls_dict:
             new_cls.backend = MetaCop.backend
         if "cop_expr" in cls_dict:
+            new_cls = MetaCop.symmetries(new_cls)
             # auto-rotate the copula expression
             if name.endswith(("90", "180", "270")):
-                new_cls = MetaCop.rotate_expr(new_cls)
+                new_cls.cop_expr = MetaCop.rotate_expr(new_cls)
                 new_cls.rotated = True
             else:
                 new_cls.rotated = False
@@ -257,21 +250,40 @@ class MetaCop(ABCMeta):
                             tools.hash_cop(new_cls)))
             mark_failed(key)
 
-    def rotate_expr(cls):
+    def rotate_expr(expr, degrees=None):
         """Rotate copula expression.
 
         Notes
         -----
         see p. 271
         """
+        if degrees is None:
+            degrees = int(expr.name.rsplit("_")[1])
+            expr = expr.cop_expr
         uu, vv = sympy.symbols("uu vv")
-        if cls.name.endswith("90"):
-            cls.cop_expr = uu - cls.cop_expr.subs({vv: 1 - vv})
-        elif cls.name.endswith("180"):
-            cls.cop_expr = uu + vv - 1 + cls.cop_expr.subs({uu: 1 - uu,
-                                                            vv: 1 - vv})
-        elif cls.name.endswith("270"):
-            cls.cop_expr = vv - cls.cop_expr.subs({uu: 1 - uu})
+        if degrees == 90:
+            expr = uu - expr.subs({vv: 1 - vv})
+        elif degrees == 180:
+            expr = uu + vv - 1 + expr.subs({uu: 1 - uu,
+                                            vv: 1 - vv})
+        elif degrees == 270:
+            expr = vv - expr.subs({uu: 1 - uu})
+        else:
+            raise ValueError("degrees must be one of (None, 90, 180, 270)")
+        return expr
+
+    def symmetries(cls):
+        """Determine if copula is symmetric and set boolean attributes.
+        """
+        # if copula and its 180-degree rotated version are the same
+        # there is symmetry 1
+        copula = cls.cop_expr
+        copula180 = MetaCop.rotate_expr(copula, 180)
+        cls.symmetry1 = sympy.simplify(copula - copula180) == 0
+        # uu, vv = sympy.symbols("uu vv")
+        # copula_swapped = swap_symbols(copula, uu, vv)
+        # cls.symmetry2 = sympy.simplify(copula - copula_swapped) == 0
+        cls.symmetry2 = False
         return cls
 
     def copula_func(cls):
@@ -280,8 +292,6 @@ class MetaCop(ABCMeta):
                          [uu, vv] + theta, cls.cop_expr,
                          backend=cls.backend,
                          verbose=False)
-        if cls.backend in ("f2py", "cython"):
-            ufunc = broadcast_2d(ufunc)
         return ufunc
 
     def density_func(cls):
@@ -291,8 +301,6 @@ class MetaCop(ABCMeta):
                          [uu, vv] + theta, dens_expr,
                          backend=cls.backend,
                          verbose=False)
-        if cls.backend in ("f2py", "cython"):
-            ufunc = broadcast_2d(ufunc)
         return ufunc
 
     def conditional_cdf(cls, conditioning):
@@ -309,6 +317,7 @@ class MetaCop(ABCMeta):
                 #                             cls.cop_expr > 0),
                 #                            (0, True))
                 good_cop = cls.cop_expr
+                # good_cop = sympy.Min(cls.cop_expr, one)
                 # good_cop = sympy.Piecewise((cls.cop_expr,
                 #                             cls.cop_expr <= one),
                 #                            (one, True))
@@ -321,9 +330,7 @@ class MetaCop(ABCMeta):
                          [uu, vv] + theta, conditional_cdf,
                          backend=cls.backend,
                          verbose=False)
-        if cls.backend in ("f2py", "cython"):
-            ufunc = broadcast_1d(ufunc)
-        return positive(ufunc)
+        return ufunc
 
     def cdf_given_u(cls):
         return cls.conditional_cdf(sympy.symbols("uu"))
@@ -380,9 +387,7 @@ class MetaCop(ABCMeta):
                           cls.name)
             mark_failed(key)
             return
-        if cls.backend in ("f2py", "cython"):
-            ufunc = broadcast_1d(ufunc)
-        return positive(ufunc)
+        return ufunc
 
     def inv_cdf_given_u(cls):
         return cls.inverse_conditional_cdf(sympy.symbols("uu"))
@@ -420,8 +425,6 @@ class MetaCop(ABCMeta):
                          [uu, vv] + theta, dens_expr,
                          backend=cls.backend,
                          verbose=False)
-        if cls.backend in ("f2py", "cython"):
-            ufunc = broadcast_2d(ufunc)
         return ufunc
 
 
@@ -453,6 +456,8 @@ class Copulae(metaclass=MetaCop):
     theta_bounds = [(-np.inf, np.inf)]
     # zero, one = 1e-6, 1 - 1e-6
     zero, one = 1e-19, 1 - 1e-19
+    # needed in inverse conditionals
+    _ranks2_calc = np.linspace(zero, one, 5000)
 
     @abstractproperty
     def theta_start(self):
@@ -466,53 +471,65 @@ class Copulae(metaclass=MetaCop):
     def __call__(self, *theta):
         return Frozen(self, *theta)
 
+    def __getstate__(self):
+        dict_ = dict(self.__dict__)
+        if hasattr(self, "bad_attrs"):
+            for attr in self.bad_attrs:
+                del dict_[attr]
+        return dict_
+
+    def __setstate__(self, dict_):
+        self.__dict__ = dict_
+        self.__init__()
+
     def density(self, uu, vv, *theta):
-        if len(theta) > 1:
-            theta = [np.full_like(uu, the) for the in theta]
-        else:
-            theta = np.full_like(uu, theta),
+        theta = tuple(np.full_like(uu, np.atleast_1d(the))
+                      for the in theta)
         return self.dens_func(uu, vv, *theta)
 
-    def _inverse_conditional(self, conditional_func, ranks, quantiles, theta,
-                             given_v=False):
+    def _inverse_conditional(self, conditional_func, ranks, quantiles,
+                             *theta, given_v=False):
         """Numeric inversion of conditional_func (inv_cdf_given_u or
         inv_cdf_given_v), to be used as a last resort.
 
         """
         theta = np.array(self.theta if theta is None else theta)
-        ranks1, quantiles, thetas = np.atleast_1d(ranks, quantiles,
-                                                  theta)
-        quantiles, thetas = map(np.squeeze, (quantiles, thetas))
+        ranks1, quantiles = np.atleast_1d(ranks, quantiles)
+        quantiles = np.squeeze(quantiles)
+        thetas = np.atleast_2d(theta)
         if thetas.size == 1:
-            thetas = np.full_like(ranks1, theta)
+            thetas = np.full(2 * ranks1.shape, theta)
         if quantiles.size == 1:
             quantiles = np.full_like(ranks1, quantiles)
 
         ranks2 = np.copy(ranks1)
-        ranks2_calc = np.linspace(self.zero, self.one, 1000)
         tol = zero
+        ltol, utol = tol, 1 - tol
+        rank_u_ar, rank_v_ar = np.empty((2, 1))
+        theta_ar = np.empty((self.n_par, 1))
         for i, rank1 in enumerate(ranks1):
-            quantile, theta = quantiles[i], thetas[i]
+            quantile, theta = quantiles[i], thetas[:, i]
+            theta_ar[:, 0] = theta
 
             def f(rank2):
                 if given_v:
-                    rank_u, rank_v = rank2, rank1
+                    rank_u_ar[0], rank_v_ar[0] = rank2, rank1
                 else:
-                    rank_u, rank_v = rank1, rank2
-                quantile_calc = conditional_func(rank_u, rank_v, theta)
-                if np.isnan(quantile_calc):
-                    if rank2 < tol:
-                        quantile_calc = 0
-                    elif rank2 > (1 - tol):
-                        quantile_calc = 1
-                    # if np.isclose(rank2, 0):
-                    #     quantile_calc = 0
-                    # elif np.isclose(rank2, 1):
-                    #     quantile_calc = 1
-                return quantile_calc - quantile
+                    rank_u_ar[0], rank_v_ar[0] = rank1, rank2
+                quantile_calc = conditional_func(rank_u_ar,
+                                                 rank_v_ar,
+                                                 *theta_ar)
+                # if np.isnan(quantile_calc):
+                if not (ltol < rank2 < utol):
+                    if rank2 < ltol:
+                        quantile_calc = np.array((ltol,))
+                    elif rank2 > utol:
+                        quantile_calc = np.array((utol,))
+                return quantile_calc[0] - quantile
 
-            debug = True
-            cls = Clayton
+            debug = False
+            # cls = Clayton
+            cls = AliMikailHaq
             with warnings.catch_warnings():
                 warnings.simplefilter("error", RuntimeWarning)
                 skip_else = False
@@ -526,8 +543,7 @@ class Copulae(metaclass=MetaCop):
                     # else block. bug in the warnings module?
                     skip_else = True
                 except RuntimeError:
-                    # if rank1 < tol or rank1 > (1 - tol) :
-                    if np.isclose(rank1, 1) or np.isclose(rank1, 0):
+                    if tol < rank1 < (1 - tol):
                         ranks2[i] = rank1
                         if debug and isinstance(self, cls):
                             warnings.warn("Used rank2 = rank1 for %f in %s" %
@@ -538,9 +554,8 @@ class Copulae(metaclass=MetaCop):
                 else:
                     if skip_else:
                         continue
-                    # do not trust newton when it delivers extreme values
-                    # if rank2 < tol or rank2 > (1 - tol):
-                    if not (np.isclose(rank2, 0) or np.isclose(rank2, 1)):
+                    # trust newton only when it doesn't delivers extreme values
+                    if tol < rank2 < (1 - tol):
                         ranks2[i] = rank2
                         if debug and isinstance(self, cls):
                             warnings.warn("Used newton for rank1 %.6f in %s"
@@ -552,8 +567,7 @@ class Copulae(metaclass=MetaCop):
             except ValueError:
                 pass
             else:
-                # if not (rank2 < tol or rank2 > (1 - tol)):
-                if not (np.isclose(rank2, 0) or np.isclose(rank2, 1)):
+                if tol < rank2 < (1 - tol):
                     ranks2[i] = rank2
                     if debug and isinstance(self, cls):
                         warnings.warn("Used brentq for rank1 %.6f in %s" %
@@ -561,15 +575,16 @@ class Copulae(metaclass=MetaCop):
                     continue
 
             # fall back to linear interpolation
+            ranks2_calc = self._ranks2_calc
+            ranks1_full = np.full_like(ranks2_calc, rank1)
+            theta_full = tuple(np.full_like(ranks2_calc, the)
+                               for the in theta)
             if given_v:
-                ranks_u, ranks_v = ranks2_calc, rank1
+                ranks_u, ranks_v = ranks2_calc, ranks1_full
             else:
-                ranks_u, ranks_v = rank1, ranks2_calc
+                ranks_u, ranks_v = ranks1_full, ranks2_calc
 
-            quantiles_calc = conditional_func(ranks_u, ranks_v, theta)
-            # quantiles_calc = conditional_func(rank1,
-            #                                   ranks2_calc,
-            #                                   theta)
+            quantiles_calc = conditional_func(ranks_u, ranks_v, *theta_full)
             quantiles_calc = np.squeeze(quantiles_calc)
             quantiles_calc[0] = self.zero
             quantiles_calc[-1] = self.one
@@ -588,22 +603,24 @@ class Copulae(metaclass=MetaCop):
 
         return ranks2
 
-    def inv_cdf_given_u(self, ranks_u, quantiles, theta=None):
+    def inv_cdf_given_u(self, ranks_u, quantiles, *theta):
         """Numeric inversion of cdf_given_u, to be used as a last resort.
         """
         return self._inverse_conditional(self.cdf_given_u, ranks_u,
-                                         quantiles, theta=theta)
+                                         quantiles, *theta)
 
-    def inv_cdf_given_v(self, ranks_v, quantiles, theta=None):
+    def inv_cdf_given_v(self, ranks_v, quantiles, *theta):
         """Numeric inversion of cdf_given_v, to be used as a last resort.
         """
         return self._inverse_conditional(self.cdf_given_v, ranks_v,
-                                         quantiles, theta=theta,
+                                         quantiles, *theta,
                                          given_v=True)
 
-    def sample(self, size, theta=None):
+    def sample(self, size, *theta):
         uu = random_sample(size)
         xx = random_sample(size)
+        theta = tuple(np.full_like(uu, the)
+                      for the in theta)
         vv = self.inv_cdf_given_u(uu, xx, *theta)
         return uu, vv
 
@@ -612,7 +629,7 @@ class Copulae(metaclass=MetaCop):
         fitted theta.
         """
         theta = self.fit(ranks_u, ranks_v, *args, **kwds)
-        return Fitted(self, ranks_u, ranks_v, theta)
+        return Fitted(self, ranks_u, ranks_v, *theta)
 
     def x0(self, rank, quantile, theta):
         """Starting-value for newton root finding in the inverse conditionals.
@@ -631,21 +648,10 @@ class Copulae(metaclass=MetaCop):
         """Maximum likelihood estimate."""
 
         def neg_log_likelihood(theta):
-            # for (lower, upper), par in zip(self.theta_bounds, theta):
-            #     if lower <= par <= upper:
-            #         return -np.inf
-            dens = self.density(ranks_u, ranks_v, theta)
+            dens = self.density(ranks_u, ranks_v, *theta)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                # mask = (dens > 0) & np.isfinite(dens)
-                # dens_masked = dens[mask]
-                # if len(dens_masked) == 0:
-                #     return -np.inf
-                # loglike = -np.sum(np.log(dens_masked))
-
                 mask = (dens <= 0) | ~np.isfinite(dens)
-                # if np.any(mask):
-                #     return -1e12
                 dens[mask] = 1e-9
                 loglike = -np.sum(np.log(dens))
             return loglike
@@ -752,7 +758,13 @@ class Frozen:
         except KeyError:
             attr = getattr(self.copula, name)
             if callable(attr):
-                return lambda *args: attr(*(args + self.theta))
+                def proxied(*args):
+                    if not args:
+                        return attr()
+                    theta = tuple(np.full_like(args[0], the)
+                                  for the in self.theta[0])
+                    return attr(*(args + theta))
+                return proxied
             return attr
 
 
@@ -764,19 +776,17 @@ class Fitted:
         self.copula = copula
         self.ranks_u = ranks_u
         self.ranks_v = ranks_v
-        self.theta = theta
+        self.theta = tuple(np.full_like(ranks_u, the)
+                           for the in theta)
         self.name = "fitted %s" % copula.name
         self.verbose = self.copula.verbose = verbose
         if isinstance(copula, Independence):
             self.likelihood = 0
         else:
             density = copula.density(ranks_u, ranks_v, *theta)
-            # if np.any(~np.isfinite(density)):
-            #     self.likelihood = -np.inf
-            # else:
-            #     self.likelihood = np.sum(np.log(density))
-            mask = (density > 0) & np.isfinite(density)
-            density[~mask] = 1e-60
+            mask = np.isfinite(density)
+            density[~mask] = 1e-12
+            density[density <= 0] = 1e-12
             dens_masked = density[mask]
             if len(dens_masked) == 0:
                 self.likelihood = -np.inf
@@ -838,22 +848,38 @@ class Fitted:
         return self.likelihood < other
 
     def __repr__(self):
-        return ("Fitted(%r, theta=%r)" % (self.copula, self.theta))
+        return f"Fitted({self.copula.name})"
+
+    def _call_cdf(self, name, t=None, *, conditioned, condition):
+        if t is not None:
+            theta = np.array([self.theta[0][0]])
+        else:
+            size = len(condition)
+            theta = self.theta[0]
+            if size == 1:
+                theta = theta[:1]
+        method = getattr(self.copula, name)
+        return method(conditioned, condition, theta)
 
     def cdf_given_u(self, t=None, *, conditioned, condition):
-        return self.copula.cdf_given_u(condition, conditioned, *self.theta)
+        return self._call_cdf("cdf_given_u", t,
+                              conditioned=condition,
+                              condition=conditioned)
 
     def cdf_given_v(self, t=None, *, conditioned, condition):
-        return self.copula.cdf_given_v(conditioned, condition, *self.theta)
+        return self._call_cdf("cdf_given_v", t,
+                              conditioned=conditioned,
+                              condition=condition)
 
     def inv_cdf_given_u(self, t=None, *, conditioned, condition):
-        return self.copula.inv_cdf_given_u(condition, conditioned, *self.theta)
+        return self._call_cdf("inv_cdf_given_u", t,
+                              conditioned=condition,
+                              condition=conditioned)
 
     def inv_cdf_given_v(self, t=None, *, conditioned, condition):
-        return self.copula.inv_cdf_given_v(conditioned, condition, *self.theta)
-
-    def plot_density(self, *args, **kwds):
-        return self.copula.plot_density(theta=self.theta, *args, **kwds)
+        return self._call_cdf("inv_cdf_given_v", t,
+                              conditioned=conditioned,
+                              condition=condition)
 
 
 class NoRotations:
@@ -889,13 +915,6 @@ class Archimedian(Copulae, metaclass=MetaArch):
     """
     par_names = "uu", "vv", "theta"
 
-    # def sample(self, size, theta):
-    #     if hasattr(self, "sample_u"):
-    #         print("sampling %s with KC" % self.name)
-    #         ss, tt = np.random.rand(2 * size).reshape(2, -1)
-    #         return self.sample_u(ss, tt), self.sample_v(ss, tt)
-    #     else:
-    #         return Copulae.sample(self, size, theta)
 
 
 # conditionals are returning values > 1 for theta=3
