@@ -37,6 +37,9 @@ conf.ufunc_tmp_dir.mkdir(parents=True, exist_ok=True)
 # rc("text", usetex=True)
 
 rederive = None,
+# rederive = "bb1"
+# rederive = "bb2"
+# rederive = "plackett"
 # rederive = "nelsen16",
 # rederive = "clayton",
 # rederive = "gumbel"
@@ -977,38 +980,37 @@ class Archimedian(Copulae, metaclass=MetaArch):
 
 
 
-# conditionals are returning values > 1 for theta=3
-class Clayton(Copulae, NoRotations):
-    """p. 168"""
-    # backend = "numpy"
-    par_names = "uu", "vv", "theta"
-    # theta_start = 2.5,
-    theta_start = np.array([2.5])
-    theta_bounds = [(-1 + 1e-8, 10.)]
-    # uu, vv, t, theta = sympy.symbols("uu vv t theta")
-    uu, vv, t, theta, qq = sympy.symbols("uu vv t theta qq")
-    cop_expr = (uu ** -theta + vv ** -theta - 1) ** (-1 / theta)
-    dens_expr = ((1 + theta) * (uu * vv) ** (-theta - 1) *
-                 (uu ** -theta + vv ** -theta - 1) ** (-2 - 1 / theta))
-    # gen_expr = (1 / theta) * (t ** (-theta) - 1)
-    # gen_inv_expr = (1 + theta * t) ** (-1 / theta)
 
-    cdf_given_uu_expr = (uu ** (1 - theta) *
-                         (1 + uu ** theta *
-                          (vv ** -theta)) ** ((theta + 1) / theta))
-
-    inv_cdf_given_uu_expr = ((qq ** (-theta / (1 + theta)) - 1) *
-                             uu ** -theta + 1) ** (-1 / theta)
-    cdf_given_vv_expr = cdf_given_uu_expr.subs(dict(uu=vv))
-    inv_cdf_given_vv_expr = inv_cdf_given_uu_expr.subs(dict(uu=vv))
-    # known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
-clayton = Clayton()
+# # conditionals are returning values > 1 for theta=3
+# class Clayton(Copulae, NoRotations):
+#     """p. 168"""
+#     # backend = "numpy"
+#     par_names = "uu", "vv", "theta"
+#     theta_start = 2.5,
+#     # theta_start = np.array([2.5])
+#     theta_bounds = [(-1 + 1e-8, 10.)]
+#     # uu, vv, t, theta = sympy.symbols("uu vv t theta")
+#     uu, vv, t, theta, qq = sympy.symbols("uu vv t theta qq")
+#     cop_expr = (uu ** -theta + vv ** -theta - 1) ** (-1 / theta)
+#     # dens_expr = ((1 + theta) * (uu * vv) ** (-theta - 1) *
+#     #              (uu ** -theta + vv ** -theta - 1) ** (-2 - 1 / theta))
+#     # gen_expr = (1 / theta) * (t ** (-theta) - 1)
+#     # gen_inv_expr = (1 + theta * t) ** (-1 / theta)
+#     cdf_given_uu_expr = (uu ** (1 - theta) *
+#                          (1 + uu ** theta *
+#                           (vv ** -theta)) ** ((theta + 1) / theta))
+#     inv_cdf_given_uu_expr = ((qq ** (-theta / (1 + theta)) - 1) *
+#                              uu ** -theta + 1) ** (-1 / theta)
+#     # cdf_given_vv_expr = cdf_given_uu_expr.subs(dict(uu=vv))
+#     # inv_cdf_given_vv_expr = inv_cdf_given_uu_expr.subs(dict(uu=vv))
+#     # known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
+# clayton = Clayton()
 
 
 # inverted conditionals fail, fit also
 class Frank(Archimedian, No180):
     """Also Nelsen05"""
-    theta_start = 2.5,
+    theta_start = 5.,
     theta_bounds = [(-theta_large, theta_large)]
     xx, uu, vv, t, theta = sympy.symbols("xx uu vv t theta")
     # gen_expr = -ln((exp(-theta * t) - 1) /
@@ -1040,7 +1042,7 @@ frank = Frank()
 # inverse conditionals causing pain
 class GumbelBarnett(Archimedian, No180, No270):
     """Also Nelsen09"""
-    theta_start = .25,
+    theta_start = .9,
     theta_bounds = [(1e-9, 1. - 1e-9)]
     # t, theta = sympy.symbols("t theta")
     # gen_expr = ln(1 - theta * ln(t))
@@ -1106,12 +1108,13 @@ gumbelbarnett = GumbelBarnett()
 # nelsen08 = Nelsen08()
 
 
-class Nelsen10(Archimedian, No180):
-    theta_start = .5,
-    theta_bounds = [(1e-3, 1.)]
-    t, theta = sympy.symbols("t theta")
-    gen_expr = ln(2 * t ** (-theta) - 1)
-nelsen10 = Nelsen10()
+# # i don't trust it!
+# class Nelsen10(Archimedian, No180):
+#     theta_start = .5,
+#     theta_bounds = [(1e-3, 1.)]
+#     t, theta = sympy.symbols("t theta")
+#     gen_expr = ln(2 * t ** (-theta) - 1)
+# nelsen10 = Nelsen10()
 
 
 # # density does not integrate to 1
@@ -1151,6 +1154,7 @@ class Nelsen14(Archimedian, NoRotations):
 nelsen14 = Nelsen14()
 
 
+# # funky conditional
 # class Nelsen15(Archimedian, NoRotations):
 #     # TODO: this probably has a real name, look it up!
 #     theta_start = 3.,
@@ -1160,26 +1164,27 @@ nelsen14 = Nelsen14()
 # nelsen15 = Nelsen15()
 
 
-# minor problems with conditionals
-class Nelsen16(Archimedian, NoRotations):
-    theta_start = .5,
-    theta_bounds = [(1e-3, theta_large)]
-    uu, vv, S, t, theta = sympy.symbols("uu vv S t theta")
-    # gen_expr = (theta / t + 1) * (1 - t)
-    cop_expr = .5 * (S + sympy.sqrt(S ** 2 + 4 * theta))
-    # cop_expr = S + sympy.sqrt(S ** 2 + 4 * theta)
-    cop_expr = cop_expr.subs(S,
-                             uu + vv - 1 - theta * (1 / uu + 1 / vv - 1))
-    # cdf_given_uu_expr = (theta / uu ** 2 + 1.0 -
-    #                      0.5 * (2 * theta / uu ** 2 + 2) *
-    #                      (theta * (-1 + 1 / vv + 1 / uu) - uu - vv + 1) /
-    #                      sqrt(4 * theta + (theta * (-1 + 1 / vv + 1 / uu) -
-    #                                        uu - vv + 1) ** 2))
-    # cdf_given_vv_expr = cdf_given_uu_expr.subs(uu, vv)
-    # cop_expr = sympy.Piecewise((cop_expr, cop_expr > 0),
-    #                            (0, True))
-    known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
-nelsen16 = Nelsen16()
+# # either the copula function or the conditionals are not in [0, 1]
+# class Nelsen16(Archimedian, NoRotations):
+#     theta_start = .25,
+#     theta_bounds = [(1e-3, theta_large)]
+#     uu, vv, S, t, theta = sympy.symbols("uu vv S t theta")
+#     # gen_expr = (theta / t + 1) * (1 - t)
+#     cop_expr = (S + sympy.sqrt(S ** 2 + 4 * theta)) / 2
+#     # cop_expr = S + sympy.sqrt(S ** 2 + 4 * theta)
+#     cop_expr = cop_expr.subs(S,
+#                              uu + vv - 1 - theta * (1 / uu + 1 / vv - 1))
+#     cdf_given_uu_expr = (theta / uu ** 2 + 1 -
+#                          (2 * theta / uu ** 2 + 2) / 2 *
+#                          (theta * (-1 + 1 / vv + 1 / uu) - uu - vv + 1) /
+#                          sympy.sqrt(4 * theta +
+#                                     (theta * (-1 + 1 / vv + 1 / uu) -
+#                                      uu - vv + 1) ** 2))
+#     cdf_given_vv_expr = cdf_given_uu_expr.subs(uu, vv)
+#     # cop_expr = sympy.Piecewise((cop_expr, cop_expr > 0),
+#     #                            (0, True))
+#     known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
+# nelsen16 = Nelsen16()
 
 
 # # very slow class construction
@@ -1191,16 +1196,17 @@ nelsen16 = Nelsen16()
 # nelsen17 = Nelsen17()
 
 
+# # funky conditional
 # class Nelsen18(Archimedian, NoRotations):
 #     theta_start = 2.5,
 #     theta_bounds = [(2., 10)]
 #     uu, vv, t, theta = sympy.symbols("uu vv t theta")
 #     gen_expr = exp(theta / (t - 1))
-#     # cop_expr = 1 + theta / ln(exp(theta / (uu - 1)) +
-#     #                           exp(theta / (vv - 1)))
+#     cop_expr = 1 + theta / ln(exp(theta / (uu - 1)) +
+#                               exp(theta / (vv - 1)))
 #     # cop_expr = sympy.Piecewise((cop_expr, cop_expr > 0),
 #     #                            (0, True))
-#     # known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
+#     known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
 # nelsen18 = Nelsen18()
 
 
@@ -1218,33 +1224,36 @@ nelsen16 = Nelsen16()
 # nelsen19 = Nelsen19()
 
 
-class Nelsen20(Archimedian, No90, No270):
-    theta_start = .05,
-    theta_bounds = [(1e-9, .9)]
-    uu, vv, t, theta = sympy.symbols("uu vv t theta")
-    gen_expr = exp(t ** (-theta)) - mp.e
-    cop_expr = (ln(exp(uu ** -theta) +
-                   exp(vv ** -theta) - mp.e)) ** (-1 / theta)
-nelsen20 = Nelsen20()
+# # TypeError: argument is not an mpz
+# class Nelsen20(Archimedian, No90, No270):
+#     theta_start = .05,
+#     theta_bounds = [(1e-9, .9)]
+#     uu, vv, t, theta = sympy.symbols("uu vv t theta")
+#     gen_expr = exp(t ** (-theta)) - mp.e
+#     cop_expr = (ln(exp(uu ** -theta) +
+#                    exp(vv ** -theta) - mp.e)) ** (-1 / theta)
+# nelsen20 = Nelsen20()
 
 
+# # funky conditionals
 # class Nelsen21(Archimedian):
 #     theta_start = 3.,
 #     theta_bounds = [(1., 5)]
 #     uu, vv, t, theta = sympy.symbols("uu vv t theta")
 #     gen_expr = 1 - (1 - (1 - t) ** theta) ** (1 / theta)
-#     # cop_expr = (1 - (1 - ((1 - (1 - uu) ** theta) ** (1 / theta) +
-#     #                       (1 - (1 - vv) ** theta) ** (1 / theta) -
-#     #                       1) ** theta)) ** (1 / theta)
-#     # piece = ((1 - (1 - uu) ** theta) ** (1 / theta) +
-#     #          (1 - (1 - vv) ** theta) ** (1 / theta) - 1)
-#     # piece = sympy.Piecewise((piece, piece > 0),
-#     #                         (0, True))
+#     cop_expr = (1 - (1 - ((1 - (1 - uu) ** theta) ** (1 / theta) +
+#                           (1 - (1 - vv) ** theta) ** (1 / theta) -
+#                           1) ** theta)) ** (1 / theta)
+#     piece = ((1 - (1 - uu) ** theta) ** (1 / theta) +
+#              (1 - (1 - vv) ** theta) ** (1 / theta) - 1)
+#     piece = sympy.Piecewise((piece, piece > 0),
+#                             (0, True))
 #     # cop_expr = (1 - (1 - piece ** theta)) ** (1 / theta)
 #     # known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
 # nelsen21 = Nelsen21()
 
 
+# # copula function does not start at 0
 # class Nelsen22(Archimedian, NoRotations):
 #     from sympy import asin
 #     theta_start = .5,
