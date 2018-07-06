@@ -55,7 +55,7 @@ def clear_def_cache(function, cache_names=None, cache_name_values=None):
         setattr(function, name, value)
 
 
-def ccplom(data, k=0, kind="contour", transform=False, varnames=None,
+def ccplom(data, k=0, kind="img", transform=False, varnames=None,
            h_kwds=None, s_kwds=None, title=None, opacity=.1,
            cmap=None, x_bins=15, y_bins=15, display_rho=True,
            display_asy=True, vmax_fct=1., fontsize=None, fontcolor="yellow",
