@@ -1311,12 +1311,6 @@ class Gumbel(Archimedian, NoRotations):
     theta_bounds = [(1 + 1e-9, theta_large)]
     t, theta = sympy.symbols("t theta")
     gen_expr = (-ln(t)) ** theta
-    xx, yy, uu, vv, t, theta = sympy.symbols("xx yy uu vv t theta")
-    cdf_given_uu_expr = (uu ** -1 * exp(-(xx ** theta +
-                                          yy ** theta) ** (1 / theta)) *
-                         (1 + (yy / xx) ** theta) ** (1 / theta - 1))
-    cdf_given_uu_expr = cdf_given_uu_expr.subs({xx: -ln(uu),
-                                                yy: -ln(vv)})
     known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
 
     def _inverse_conditional(self, ranks, quantiles, theta,
@@ -1346,15 +1340,42 @@ class Gumbel(Archimedian, NoRotations):
                      backend=self.backend)
         h_prime = ufuncify(self.__class__, "h_prime", h_args, h_prime_expr,
                            backend=self.backend)
-        h, h_prime = map(broadcast_1d, (h, h_prime))
+        h, h_prime = map(gen_arr_fun, (h, h_prime))
 
         for i, rank1 in enumerate(ranks1):
+            theta_ = thetas[i]
             x = -np.log(rank1)
             z_root = newton(h, x0=x,
                             fprime=h_prime,
-                            args=(x, quantiles[i], theta))
-            y_root = (z_root ** theta - x ** theta) ** (1 / theta)
-            ranks2[i] = np.exp(-float(y_root))
+                            args=(np.array([x]),
+                                  np.array([quantiles[i]]),
+                                  np.array([theta_])))
+            if z_root > x:
+                y_root = (z_root ** theta_ - x ** theta_) ** (1 / theta_)
+                ranks2[i] = np.exp(-float(y_root))
+            else:
+                rank_u_ar, rank_v_ar, theta_ar = np.empty((3, 1))
+                tol = zero
+                ltol, utol = tol, 1 - tol
+
+                def f(rank2):
+                    if given_v:
+                        rank_u_ar[0], rank_v_ar[0] = rank2, rank1
+                        conditional_func = self.cdf_given_u
+                    else:
+                        rank_u_ar[0], rank_v_ar[0] = rank1, rank2
+                        conditional_func = self.cdf_given_v
+                    quantile_calc = conditional_func(rank_u_ar,
+                                                     rank_v_ar,
+                                                     theta_ar)
+                    if not (ltol < rank2 < utol):
+                        if rank2 < ltol:
+                            quantile_calc = np.array((ltol,))
+                        elif rank2 > utol:
+                            quantile_calc = np.array((utol,))
+                    return quantile_calc[0] - quantiles[i]
+
+                ranks2[i] = brentq(f, -tol, 1 + tol, disp=True)
         return ranks2
 
     def inv_cdf_given_u(self, ranks_u, quantiles, theta):
@@ -1367,7 +1388,7 @@ gumbel = Gumbel()
 
 
 class AliMikailHaq(Archimedian, No90, No270):
-    theta_start = .9,
+    theta_start = .99,
     # theta_bounds = [(1e-9, 1.)]
     theta_bounds = [(-1 + 1e-6, 1. - 1e-6)]
     t, theta = sympy.symbols("t theta")
