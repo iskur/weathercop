@@ -1319,6 +1319,34 @@ class Gumbel(Archimedian, NoRotations):
     t, theta = sympy.symbols("t theta")
     gen_expr = (-ln(t)) ** theta
     known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
+    bad_attrs = ("h_u",
+                 "h_v",
+                 "h_prime_u",
+                 "h_prime_v")
+
+    def __init__(self):
+        xx, yy, zz, p, delta = sympy.symbols("xx yy zz p delta")
+        h_expr = (zz + (delta - 1) * ln(zz) -
+                  (xx + (delta - 1) * ln(xx) - ln(p)))
+        h_prime_expr = 1 + (delta - 1) * zz ** -1
+        h_args = [zz, xx, p, delta]
+
+        h = ufuncify(self.__class__, "h_u", h_args, h_expr,
+                     backend=self.backend)
+        h_prime = ufuncify(self.__class__, "h_prime_u", h_args,
+                           h_prime_expr, backend=self.backend)
+        self.h_u, self.h_prime_u = map(gen_arr_fun, (h, h_prime))
+
+        h_expr = swap_symbols(h_expr, xx, yy)
+        # h_expr = (zz + (delta - 1) * ln(zz) -
+        #           (yy + (delta - 1) * ln(yy) - ln(p)))
+        h_prime_expr = swap_symbols(h_prime_expr, xx, yy)
+        h_args = [zz, yy, p, delta]
+        h = ufuncify(self.__class__, "h_v", h_args, h_expr,
+                     backend=self.backend)
+        h_prime = ufuncify(self.__class__, "h_prime_v", h_args,
+                           h_prime_expr, backend=self.backend)
+        self.h_v, self.h_prime_v = map(gen_arr_fun, (h, h_prime))
 
     def _inverse_conditional(self, ranks, quantiles, theta,
                              given_v=False):
@@ -1332,22 +1360,10 @@ class Gumbel(Archimedian, NoRotations):
             quantiles = np.full_like(ranks1, quantiles)
         ranks2 = np.empty_like(ranks1)
 
-        x, y, z, p, delta = sympy.symbols("x y z p delta")
-        h_expr = (z + (delta - 1) * ln(z) -
-                  (x + (delta - 1) * ln(x) - ln(p)))
-        h_prime_expr = 1 + (delta - 1) * z ** -1
-        h_args = [z, x, p, delta]
-
-        if given_v:
-            h_expr = swap_symbols(h_expr, x, y)
-            h_prime_expr = swap_symbols(h_prime_expr, x, y)
-            h_args = [z, y, p, delta]
-
-        h = ufuncify(self.__class__, "h", h_args, h_expr,
-                     backend=self.backend)
-        h_prime = ufuncify(self.__class__, "h_prime", h_args, h_prime_expr,
-                           backend=self.backend)
-        h, h_prime = map(gen_arr_fun, (h, h_prime))
+        if not given_v:
+            h, h_prime = self.h_u, self.h_prime_u
+        else:
+            h, h_prime = self.h_v, self.h_prime_v
 
         for i, rank1 in enumerate(ranks1):
             theta_ = thetas[i]
