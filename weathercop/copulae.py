@@ -986,30 +986,32 @@ class BB(Copulae, metaclass=MetaArch):
     par_names = "uu", "vv", "theta", "delta"
 
 
-# # conditionals are returning values > 1 for theta=3
-# class Clayton(Copulae, NoRotations):
-#     """p. 168"""
-#     # backend = "numpy"
-#     par_names = "uu", "vv", "theta"
-#     theta_start = 2.5,
-#     # theta_start = np.array([2.5])
-#     theta_bounds = [(-1 + 1e-8, 10.)]
-#     # uu, vv, t, theta = sympy.symbols("uu vv t theta")
-#     uu, vv, t, theta, qq = sympy.symbols("uu vv t theta qq")
-#     cop_expr = (uu ** -theta + vv ** -theta - 1) ** (-1 / theta)
-#     # dens_expr = ((1 + theta) * (uu * vv) ** (-theta - 1) *
-#     #              (uu ** -theta + vv ** -theta - 1) ** (-2 - 1 / theta))
-#     # gen_expr = (1 / theta) * (t ** (-theta) - 1)
-#     # gen_inv_expr = (1 + theta * t) ** (-1 / theta)
-#     cdf_given_uu_expr = (uu ** (1 - theta) *
-#                          (1 + uu ** theta *
-#                           (vv ** -theta)) ** ((theta + 1) / theta))
-#     inv_cdf_given_uu_expr = ((qq ** (-theta / (1 + theta)) - 1) *
-#                              uu ** -theta + 1) ** (-1 / theta)
-#     # cdf_given_vv_expr = cdf_given_uu_expr.subs(dict(uu=vv))
-#     # inv_cdf_given_vv_expr = inv_cdf_given_uu_expr.subs(dict(uu=vv))
-#     # known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
-# clayton = Clayton()
+# conditionals are returning values > 1 for theta=3
+class Clayton(Copulae, NoRotations):
+    """p. 168"""
+    # backend = "numpy"
+    par_names = "uu", "vv", "theta"
+    theta_start = .5,
+    # theta_start = np.array([2.5])
+    theta_bounds = [(1e-8, 2.)]
+    # uu, vv, t, theta = sympy.symbols("uu vv t theta")
+    uu, vv, t, theta, qq = sympy.symbols("uu vv t theta qq")
+    cop_expr = (uu ** -theta + vv ** -theta - 1) ** (-1 / theta)
+    # dens_expr = ((1 + theta) * (uu * vv) ** (-theta - 1) *
+    #              (uu ** -theta + vv ** -theta - 1) ** (-2 - 1 / theta))
+    # gen_expr = (1 / theta) * (t ** (-theta) - 1)
+    # gen_inv_expr = (1 + theta * t) ** (-1 / theta)
+    # cdf_given_uu_expr = (uu ** (1 - theta) *
+    #                      (1 + uu ** theta *
+    #                       (vv ** -theta)) ** ((theta + 1) / theta))
+    cdf_given_uu_expr = (1 + uu ** theta * (vv ** -theta - 1)
+                         ** (-1 - 1 / theta))
+    inv_cdf_given_uu_expr = ((qq ** (-theta / (1 + theta)) - 1) *
+                             uu ** -theta + 1) ** (-1 / theta)
+    # cdf_given_vv_expr = cdf_given_uu_expr.subs(dict(uu=vv))
+    # inv_cdf_given_vv_expr = inv_cdf_given_uu_expr.subs(dict(uu=vv))
+    # known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
+clayton = Clayton()
 
 
 # inverted conditionals fail, fit also
