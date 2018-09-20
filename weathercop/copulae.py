@@ -113,7 +113,7 @@ def mark_failed(key):
     mode = "r+" if faillog_file.exists() else "w+"
     with faillog_file.open(mode) as faillog:
         keys = faillog.readlines()
-        if (key + "\n") not in keys:
+        if (key + os.linesep) not in keys:
             faillog.write(key + os.linesep)
 
 
