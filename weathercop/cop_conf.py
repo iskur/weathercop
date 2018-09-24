@@ -1,25 +1,22 @@
 """Central file to keep the same configuration in all weathercop code.
 """
 from pathlib import Path
-try:
-    from lhglib.contrib.dirks_globals import ADict
-except ImportError:
-    from weathercop.tools import ADict
+from weathercop.tools import ADict
 
 PROFILE = False
 home = Path.home()
 weathercop_dir = home / "WeatherCop"
-# ufunc_tmp_dir = "home/dirk/workspace/python/weathercop/ufunc_tmp"
-code_dir = home / "workspace/python/weathercop/code"
-cache_dir = code_dir / "cache"
-ufunc_tmp_dir = cache_dir / "ufunc_tmp_dir"
-sympy_cache = cache_dir / "sympy_cache.she"
+# ufunc_tmp_dir = cache_dir / "ufunc_tmp_dir"
+script_home = Path(__file__).parent
+ufunc_tmp_dir = script_home / "ufuncs"
+sympy_cache = ufunc_tmp_dir / "sympy_cache.she"
+cache_dir = weathercop_dir / "cache"
 theano_cache = cache_dir / "theano_cache.she"
 vine_cache = cache_dir / "vine_cache.she"
 vgs_cache_dir = cache_dir / "vgs_cache"
 varnames = ("R", "theta", "Qsw", "ILWR", "rh", "u", "v")
 
-vgs_cache_dir.mkdir(exist_ok=True)
+vgs_cache_dir.mkdir(exist_ok=True, parents=True)
 
 class VGG:
     init = ADict(var_names=varnames, verbose=True,
