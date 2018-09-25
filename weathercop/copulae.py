@@ -47,18 +47,18 @@ rederive = None,
 
 def ufuncify_cython(cls, name, uargs, expr, *args, verbose=False, **kwds):
     expr_hash = tools.hash_cop(expr)
-    module_name = "%s_%s_%s" % (cls.name, name, expr_hash)
+    module_name = f"{cls.name}_{name}_{expr_hash}"
     try:
         with tools.chdir(conf.ufunc_tmp_dir):
-            ufunc = importlib.import_module("%s_0" % module_name).autofunc_c
+            ufunc = importlib.import_module(f"{module_name}_0").autofunc_c
     except (ImportError, AttributeError):
         if verbose:
-            print("Compiling %s" % repr(expr))
+            print(f"Compiling {expr}")
         _filename_orig = autowrap.CodeWrapper._filename
         _module_basename_orig = autowrap.CodeWrapper._module_basename
         _module_counter_orig = autowrap.CodeWrapper._module_counter
         # these attributes determine the file name of the generated code
-        autowrap.CodeWrapper._filename = "%s_code" % module_name
+        autowrap.CodeWrapper._filename = f"{module_name}_code"
         autowrap.CodeWrapper._module_basename = module_name
         autowrap.CodeWrapper._module_counter = 0
         ufunc = autowrap.ufuncify(uargs, expr,
@@ -119,7 +119,7 @@ def mark_failed(key):
 
 def clear_sympy_cache():
     for suffix in ("bak dat dir".split()):
-        conf.sympy_cache.wit_suffix(".she.%s" % suffix).unlink()
+        conf.sympy_cache.wit_suffix(f".she.{suffix}").unlink()
 
 
 def swap_symbols(expr, symbol1, symbol2):
@@ -310,13 +310,12 @@ class MetaCop(ABCMeta):
 
     def conditional_cdf(cls, conditioning):
         uu, vv, *theta = sympy.symbols(cls.par_names)
-        expr_attr = "cdf_given_%s_expr" % conditioning
+        expr_attr = rf"cdf_given_{conditioning}_expr"
         with tools.shelve_open(conf.sympy_cache) as sh:
-            key = ("%s_cdf_given_%s_%s" %
-                   (cls.name, conditioning, tools.hash_cop(cls)))
+            cls_hash = tools.hash_cop(cls)
+            key = f"{cls.name}_cdf_given_{conditioning}_{cls_hash}"
             if key not in sh or cls.name in rederive:
-                print("Generating %s-conditional %s" %
-                      (conditioning, cls.name))
+                print(f"Generating {conditioning}-conditional {cls.name}")
                 # a good cop always stays positive!
                 # good_cop = sympy.Piecewise((cls.cop_expr,
                 #                             cls.cop_expr > 0),
@@ -346,8 +345,8 @@ class MetaCop(ABCMeta):
     def inverse_conditional_cdf(cls, conditioning):
         uu, vv, qq, theta = sympy.symbols("uu vv qq theta")
         conditioned = list(set((uu, vv)) - set([conditioning]))[0]
-        key = ("%s_inv_cdf_given_%s_%s" %
-               (cls.name, conditioning, tools.hash_cop(cls)))
+        cls_hash = tools.hash_cop(cls)
+        key = f"{cls.name}_inv_cdf_given_{conditioning}_{cls_hash}"
         # keep a log of what does not work in order to not repeat ad
         # nauseum
         try:
@@ -355,24 +354,21 @@ class MetaCop(ABCMeta):
                 return
         except FileNotFoundError:
             open(faillog_file, "a").close()
-        attr_name = "inv_cdf_given_%s_expr" % conditioning
+        attr_name = f"inv_cdf_given_{conditioning}_expr"
         if not hasattr(cls, attr_name) or cls.rotated:
             # cached sympy derivation
             with tools.shelve_open(conf.sympy_cache) as sh:
                 if key not in sh or cls.name in rederive:
-                    print("Generating inverse %s-conditional %s" %
-                          (conditioning, cls.name))
+                    print("Generating inverse "
+                          f"{conditioning}-conditional {cls.name}")
                     cdf_given_expr = getattr(cls,
-                                             "cdf_given_%s_expr" %
-                                             conditioning)
+                                             f"cdf_given_{conditioning}_expr")
                     try:
                         inv_cdf = sympy.solve(cdf_given_expr - qq,
                                               conditioned)[0]
                     except (NotImplementedError, ValueError, TypeError):
                         warnings.warn("Derivation of inv.-conditional " +
                                       "failed for" +
-                                      " %s" % cls.name)
-                        with open(faillog_file, "r+") as faillog:
                             keys = faillog.readlines()
                             if key not in keys:
                                 faillog.write(key + os.linesep)
@@ -383,13 +379,12 @@ class MetaCop(ABCMeta):
         inv_cdf = getattr(cls, attr_name)
         # compile sympy expression
         try:
-            ufunc = ufuncify(cls, "inv_cdf_given_%s" % conditioning,
+            ufunc = ufuncify(cls, f"inv_cdf_given_{conditioning}"
                              [conditioning, qq, theta], inv_cdf,
                              backend=cls.backend,
                              verbose=False)
         except (autowrap.CodeWrapError, TypeError):
-            warnings.warn("Could not compile inv.-conditional for %s" %
-                          cls.name)
+            warnings.warn(f"Could not compile inv.-conditional for {cls.name}")
             mark_failed(key)
             return
         return ufunc
@@ -416,9 +411,10 @@ class MetaCop(ABCMeta):
         """
         uu, vv, *theta = sympy.symbols(cls.par_names)
         with tools.shelve_open(conf.sympy_cache) as sh:
-            key = "%s_density_%s" % (cls.name, tools.hash_cop(cls))
+            cls_hash = tools.hash_cop(cls)
+            key = f"{cls.name}_density_{cls_hash}"
             if key not in sh or cls.name in rederive:
-                print("Generating density for %s" % cls.name)
+                print(f"Generating density for {cls.name}")
                 dens_expr = sympy.diff(cls.cop_expr, uu, vv)
                 # dens_expr = sympy.Piecewise((dens_expr, cls.cop_expr > 0),
                 #                             (0, True))
@@ -440,9 +436,9 @@ class MetaArch(MetaCop):
             gen = cls_dict["gen_expr"]
             uu, vv, x, t = sympy.symbols("uu vv x t")
             with tools.shelve_open(conf.sympy_cache) as sh:
-                key = "%s_cop_%s" % (name, tools.hash_cop(gen))
+                key = f"{name}_cop_{tools.hash_cop(gen)}"
                 if key not in sh or name in rederive:
-                    print("Generating inv. gen for %s" % name)
+                    print(f"Generating inv. gen for {name}")
                     if "gen_inv" not in cls_dict:
                         gen_inv = sympy.solve(gen - x, t)[0]
                     cop = gen_inv.subs(x, gen.subs(t, uu) + gen.subs(t, vv))
@@ -551,8 +547,8 @@ class Copulae(metaclass=MetaCop):
                     if tol < rank1 < (1 - tol):
                         ranks2[i] = rank1
                         if debug and isinstance(self, cls):
-                            warnings.warn("Used rank2 = rank1 for %f in %s" %
-                                          (rank1, self.name))
+                            warnings.warn("Used rank2 = rank1 for "
+                                          f"{rank:.6f} in {self.name}")
                         continue
                 except ValueError:
                     pass
@@ -563,8 +559,8 @@ class Copulae(metaclass=MetaCop):
                     if tol < rank2 < (1 - tol):
                         ranks2[i] = rank2
                         if debug and isinstance(self, cls):
-                            warnings.warn("Used newton for rank1 %.6f in %s"
-                                          % (rank1, self.name))
+                            warnings.warn("Used newton for rank1 "
+                                          f"{rank1:.6f} in {self.name}")
                         continue
 
             try:
@@ -575,8 +571,8 @@ class Copulae(metaclass=MetaCop):
                 if tol < rank2 < (1 - tol):
                     ranks2[i] = rank2
                     if debug and isinstance(self, cls):
-                        warnings.warn("Used brentq for rank1 %.6f in %s" %
-                                      (rank1, self.name))
+                        warnings.warn("Used brentq for rank1 "
+                                      f"{rank1:.6f} in {self.name}")
                     continue
 
             # fall back to linear interpolation
@@ -602,8 +598,8 @@ class Copulae(metaclass=MetaCop):
                              fill_value=(zero, one)
                              )
             if debug and isinstance(self, cls):
-                warnings.warn("Used interpolation for rank1 %.6f in %s" %
-                              (rank1, self.name))
+                warnings.warn("Used interpolation for rank1 "
+                              f"{rank1:.6f} in {self.name}")
             ranks2[i] = f_int(quantile)
 
         return ranks2
@@ -779,7 +775,7 @@ class Frozen:
         """Copula with frozen parameters."""
         self.copula = copula
         self.theta = theta
-        self.name = "frozen %s" % copula.name
+        self.name = f"frozen {copula.name}"
 
     def __getattr__(self, name):
         try:
@@ -807,7 +803,7 @@ class Fitted:
         self.ranks_v = ranks_v
         self.theta = tuple(np.full_like(ranks_u, the)
                            for the in theta)
-        self.name = "fitted %s" % copula.name
+        self.name = f"fitted {copula.name}"
         self.verbose = self.copula.verbose = verbose
         if isinstance(copula, Independence):
             self.likelihood = 0
@@ -1830,7 +1826,7 @@ for cop_name, obj in all_cops.items():
             continue
         rot_str = norot_cls.__name__[len("No"):]
         old_type = type(obj)
-        new_name = "%s_%s" % (old_type.__name__, rot_str)
+        new_name = f"{old_type.__name__}_{rot_str}"
         # make the rotated copulas importable
         TurnedCop = type(new_name,
                          (old_type,) + old_type.__bases__,
