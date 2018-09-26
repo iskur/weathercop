@@ -156,7 +156,7 @@ def hist2d(x, y, n_xbins=15, n_ybins=15, kind="img", ax=None, cmap=None,
     if cmap is None:
         # cmap = plt.get_cmap("coolwarm")
         cmap = plt.get_cmap("terrain")
-    H, xedges, yedges = np.histogram2d(x, y, (n_xbins, n_ybins), normed=True)
+    H, xedges, yedges = np.histogram2d(x, y, (n_xbins, n_ybins), density=True)
     # if this histogram is part of a plot-matrix, the plot-matrix
     # might want to set vmax to a common value.  expose h_max to the
     # outside here as a function attribute for that reason.
