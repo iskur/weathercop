@@ -1,26 +1,30 @@
 import functools
-import warnings
+from itertools import repeat
+import multiprocessing
+import time
+# from concurrent.futures import as_completed
+# from concurrent.futures.process import ProcessPoolExecutor
 
-import numpy as np
 import matplotlib.pyplot as plt
-from scipy.optimize import minimize
-import pathos
-from tqdm import tqdm
 import numexpr as ne
+import numpy as np
+from scipy.optimize import minimize
+from tqdm import tqdm
 
-from lhglib.contrib import dirks_globals as my, times
-from lhglib.contrib.time_series_analysis import (distributions as dists,
-                                                 spectral)
+from vg import helpers as my, times
+from vg.time_series_analysis import distributions as dists, spectral
 from weathercop import copulae as cops, stats
+from weathercop import cop_conf
 
-n_nodes = pathos.multiprocessing.cpu_count() - 2
+n_nodes = multiprocessing.cpu_count() - 1
 
 
 @functools.total_ordering
 class SeasonalCop:
 
     def __init__(self, copula, dtimes, ranks_u, ranks_v, *,
-                 window_len=15, fft_order=3, verbose=False):
+                 window_len=15, fft_order=5, my_cops=None,
+                 verbose=True, asymmetry=False):
         """Seasonally adapting copula.
 
         Parameter
@@ -34,72 +38,93 @@ class SeasonalCop:
         window_len : int, optional
         fft_order : int, optional
         verbose : boolean, optional
+        asymmetry : boolean, optional
+            Assign weights in likelihood estimation in order to favour
+            asymmetrical copulas.
         """
         if copula is None:
-            my_cops = [cop for cop in cops.all_cops.values()
-                       if not isinstance(cop, cops.Independence)]
+            if my_cops is None:
+                my_cops = [cop for cop in cops.all_cops.values()
+                           if not isinstance(cop, cops.Independence)]
 
-            def expand_ar(ar):
-                if np.ndim(ar) == 2:
-                    return ar
-                n_cops = len(my_cops)
-                return np.tile(ar, (n_cops, 1))
-
-            dtimes, ranks_u, ranks_v = map(expand_ar,
-                                           (dtimes, ranks_u, ranks_v))
-            # pool = pathos.pools.ProcessPool(nodes=n_nodes)
-            pool = pathos.pools.ThreadPool()
-            scops = pool.imap(SeasonalCop, my_cops, dtimes, ranks_u,
-                              ranks_v, window_len=window_len,
-                              verbose=verbose)
-
-            # scops = [SeasonalCop(cop,
-            #                      dtimes,
-            #                      ranks_u,
-            #                      ranks_v,
-            #                      window_len=window_len,
-            #                      verbose=verbose)
-            #          for cop in tqdm(my_cops)
-            #          if not isinstance(cop, cops.Independence)]
-
+            if cop_conf.PROFILE:
+                scops = [SeasonalCop(cop, dtimes, ranks_u, ranks_v,
+                                     window_len=window_len,
+                                     verbose=verbose)
+                         for cop in my_cops]
+            else:
+                with multiprocessing.Pool(n_nodes) as pool:
+                    scops = pool.map(SeasonalCop._unpack,
+                                     zip(my_cops,
+                                         repeat(dtimes),
+                                         repeat(ranks_u),
+                                         repeat(ranks_v),
+                                         repeat(window_len),
+                                         repeat(verbose),
+                                         repeat(asymmetry)))
+                # with ProcessPoolExecutor() as executor:
+                #     futures = [executor.submit(SeasonalCop, cop,
+                #                                dtimes, ranks_u,
+                #                                ranks_v,
+                #                                window_len=window_len,
+                #                                verbose=verbose,
+                #                                asymmetry=asymmetry)
+                #                for cop in my_cops]
+                #     scops = [future.result() for future in
+                #              as_completed(futures)]
             # become the copula with the best likelihood
-            self.__dict__ = max(scops).__dict__
+            self.__dict__ = np.nanmax(scops).__dict__
         else:
-            self.pool = pathos.pools.ProcessPool(nodes=n_nodes)
             self.copula = copula
             self.dtimes = dtimes
             self.ranks_u = ranks_u
             self.ranks_v = ranks_v
             self.window_len = window_len
             self.fft_order = fft_order
+            self.asymmetry = asymmetry
             self.verbose = verbose
 
             self.name = f"seasonal {copula.name}"
             self.T = len(ranks_u)
-            self.len_theta = len(self.copula.theta_start)
+            self.n_par = self.copula.n_par
             self.doys = times.datetime2doy(dtimes)
             timestep = ((self.dtimes[1] -
-                         self.dtimes[0]).total_seconds() //
+                         self.dtimes[0]).total_seconds() /
                         (60 ** 2 * 24))
             self.doys_unique = np.unique(my.round_to_float(self.doys,
                                                            timestep))
             self.n_doys = len(self.doys_unique)
             self._doy_mask = self._sliding_theta = self._solution = None
             self._likelihood = None
+            # we want this to happen in parallel (in the
+            # multiprocessing.pool), not later in np.nanmax(scops)!
+            # the likelihood value is cached and will not be
+            # calculated again.
+            self.likelihood
+
+    @staticmethod
+    def _unpack(args):
+        copula, dtimes, ranks_u, ranks_v = args[:4]
+        window_len, verbose, asymmetry = args[4:]
+        return SeasonalCop(copula, dtimes, ranks_u, ranks_v,
+                      window_len=window_len, verbose=verbose,
+                      asymmetry=asymmetry)
 
     def _call_copula_func(self, method_name, conditioned, condition, t=None):
         if t is None:
-            theta = self.thetas
+            theta = np.squeeze(self.thetas)
         else:
-            theta = self.thetas[t % self.n_doys]
+            theta = self.thetas[None, t % self.n_doys]
         method = getattr(self.copula, method_name)
-        return method(conditioned, condition, np.squeeze(theta))
+        return method(conditioned, condition, theta)
 
     def cdf_given_u(self, t=None, *, conditioned, condition):
-        return self._call_copula_func("cdf_given_u", condition, conditioned, t)
+        return self._call_copula_func("cdf_given_u", condition,
+                                      conditioned, t)
 
     def cdf_given_v(self, t=None, *, conditioned, condition):
-        return self._call_copula_func("cdf_given_v", condition, conditioned, t)
+        return self._call_copula_func("cdf_given_v", condition,
+                                      conditioned, t)
 
     def inv_cdf_given_u(self, t=None, *, conditioned, condition):
         return self._call_copula_func("inv_cdf_given_u", condition,
@@ -128,8 +153,11 @@ class SeasonalCop:
     @property
     def sliding_theta(self):
         if self._sliding_theta is None:
-            self._sliding_theta = np.ones((self.n_doys, self.len_theta))
-            for doy_ii in tqdm(range(self.n_doys), disable=(not self.verbose)):
+            self._sliding_theta = np.ones((self.n_doys, self.n_par))
+            for doy_ii in tqdm(range(self.n_doys),
+                               # disable=(not self.verbose)
+                               disable=True
+                               ):
                 ranks_u = self.ranks_u[self.doy_mask[doy_ii]]
                 ranks_v = self.ranks_v[self.doy_mask[doy_ii]]
                 if doy_ii == 0:
@@ -158,7 +186,7 @@ class SeasonalCop:
                 theta_pad = np.concatenate((theta[-half:],
                                             theta,
                                             theta[:half]))
-                interp = my.interp_nan(theta_pad)[half:-half]
+                interp = my.interp_nan(theta_pad, max_interp=5)[half:-half]
                 self._sliding_theta[:, theta_i] = interp
         return self._sliding_theta.T
 
@@ -198,13 +226,14 @@ class SeasonalCop:
             trig_theta = self.solution
 
         _fourier_approx = \
-            np.empty((len(self.copula.theta_start), self.n_doys))
-        approx = np.fft.irfft(trig_theta[:fft_order + 1], self.n_doys)
+            np.empty((self.copula.n_par, self.n_doys))
+        approx = np.fft.irfft(trig_theta[:, :fft_order + 1], self.n_doys)
         lower_bound, upper_bound = self.copula.theta_bounds[0]
-        approx[approx < lower_bound] = lower_bound
-        approx[approx > upper_bound] = upper_bound
-        _fourier_approx[0] = approx
-        return _fourier_approx[0]
+        if not np.any(np.isnan(approx)):
+            approx[approx < lower_bound] = lower_bound
+            approx[approx > upper_bound] = upper_bound
+        _fourier_approx[:] = approx
+        return _fourier_approx
 
     def fit(self, ranks_u=None, ranks_v=None, **kwds):
         if ranks_u is not None:
@@ -225,7 +254,7 @@ class SeasonalCop:
         if len(doys_ii) < len(doys):
             doys_ii = [my.val2ind(self.doys_unique, doy) for doy in doys]
         fourier_thetas = self.fourier_approx(fft_order, trig_theta)
-        thetas = np.array([fourier_thetas[doy_i] for doy_i in doys_ii])
+        thetas = np.array([fourier_thetas[:, doy_i] for doy_i in doys_ii])
         return np.squeeze(thetas.T)
 
     def density(self, dtimes=None, ranks_u=None, ranks_v=None, thetas=None):
@@ -241,7 +270,24 @@ class SeasonalCop:
         _T = doys * 2 * np.pi / 365
         if thetas is None:
             thetas = self.trig2thetas(self.solution, _T)
-        return self.pool.map(self.copula.density, ranks_u, ranks_v, thetas)
+        dens = self.copula.density(ranks_u, ranks_v, thetas)
+        if self.asymmetry:
+            ranks_u, ranks_v = self.ranks_u, self.ranks_v
+            mask = np.full_like(ranks_u, False, dtype=bool)
+            asy1 = stats.asymmetry1(ranks_u, ranks_v)
+            asy2 = stats.asymmetry2(ranks_u, ranks_v)
+            lower, upper, thresh = .25, .75, 0
+            if asy1 > thresh:
+                mask |= (ranks_u > upper) & (ranks_v > upper)
+            elif asy1 < -thresh:
+                mask |= (ranks_u < lower) & (ranks_v < lower)
+            if asy2 > thresh:
+                mask |= (ranks_u > upper) & (ranks_v < lower)
+            elif asy2 < -thresh:
+                mask |= (ranks_u < lower) & (ranks_v > upper)
+            # dens[mask] *= 100
+            dens[~mask] *= 0
+        return dens
 
     def quantiles(self, dtimes=None, ranks_u=None, ranks_v=None):
         if dtimes is None:
@@ -278,10 +324,20 @@ class SeasonalCop:
     @property
     def likelihood(self):
         if self._likelihood is None:
+            before = time.time()
             density = self.density()
-            self._likelihood = np.sum(ne.evaluate("""log(density)"""))
+            mask = np.isfinite(density)
+            density[~mask] = 1e-15
+            density[density <= 0] = 1e-15
+            # self._likelihood = float(ne.evaluate("""sum(log(density))"""))
+            # if self.verbose:
+            #     print(f"\t{self.copula.name}: {self.likelihood:.3f} (symm)")
+
+            self._likelihood = float(ne.evaluate("""sum(log(density))"""))
             if self.verbose:
-                print(f"\t{self.copula.name}: {self.likelihood:.3f}")
+                duration = time.time() - before
+                print(f"\t{self.copula.name}: {self.likelihood:.3f}"
+                      f" ({duration:.3f}s)")
             # if self.verbose:
             #     print(f"\t{self.copula.name}: {self.likelihood:.3f} (asymm)")
         return self._likelihood
@@ -289,36 +345,51 @@ class SeasonalCop:
     def __lt__(self, other):
         return self.likelihood < other
 
-    def plot_fourier_fit(self, fft_order=None, ax=None):
+    def plot_fourier_fit(self, fft_order=None, fig=None, ax=None,
+                         title=None):
         """Plots the Fourier approximation of all theta elements."""
         fft_order = self.fft_order if fft_order is None else fft_order
-        if ax is None:
-            fig, axs = plt.subplots(self.len_theta, sharex=True, squeeze=True)
-            if self.len_theta == 1:
+        if fig is None or ax is None:
+            fig, axs = plt.subplots(self.n_par, sharex=True, squeeze=True)
+            if self.n_par == 1:
                 axs = axs,
         else:
             fig = plt.gcf()
             axs = ax,
-        for theta_i in range(self.len_theta):
-            axs[theta_i].plot(self.doys_unique,
-                              self.sliding_theta[theta_i])
-            trig_theta0 = np.fft.rfft(self.sliding_theta)[0, :fft_order]
+        for theta_i in range(self.n_par):
+            ax = axs[theta_i]
+            ax.plot(self.doys_unique,
+                    self.sliding_theta[theta_i])
+            trig_theta0 = np.fft.rfft(self.sliding_theta)
+            trig_theta0[:, fft_order + 1:] = 0
             theta0 = self.trig2thetas(trig_theta0, self._T)
-            like0 = -np.sum(np.log(self.density(thetas=theta0)))
-            axs[theta_i].plot(self.doys_unique,
-                              self.fourier_approx(fft_order,
-                                                  trig_theta=trig_theta0),
-                              label="prelim %.2f" % like0)
-            axs[theta_i].plot(self.doys_unique,
-                              self.fourier_approx(fft_order),
-                              label="mll %.2f" % -self.likelihood)
-            axs[theta_i].grid(True)
-            axs[theta_i].set_title("%s\nFourier fft_order: %d"
-                                   % (self.copula.name, fft_order))
-        plt.legend(loc="best")
+            like0 = np.sum(np.log(self.density(thetas=theta0)))
+            fourier_appr = self.fourier_approx(fft_order,
+                                               trig_theta=trig_theta0)
+            ax.plot(self.doys_unique, np.squeeze(fourier_appr),
+                    label="raw")
+            trig_theta0[:, fft_order + 1:] = 0
+            approx = np.squeeze(
+                self.fourier_approx(fft_order,
+                                    trig_theta=trig_theta0))
+            ax.plot(self.doys_unique,
+                    approx,
+                    label=f"prelim {like0:.2f}")
+            # solution_prelim = self._solution
+            # self._solution = None
+            # self.solution_mll
+            ax.plot(self.doys_unique,
+                    np.squeeze(self.fourier_approx(fft_order)),
+                    label=f"mll {self.likelihood:.2f}")
+            # self._solution = solution_prelim
+            ax.grid(True)
+            ax.set_title((f"{self.copula.name}\n"
+                          f"Fourier fft_order: {fft_order}")
+                         if title is None else title)
+            ax.legend(loc="best")
         return fig, axs
 
-    def plot_corr(self, sample=None, ax=None):
+    def plot_corr(self, sample=None, fig=None, ax=None, title=None):
         """Plots correlation over doy.
 
         Notes
@@ -328,12 +399,11 @@ class SeasonalCop:
         """
         if sample is None:
             # draw a large sample, so this is closer to asymptopia
-            sample = self.sample(np.concatenate(10 * [self.dtimes]))
+            # sample = self.sample(np.concatenate(10 * [self.dtimes]))
+            sample = self.sample(self.dtimes)
         sample = np.array(sample)
-        if ax is None:
+        if fig is None or ax is None:
             fig, ax = plt.subplots()
-        else:
-            fig = plt.gcf()
         corrs_emp = np.empty(self.n_doys)
         corrs_fit = np.empty(self.n_doys)
         for doy_i in range(self.n_doys):
@@ -351,9 +421,6 @@ class SeasonalCop:
         ax.legend(loc="best")
         ax.grid(True)
         return fig, ax
-
-    def plot_density(self, *args, **kwds):
-        self.copula.plot_density(theta=self.thetas, *args, **kwds)
 
     def plot_qq(self, fig=None, ax=None, opacity=.25, s_kwds=None,
                 title=None, *args, **kwds):
@@ -379,18 +446,27 @@ class SeasonalCop:
         fig.tight_layout()
         return fig, ax
 
-    def plot_seasonal_densities(self, opacity=.1, skwds=None, *args, **kwds):
+    def plot_seasonal_densities(self, fig=None, axs=None,
+                                plot_doys=None, opacity=.1,
+                                skwds=None, *args, **kwds):
         if skwds is None:
             skwds = {}
-        fig, axs = plt.subplots(nrows=2, ncols=2,
-                                subplot_kw=dict(aspect="equal"))
+        if fig is None or axs is None:
+            fig, axs = plt.subplots(nrows=2, ncols=2,
+                                    subplot_kw=dict(aspect="equal"))
+        else:
+            for ax in np.ravel(axs):
+                ax.set_aspect("equal")
         axs = np.ravel(axs)
-        doys = np.linspace(0, 366, 5)[:-1]
-        for ax, doy in zip(axs, doys):
+        if plot_doys is None:
+            plot_doys = np.linspace(0, 366, 6)[1:-1]
+        for ax, doy in zip(axs, plot_doys):
             doy = int(round(doy))
             theta = self.thetas[doy]
-            self.copula.theta = theta
-            self.copula.plot_density(ax=ax, scatter=False, *args, **kwds)
+            # self.copula.theta = theta
+            self.copula.plot_density(theta=(np.array([theta]),),
+                                     fig=fig, ax=ax, scatter=False,
+                                     *args, **kwds)
             ranks_u = self.ranks_u[self._doy_mask[doy]]
             ranks_v = self.ranks_v[self._doy_mask[doy]]
             ax.scatter(ranks_u, ranks_v,
@@ -537,10 +613,11 @@ def vg_sim(vg_obj, sc_pars):
 
 if __name__ == '__main__':
     # import pandas as pd
-    from lhglib.contrib.veathergenerator import vg, vg_base, vg_plotting
-    from lhglib.contrib.veathergenerator import config_konstanz_disag as conf
+    import vg
+    from vg import vg_base, vg_plotting
+    import config_konstanz_disag as conf
     vg.conf = vg_base.conf = vg_plotting.conf = conf
-    from lhglib.contrib.time_series_analysis import distributions as dists
+    from vg.time_series_analysis import distributions as dists
     from weathercop import stats, copulae as cops
     # varnames = "theta", "ILWR"
     # varnames = "theta", "R"
