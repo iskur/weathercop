@@ -12,20 +12,11 @@ import networkx as nx
 import pyximport
 import scipy.stats as spstats
 from tqdm import tqdm
-# import pyximport
 
 from vg import helpers as my
 from vg.time_series_analysis import distributions as dists
 from weathercop import (cop_conf, copulae as cops, find_copula,
                         seasonal_cop, stats, tools)
-
-# pyximport.install(setup_args={
-#     # 'include_dirs': np.get_include(),
-#     'include_dirs': [np.get_include(), "~/anaconda/envs/python3/include/"]
-#     # 'gdb_debug': True
-#     },
-#                   reload_support=True)
-from weathercop import normal_conditional
 
 
 if cop_conf.PROFILE:
