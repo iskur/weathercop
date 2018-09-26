@@ -117,6 +117,12 @@ def mark_failed(key):
             faillog.write(key + os.linesep)
 
 
+def has_failed(key):
+    keys = [line.strip()
+            for line in faillog_file.open()]
+    return key in keys
+
+
 def clear_sympy_cache():
     for suffix in ("bak dat dir".split()):
         conf.sympy_cache.wit_suffix(f".she.{suffix}").unlink()
@@ -350,7 +356,7 @@ class MetaCop(ABCMeta):
         # keep a log of what does not work in order to not repeat ad
         # nauseum
         try:
-            if (key + os.linesep) in faillog_file.open():
+            if has_failed(key):
                 return
         except FileNotFoundError:
             open(faillog_file, "a").close()
@@ -366,12 +372,12 @@ class MetaCop(ABCMeta):
                     try:
                         inv_cdf = sympy.solve(cdf_given_expr - qq,
                                               conditioned)[0]
-                    except (NotImplementedError, ValueError, TypeError):
+                    except (NotImplementedError, ValueError,
+                            TypeError, IndexError):
                         warnings.warn("Derivation of inv.-conditional " +
                                       "failed for" +
-                            keys = faillog.readlines()
-                            if key not in keys:
-                                faillog.write(key + os.linesep)
+                                      f" {cls.name}")
+                        mark_failed(key)
                         return
                     sh[key] = inv_cdf
                 inv_cdf = sh[key]
