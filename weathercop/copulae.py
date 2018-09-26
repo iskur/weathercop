@@ -1453,10 +1453,11 @@ class Gaussian(Copulae, NoRotations):
         uu, vv = np.atleast_1d(uu, vv)
         xx = spstats.norm.ppf(uu).reshape(uu.shape)
         yy = spstats.norm.ppf(vv).reshape(vv.shape)
-        return ((1 - theta ** 2) ** (-.5) *
-                np.exp(-.5 * (xx ** 2 + yy ** 2 - 2 * theta * xx * yy) *
-                       (1 - theta ** 2)) *
-                np.exp(0.5 * (xx ** 2 + yy ** 2)))
+        return evaluate("""(1 - theta ** 2) ** (-1 / 2) * exp(-0.5 * (xx ** 2 + yy ** 2 - 2 * theta * xx * yy) * (1 - theta ** 2)) * exp(0.5 * (xx ** 2 + yy ** 2))""")
+        # return ((1 - theta ** 2) ** (-.5) *
+        #         np.exp(-.5 * (xx ** 2 + yy ** 2 - 2 * theta * xx * yy) *
+        #                (1 - theta ** 2)) *
+        #         np.exp(0.5 * (xx ** 2 + yy ** 2)))
 
     def copula_func(self, uu, vv, theta):
         uu, vv = np.atleast_1d(uu, vv)
