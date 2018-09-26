@@ -104,7 +104,7 @@ def flat_set(*args):
 def get_label(node1, node2):
     node1, node2 = map(flat_set, (node1, node2))
     conditioned = "".join(["%d" % no for no in (node1 ^ node2)])
-    condition = "".join([f"%d" % no for no in (node1 & node2)])
+    condition = "".join(["%d" % no for no in (node1 & node2)])
     return f"{conditioned}|{condition}"
 
 
