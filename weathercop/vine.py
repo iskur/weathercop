@@ -399,6 +399,7 @@ class Vine:
         """Returns the 'quantiles' (in the sense that if they would be used as
         random numbers in `simulate`, the input data would be
         reproduced)
+
         """
         if ranks is None:
             ranks = self.ranks
@@ -1233,14 +1234,20 @@ def vg_ph(vg_obj, sc_pars, refit=False):
 if __name__ == '__main__':
     # for deterministic networkx graphs!
     # np.random.seed(2)
-
-    import vg
+    import dill
     import time
+    import vg
     from vg import vg_plotting, vg_base
     import config_konstanz_disag as vg_conf
     vg.conf = vg_plotting.conf = vg_base.conf = vg_conf
-    met_vg = vg.VG(("theta", "ILWR", "rh", "R"), verbose=True,
-                   dump_data=False)
+    try:
+        with open("vg.pkl", "rb") as fi:
+            met_vg = dill.load(fi)
+    except:
+        met_vg = vg.VG(("theta", "ILWR", "rh", "R"), verbose=True,
+                       dump_data=False)
+        with open("vg.pkl", "wb+") as fi:
+            dill.dump(met_vg, fi)
 
     before = time.time()
     met_vg.simulate(sim_func=vg_ph, theta_incr=.0,
@@ -1250,16 +1257,20 @@ if __name__ == '__main__':
 
     ranks = np.array([stats.rel_ranks(values)
                       for values in met_vg.data_trans])
+
     cvine = CVine(ranks, varnames=met_vg.var_names,
                   dtimes=met_vg.times,
                   # weights="likelihood"
                   )
-    # quantiles = cvine.quantiles()
-    # assert np.all(np.isfinite(quantiles))
-    before = time.time()
-    for _ in range(2):
-        sim = cvine.simulate()
-    print(time.time() - before)
+    table = cvine.vine_table()
+    print(table)
+    
+    # # quantiles = cvine.quantiles()
+    # # assert np.all(np.isfinite(quantiles))
+    # before = time.time()
+    # for _ in range(2):
+    #     sim = cvine.simulate()
+    # print(time.time() - before)
 
     # cov = [[1.5, 1., -1., 1.5],
     #        [1., 1., 0., .5],
