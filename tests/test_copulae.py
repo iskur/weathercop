@@ -2,7 +2,7 @@ import os
 import shutil
 import warnings
 
-import matplotlib as mpl
+# import matplotlib as mpl
 import numpy as np
 import numpy.testing as npt
 from scipy import integrate
@@ -22,10 +22,25 @@ class Test(npt.TestCase):
 
     def setUp(self):
         self.verbose = True
-        self.eps = 1e-9
+        self.eps = np.array([1e-7])
 
     def tearDown(self):
         pass
+
+    # def test_erf(self):
+    #     from scipy.special import erf as sp_erf
+    #     xx = np.linspace(-2, 2, 100)
+    #     sp_erf_vals = sp_erf(xx)
+    #     erf_vals = cop.erf(xx)
+    #     npt.assert_almost_equal(erf_vals, sp_erf_vals, decimal=4)
+
+    # def test_erf_inv(self):
+    #     from scipy.special import erfinv as sp_erfinv
+    #     xx = np.linspace(-1, 1, 100)
+    #     sp_erfinv_vals = sp_erfinv(xx)
+    #     erfinv_vals = cop.erfinv(xx)
+    #     npt.assert_almost_equal(erfinv_vals, sp_erfinv_vals,
+    #                             decimal=3)
 
     def test_cop(self):
         """A few very basic copula requirements."""
@@ -43,7 +58,7 @@ class Test(npt.TestCase):
                 print(zero, self.eps)
                 print(one, 1 - self.eps)
                 fig, ax = frozen_cop.plot_copula()  # theta=frozen_cop.theta)
-                fig.savefig(os.path.join(img_dir, "copula_%s.png" % name))
+                fig.savefig(os.path.join(img_dir, f"copula_{name}.png"))
                 plt.close(fig)
                 # plt.show()
                 raise
@@ -56,7 +71,7 @@ class Test(npt.TestCase):
                         if hasattr(copula, "inv_cdf_given_uu_expr") else
                         "numeric")
             if self.verbose:
-                print("%s (%s inverse)" % (name, kind_str))
+                print(f"{name} ({kind_str} inverse)")
             zero = copula.cdf_given_u(1 - self.eps, self.eps)
             one = copula.cdf_given_u(self.eps, 1 - self.eps)
             try:
@@ -68,10 +83,10 @@ class Test(npt.TestCase):
                 warnings.warn(name.upper())
                 fig, axs = copula.plot_cop_dens()
                 fig.suptitle(name)
-                fig.savefig(os.path.join(img_dir, "cop_dens_%s" % name))
+                fig.savefig(os.path.join(img_dir, f"cop_dens_{name}"))
                 plt.close(fig)
                 # plt.show()
-                # raise
+                raise
 
             qq = np.linspace(self.eps, 1 - self.eps, 200)
             ranks_u_low = np.full_like(qq, self.eps)
@@ -93,12 +108,11 @@ class Test(npt.TestCase):
                     ax.plot([0, rank_v], 2 * [q], color=(0, 0, 0, .1))
                     ax.plot([rank_v, rank_v], [0, q], color=(0, 0, 0, .1))
                 ax.scatter(np.zeros_like(qq), qq, marker="x")
-                ax.set_title("%s (%s)" % (copula.name, kind_str))
-                fig.savefig(os.path.join(img_dir, "cdf_given_u_low_%s.png" %
-                                         name))
+                ax.set_title(f"{copula.name} ({kind_str})")
+                fig.savefig(os.path.join(img_dir, f"cdf_given_u_low_{name}.png"))
                 plt.close(fig)
                 # plt.show()
-                # raise
+                raise
             try:
                 npt.assert_array_less(1e-19, np.diff(high_cdf_func(qq)))
             except AssertionError:
@@ -106,11 +120,10 @@ class Test(npt.TestCase):
                 ax.scatter(ranks_v_high, np.zeros_like(qq), marker="x")
                 ax.scatter(np.zeros_like(qq), qq, marker="x")
                 plt.title(copula.name)
-                fig.savefig(os.path.join(img_dir, "cdf_given_u_high_%s.png" %
-                                         name))
+                fig.savefig(os.path.join(img_dir, f"cdf_given_u_high_{name}.png"))
                 plt.close(fig)
                 # plt.show()
-                # raise
+                raise
 
     def test_cdf_given_v(self):
         if self.verbose:
@@ -120,7 +133,7 @@ class Test(npt.TestCase):
                         if hasattr(copula, "inv_cdf_given_vv_expr") else
                         "numeric")
             if self.verbose:
-                print("%s (%s inverse)" % (name, kind_str))
+                print(f"{name} ({kind_str} inverse)")
             zero = copula.cdf_given_v(self.eps, 1 - self.eps)
             one = copula.cdf_given_v(1 - self.eps, self.eps)
             try:
@@ -132,10 +145,10 @@ class Test(npt.TestCase):
                 warnings.warn(name.upper())
                 fig, ax = copula.plot_cop_dens()
                 fig.suptitle(name)
-                fig.savefig(os.path.join(img_dir, "cop_dens_%s" % name))
+                fig.savefig(os.path.join(img_dir, f"cop_dens_{name}"))
                 plt.close(fig)
                 # plt.show()
-                # raise
+                raise
 
             qq = np.linspace(self.eps, 1 - self.eps, 200)
             ranks_v_low = np.full_like(qq, self.eps)
@@ -157,12 +170,11 @@ class Test(npt.TestCase):
                     ax.plot([0, rank_u], 2 * [q], color=(0, 0, 0, .1))
                     ax.plot([rank_u, rank_u], [0, q], color=(0, 0, 0, .1))
                 ax.scatter(np.zeros_like(qq), qq, marker="x")
-                ax.set_title("%s (%s)" % (copula.name, kind_str))
-                fig.savefig(os.path.join(img_dir, "cdf_given_v_low_%s.png" %
-                                         name))
+                ax.set_title(f"{copula.name} ({kind_str})")
+                fig.savefig(os.path.join(img_dir, f"cdf_given_v_low_{name}.png"))
                 plt.close(fig)
                 # plt.show()
-                # raise
+                raise
             try:
                 npt.assert_array_less(1e-19, np.diff(high_cdf_func(qq)))
             except AssertionError:
@@ -170,11 +182,10 @@ class Test(npt.TestCase):
                 ax.scatter(ranks_u_high, np.zeros_like(qq), marker="x")
                 ax.scatter(np.zeros_like(qq), qq, marker="x")
                 plt.title(copula.name)
-                fig.savefig(os.path.join(img_dir, "cdf_given_v_high_%s.png" %
-                                         name))
+                fig.savefig(os.path.join(img_dir, f"cdf_given_v_high_{name}.png"))
                 plt.close(fig)
                 # plt.show()
-                # raise
+                raise
 
     def test_inv_cdf_given_u(self):
         if self.verbose:
@@ -184,13 +195,16 @@ class Test(npt.TestCase):
                 kind_str = ("symbolic"
                             if hasattr(copula, "inv_cdf_given_uu_expr") else
                             "numeric")
-                print("%s (%s)" % (name, kind_str))
+                print(f"{name} ({kind_str})")
             uu = np.linspace(self.eps, 1 - self.eps, 100)
             vv_exp = np.copy(uu)
             for i, u in enumerate(uu):
                 u = np.full_like(vv_exp, u)
                 qq = copula.cdf_given_u(u, vv_exp)
-                vv_actual = copula.inv_cdf_given_u(u, np.squeeze(qq))
+                # print(i, qq.max())
+                # qq[qq > 1 - 1e-7] = 1 - 1e-7
+                # qq = np.full_like(u, qq)
+                vv_actual = copula.inv_cdf_given_u(u, qq)
                 try:
                     npt.assert_almost_equal(vv_actual, vv_exp, decimal=2)
                 except AssertionError:
@@ -201,11 +215,9 @@ class Test(npt.TestCase):
                     ax.plot([0, 1], [0, 1], color="k")
                     ax.set_xlabel("vv_exp")
                     ax.set_ylabel("vv_actual")
-                    ax.set_title("%s inv_cdf_given_u u=%.6f"
-                                 % (name, u[0]))
+                    ax.set_title(f"{name} inv_cdf_given_u u={u[0]:.6f}")
                     fig.savefig(os.path.join(img_dir,
-                                             "inv_cdf_given_u_%s_%03d.png"
-                                             % (name, i)))
+                                             f"inv_cdf_given_u_{name}_{i:03d}.png"))
                     plt.close(fig)
                     # plt.show()
                     # raise
@@ -218,7 +230,7 @@ class Test(npt.TestCase):
                 kind_str = ("symbolic"
                             if hasattr(copula, "inv_cdf_given_vv_expr") else
                             "numeric")
-                print("%s (%s)" % (name, kind_str))
+                print(f"{name} ({kind_str})")
             vv = np.linspace(self.eps, 1 - self.eps, 100)
             uu_exp = np.copy(vv)
             for i, v in enumerate(vv):
@@ -237,11 +249,9 @@ class Test(npt.TestCase):
                     ax.plot(uu_exp, uu_actual, "-x")
                     ax.set_xlabel("uu_exp")
                     ax.set_ylabel("uu_actual")
-                    ax.set_title("%s inv_cdf_given_v v=%.6f"
-                                 % (name, v[0]))
+                    ax.set_title(f"{name} inv_cdf_given_v v={v[0]:.6f}")
                     fig.savefig(os.path.join(img_dir,
-                                             "inv_cdf_given_v_%s_%03d.png"
-                                             % (name, i)))
+                                             f"inv_cdf_given_v_{name}_{i:03d}.png"))
                     plt.close(fig)
                     # plt.show()
 
@@ -255,19 +265,22 @@ class Test(npt.TestCase):
             with warnings.catch_warnings():
                 warnings.filterwarnings("error")
                 try:
-                    one = integrate.nquad(frozen_cop.density,
+                    def density(x, y):
+                        return frozen_cop.density(np.array([x]),
+                                                  np.array([y]))
+
+                    one = integrate.nquad(density,
                                           ([self.eps, 1 - self.eps],
                                            [self.eps, 1 - self.eps]))[0]
                 except integrate.IntegrationWarning:
-                    print("Numerical integration of %s is problematic" % name)
+                    print(f"Numerical integration of {name} is problematic")
                 else:
                     try:
                         npt.assert_almost_equal(one, 1., decimal=5)
                     except AssertionError:
                         fig, ax = frozen_cop.plot_cop_dens()
-                        fig.savefig(os.path.join(img_dir, "density_%s.png" %
-                                                 name))
-                        fig.suptitle("%s integral=%f" % (name, one))
+                        fig.savefig(os.path.join(img_dir, f"density_{name}.png"))
+                        fig.suptitle(f"{name} integral={one}")
                         plt.close(fig)
 
     def test_fit(self):
@@ -279,14 +292,13 @@ class Test(npt.TestCase):
         for name, copula in cop.all_cops.items():
             if self.verbose:
                 print(name)
-            sample_x, sample_y = copula.sample(10000, copula.theta_start)
+            sample_x, sample_y = copula.sample(10000, *copula.theta_start)
             try:
                 fitted_theta = copula.fit(sample_x, sample_y)
             except cop.NoConvergence:
                 print("... fitting did not converge.")
             else:
-                if copula.theta_start[0] is None and fitted_theta is None:
-                    # for the independence copula
+                if isinstance(copula, cop.Independence):
                     continue
                 try:
                     npt.assert_almost_equal(fitted_theta, copula.theta_start,
@@ -294,14 +306,33 @@ class Test(npt.TestCase):
                 except AssertionError:
                     if not self.verbose:
                         raise
-                    ax = copula.plot_density()
+                    fig, ax = copula.plot_density()
                     ax.scatter(sample_x, sample_y, marker="x",
                                facecolor=(0, 0, 1, .1))
                     # fsample_x, fsample_y = copula.sample(10000, fitted_theta)
                     # ax.scatter(fsample_x, fsample_y)
-                    copula.plot_cop_dens(scatter=True)
-                    # plt.show()
+                    fig, ax = copula.plot_cop_dens(scatter=True)
+                    fig.savefig(os.path.join(img_dir, f"cop_dens_{name}.png"))
                     raise
+
+    # def test_likelihood(self):
+    #     """Do we have roughly the same likelihood for self-generated samples?
+    #     """
+    #     name_likelihoods = {}
+    #     for name, copula in cop.all_cops.items():
+    #         if self.verbose:
+    #             print(name)
+    #         sample_x, sample_y = copula.sample(1000, copula.theta_start)
+    #         fitted = cop.Fitted(copula, sample_x, sample_y,
+    #                             copula.theta_start)
+    #         name_likelihoods[name] = fitted.likelihood
+    #     names = [name for name in name_likelihoods.keys()
+    #              if name != "independence"]
+    #     likelihoods = [name_likelihoods[name] for name in names]
+    #     fig, ax = plt.subplots()
+    #     ax.bar(1 + np.arange(len(names)), likelihoods, tick_label=names)
+    #     ax.tick_params(axis='x', labelrotation=30)
+    #     plt.show()
 
 
 if __name__ == "__main__":
