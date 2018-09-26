@@ -567,27 +567,31 @@ class Vine:
             self._edge_map = None
         return self._A
 
-    def plot(self, edge_labels="copulas"):
+    def plot(self, edge_labels="copulas", fig=None, axs=None, figsize=None,
+           *args, **kwds):
         """Plot vine structure.
 
         Parameter
         ---------
         edge_labels : "nodes" or "copulas", optional
         """
+        np.random.seed(0)
         nrows = int(len(self.trees) / 2)
         if nrows * 2 < len(self.trees):
             nrows += 1
-        node_fontsize = mpl.rcParams["legend.fontsize"]
-        edge_fontsize = mpl.rcParams["xtick.labelsize"]
-        node_size = 100 * node_fontsize
-        fig, axs = plt.subplots(nrows, 2)
+        node_fontsize = kwds.get("node_fontsize",
+                                 mpl.rcParams["legend.fontsize"])
+        edge_fontsize = kwds.get("edge_fontsize",
+                                 mpl.rcParams["xtick.labelsize"])
+        node_size = 75 * node_fontsize
+        if fig is None and axs is None:
+            fig, axs = plt.subplots(nrows, 2, figsize=figsize,
+                                    constrained_layout=True)
         axs = np.ravel(axs)
         for tree_i, (ax, tree) in enumerate(zip(axs, self.trees)):
-            ax.set_title(rf"$T_{tree_i}$",
-                         # fontsize=20
-                         )
+            ax.set_title(rf"$\mathcal{{T}}_{tree_i}$")
             if tree_i == 0:
-                labels = {i: f"{i}: {varname}"
+                labels = {i: f"{i}: {self.varnames[i]}"
                           for i, varname in enumerate(self.varnames)}
             elif tree_i == 1:
                 labels = {(node1, node2): f"{node1}{node2}"
@@ -595,10 +599,31 @@ class Vine:
             else:
                 labels = {(node1, node2): get_label(node1, node2)
                           for node1, node2 in tree.nodes()}
-            pos = nx.spring_layout(tree)
-            nx.draw_networkx(tree, ax=ax, pos=pos, node_size=node_size,
-                             font_size=node_fontsize,
-                             labels=labels)
+            node_dist = .4
+            if len(tree.nodes()) > 3:
+                pos = nx.spring_layout(tree)
+            elif len(tree.nodes()) == 3:
+                # draw the nodes on a line and make sure the central node
+                # is in the middle
+                central_node = max(tree, key=dict(nx.degree(tree)).get)
+                other_nodes = [node for node in tree.nodes()
+                               if node != central_node]
+                pos = {central_node: np.array([0, 0]),
+                       other_nodes[0]: np.array([-node_dist, 0]),
+                       other_nodes[1]: np.array([node_dist, 0]),
+                       }
+            else:
+                pos = {node: np.array([node_i, 0])
+                       for node_i, node in enumerate(tree.nodes())}
+            nx.draw_networkx_nodes(tree, ax=ax, pos=pos,
+                                   node_size=node_size,
+                                   node_color="w",
+                                   edgecolors="k",
+                                   font_size=node_fontsize,
+                                   *args, **kwds)
+            nx.draw_networkx_labels(tree, ax=ax, pos=pos,
+                                    labels=labels,
+                                    font_size=node_fontsize)
 
             if edge_labels == "nodes":
                 if tree_i == 0:
@@ -620,7 +645,9 @@ class Vine:
                         node1, node2 = node2, node1
                         cop_key = get_cop_key(node1, node2)
                         copula = edge[cop_key]
-                    cop_name = copula.name[len("fitted "):]
+                    cop_name = copula.name.replace("fitted ", "")
+                    if cop_name.startswith("seasonal"):
+                        cop_name = "\n".join(cop_name.split())
                     tau = edge["tau"]
                     label = (f"{cop_name}\n") + (rf"$\tau={tau:.2f}$")
                     elabels[(node1, node2)] = label
@@ -628,7 +655,14 @@ class Vine:
                 elabels = None
             nx.draw_networkx_edge_labels(tree, ax=ax, pos=pos,
                                          edge_labels=elabels,
-                                         font_size=edge_fontsize)
+                                         font_size=edge_fontsize,
+                                         # alpha=.8,
+                                         bbox=dict(alpha=.5,
+                                                   color="w",
+                                                   edgecolor="w"),
+                                         *args, **kwds)
+            nx.draw_networkx_edges(tree, ax=ax, pos=pos, style="--")
+
         for ax in axs:
             ax.set_axis_off()
         return fig, axs
