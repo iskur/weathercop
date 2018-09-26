@@ -3,7 +3,7 @@ import numpy.testing as npt
 from scipy import stats as spstats
 import matplotlib.pyplot as plt
 
-from lhglib.contrib.veathergenerator import vg
+import vg
 from lhglib.contrib import dirks_globals as my
 from weathercop import copulae as cops, seasonal_cop as scops, stats
 
