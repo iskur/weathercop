@@ -11,7 +11,7 @@ from cython.parallel import prange, parallel
 cimport numpy as np
 
 
-cdef extern from "/home/dirk/anaconda/envs/python3/include/mkl.h" nogil:
+cdef extern from "mkl.h" nogil:
     void vdErf(int n,
                double *a,
                double *y)
