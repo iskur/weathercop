@@ -51,6 +51,7 @@ conf.ufunc_tmp_dir.mkdir(parents=True, exist_ok=True)
 # rc("text", usetex=True)
 
 rederive = None,
+# rederive = "gumbelbarnett",
 # rederive = "bb1"
 # rederive = "bb2"
 # rederive = "plackett"
@@ -237,6 +238,7 @@ class MetaCop(ABCMeta):
     def __new__(cls, name, bases, cls_dict):
         new_cls = super().__new__(cls, name, bases, cls_dict)
         new_cls.name = name.lower()
+        new_cls.name_camel = name
         with suppress(TypeError):
             new_cls.n_par = len(new_cls.par_names) - 2
         if "backend" not in cls_dict:
@@ -1429,7 +1431,7 @@ class Gumbel(Archimedian, NoRotations):
 gumbel = Gumbel()
 
 
-class AliMikailHaq(Archimedian, No90, No270):
+class AliMikailHaq(Archimedian, NoRotations):
     theta_start = .99,
     # theta_bounds = [(1e-9, 1.)]
     theta_bounds = [(-1 + 1e-6, 1. - 1e-6)]
@@ -1862,6 +1864,11 @@ all_cops = OrderedDict((name, obj) for name, obj
 
 frozen_cops = OrderedDict((name, copulas(copulas.theta_start))
                           for name, copulas in sorted(all_cops.items()))
+
+# all_cops = {k: v for k, v in all_cops.items()
+#             if k == "gaussian"}
+# frozen_cops = {k: v for k, v in frozen_cops.items()
+#                if k == "gaussian"}
 
 
 if __name__ == '__main__':
