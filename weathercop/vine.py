@@ -306,7 +306,10 @@ class Vine:
                                  "tree": 0,
                                  "node_u": node1,
                                  "node_v": node2}
-                    tau = spstats.kendalltau(ranks1, ranks2).correlation
+                    finite_mask = np.isfinite(ranks1) & np.isfinite(ranks2)
+                    tau = spstats.kendalltau(ranks1[finite_mask],
+                                             ranks2[finite_mask]).correlation
+                    assert np.isfinite(tau)
                     if self.weights == "tau":
                         # as networkx minimizes the spanning tree, we have
                         # to invert the weights
@@ -358,7 +361,9 @@ class Vine:
                                                              "ranks_")
                     ranks1 = edge1[ranks1_key]
                     ranks2 = edge2[ranks2_key]
-                    tau = spstats.kendalltau(ranks1, ranks2).correlation
+                    finite_mask = np.isfinite(ranks1) & np.isfinite(ranks2)
+                    tau = spstats.kendalltau(ranks1[finite_mask],
+                                             ranks2[finite_mask]).correlation
                     edge_dict = {ranks1_key: ranks1,
                                  ranks2_key: ranks2,
                                  # some additional information for
