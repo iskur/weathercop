@@ -145,8 +145,8 @@ class SeasonalCop:
                         try:
                             theta = self.copula.fit(ranks_u, ranks_v)
                         except cops.NoConvergence:
-                            warnings.warn("No Convergence reached in %s."
-                                          % self.copula.name)
+                            # warnings.warn("No Convergence reached in "
+                            #               f"{self.copula.name}.")
                             theta = np.nan
                 self._sliding_theta[doy_ii] = theta
 
@@ -346,7 +346,8 @@ class SeasonalCop:
                                            )[0, 1]
         ax.plot(self.doys_unique, corrs_emp, label="observed")
         ax.plot(self.doys_unique, corrs_fit, label="simulated")
-        ax.set_title("Correlations (%s)" % self.name)
+        ax.set_title((f"Correlations ({self.name})")
+                     if title is None else title)
         ax.legend(loc="best")
         ax.grid(True)
         return fig, ax
@@ -397,8 +398,8 @@ class SeasonalCop:
                        facecolor=(0, 0, 0, 0),
                        edgecolor=(0, 0, 0, opacity),
                        **skwds)
-            ax.set_title(r"doy: %d, $\theta=%.3f$" % (doy, theta))
-        fig.suptitle("Seasonal copula densities (%s)" % self.name)
+            ax.set_title(rf"doy: {doy}, $\theta={theta:.3f}$")
+        fig.suptitle(f"Seasonal copula densities ({self.name})")
         return fig, axs
 
 
