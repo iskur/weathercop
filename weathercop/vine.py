@@ -833,6 +833,17 @@ class CVine(Vine):
         self.central_node_name = central_node
         super().__init__(*args, **kwds)
 
+    def vine_table(self):
+        table = []
+        for tree_i, a_row in enumerate(self.A):
+            row = [tree_i + 1] + (self.d - 1) * []
+            for col_i, col in enumerate(a_row[tree_i:],
+                                     tree_i + 1):
+                cop = self[tree_i, col_i]
+                row[col_i] += [cop]
+            table += [row]
+        return table
+
     def _best_tree(self, full_graph, tree_i):
         nodes = list(full_graph.nodes())
         weights = np.array([[1
