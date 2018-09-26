@@ -2,6 +2,7 @@
 import functools
 import importlib
 import os
+import sys
 import warnings
 from abc import ABCMeta, abstractproperty
 from collections import OrderedDict
@@ -16,10 +17,26 @@ from scipy.optimize import brentq, minimize, newton
 from scipy.special import erf, erfinv
 from sympy import exp, ln
 from sympy.utilities import autowrap
+from numexpr import evaluate
 
 from scipy.stats import mvn
-from weathercop import cop_conf as conf, stats, tools
-from weathercop.normal_conditional import norm_inv_cdf_given_u, norm_cdf_given_u
+from weathercop import cop_conf as conf, stats, tools, ufuncs
+
+import pyximport
+include_dirs = [np.get_include()]
+try:
+    include_dirs += np.__config__.mkl_info["include_dirs"]
+except (KeyError, AttributeError):
+    include_dirs += np.__config__.lapack_mkl_info["include_dirs"]
+pyximport.install(setup_args=dict(include_dirs=include_dirs),
+                  reload_support=True)
+
+if sys.platform == "win32":
+    MKL = False
+else:
+    from weathercop.normal_conditional import (norm_inv_cdf_given_u,
+                                               norm_cdf_given_u)
+    MKL = True
 
 # used wherever theta can be inf in principle
 theta_large = 1e3
@@ -48,10 +65,10 @@ rederive = None,
 def ufuncify_cython(cls, name, uargs, expr, *args, verbose=False, **kwds):
     expr_hash = tools.hash_cop(expr)
     module_name = f"{cls.name}_{name}_{expr_hash}"
+    ufunc_dir = ufuncs.__path__[0]
     try:
-        with tools.chdir(conf.ufunc_tmp_dir):
-            ufunc = importlib.import_module(f"{module_name}_0").autofunc_c
-    except (ImportError, AttributeError):
+        ufunc = importlib.import_module(f"{module_name}_0", ufuncs).autofunc_c
+    except (ImportError, AttributeError) as exc:
         if verbose:
             print(f"Compiling {expr}")
         _filename_orig = autowrap.CodeWrapper._filename
@@ -62,7 +79,7 @@ def ufuncify_cython(cls, name, uargs, expr, *args, verbose=False, **kwds):
         autowrap.CodeWrapper._module_basename = module_name
         autowrap.CodeWrapper._module_counter = 0
         ufunc = autowrap.ufuncify(uargs, expr,
-                                  tempdir=conf.ufunc_tmp_dir,
+                                  tempdir=ufunc_dir,
                                   verbose=verbose,
                                   *args, **kwds)
         autowrap.CodeWrapper._module_basename = _module_basename_orig
@@ -1476,9 +1493,11 @@ class Gaussian(Copulae, NoRotations):
            + 0.5)
 
     def cdf_given_u(self, uu, vv, theta):
-        qq = np.empty_like(uu)
-        norm_cdf_given_u(uu, vv, theta, qq)
-        return qq
+        if MKL:
+            qq = np.empty_like(uu)
+            norm_cdf_given_u(uu, vv, theta, qq)
+            return qq
+        return self.cdf_given_u_(uu, vv, theta)
 
     def inv_cdf_given_u_(self, uu, qq, theta):
         # theta = np.squeeze(theta)
@@ -1489,10 +1508,12 @@ class Gaussian(Copulae, NoRotations):
                      np.sqrt(-theta ** 2 + 1))))
 
     def inv_cdf_given_u(self, uu, qq, theta):
-        vv = np.empty_like(uu)
-        norm_inv_cdf_given_u(uu, qq, theta, vv)
-        return vv
-    
+        if MKL:
+            vv = np.empty_like(uu)
+            norm_inv_cdf_given_u(uu, qq, theta, vv)
+            return vv
+        return self.inv_cdf_given_u_(uu, qq, theta)
+
     def cdf_given_v(self, uu, vv, theta):
         return self.cdf_given_u(vv, uu, theta)
 
@@ -1544,40 +1565,34 @@ class Galambos(Copulae, NoRotations):
                   (x * y) ** (-delta - 1) *
                  (1 + delta + (x ** -delta + y ** -delta) ** (-1 / delta))))
     dens_expr = dens_expr.subs(dict(x=-ln(uu), y=-ln(vv)))
-    # cdf_given_uu_expr = (vv *
-    #                      exp((x ** -delta + y ** -delta) ** (-1 / delta)) *
-    #                      (1 - (1 + (x / y) ** delta) ** (-1 - 1 / delta)))
-    # cdf_given_vv_expr = cdf_given_uu_expr.subs(dict(x=-ln(vv), y=-ln(uu)))
-    # cdf_given_uu_expr = cdf_given_uu_expr.subs(dict(x=-ln(uu), y=-ln(vv)))
-    # cdf_given_vv_expr = swap_symbols(cdf_given_vv_expr, uu, vv)
 
     def __init__(self):
-        x, y, p, delta = sympy.symbols("x y p delta")
-        h_expr = (ln(p) + y -
-                  (x ** -delta + y ** -delta) ** (-1 / delta) -
-                  ln(1 - x ** (-delta - 1) *
-                     (x ** -delta + y ** -delta) ** (-1 / delta - 1)))
-        h_prime_expr = (1 - y ** (-delta - 1) *
-                        (x ** -delta + y ** -delta) ** (-1 / delta - 1) +
+        xx, yy, p, delta = sympy.symbols("xx yy p delta")
+        h_expr = (ln(p) + yy -
+                  (xx ** -delta + yy ** -delta) ** (-1 / delta) -
+                  ln(1 - xx ** (-delta - 1) *
+                     (xx ** -delta + yy ** -delta) ** (-1 / delta - 1)))
+        h_prime_expr = (1 - yy ** (-delta - 1) *
+                        (xx ** -delta + yy ** -delta) ** (-1 / delta - 1) +
                         (((1 + delta) *
-                          x ** (-delta - 1) *
-                          y ** (-delta - 1) *
-                          (x ** -delta + y ** -delta) ** (-1 / delta - 2)) /
-                         (1 - x ** (-delta - 1) *
-                          (x ** -delta + y ** -delta) ** (-1 / delta - 1))))
+                          xx ** (-delta - 1) *
+                          yy ** (-delta - 1) *
+                          (xx ** -delta + yy ** -delta) ** (-1 / delta - 2)) /
+                         (1 - xx ** (-delta - 1) *
+                          (xx ** -delta + yy ** -delta) ** (-1 / delta - 1))))
         r = sympy.symbols("r")
         h1_expr = (ln(p) +
-                   x * r ** (1 / delta) -
-                   x * (1 + r ** -1) ** (-1 / delta) -
+                   xx * r ** (1 / delta) -
+                   xx * (1 + r ** -1) ** (-1 / delta) -
                    ln(1 - (1 + r ** -1) ** (-1 / delta - 1)))
-        h1_prime_expr = (delta ** -1 * x * r ** (1 / delta - 1) -
-                         delta ** -1 * x *
+        h1_prime_expr = (delta ** -1 * xx * r ** (1 / delta - 1) -
+                         delta ** -1 * xx *
                          (1 + r ** -1) ** (-1 / delta - 1) * r ** -2 +
                          ((1 + delta ** -1) *
                           (1 + r ** -1) ** (-1 / delta - 2) * r ** -2) /
                          (1 - (1 + r ** -1) ** (-1 / delta - 1)))
-        h_args = [y, x, p, delta]
-        h1_args = [r, x, p, delta]
+        h_args = [yy, xx, p, delta]
+        h1_args = [r, xx, p, delta]
         h = ufuncify(self.__class__, "h", h_args, h_expr,
                      backend=self.backend)
         h_prime = ufuncify(self.__class__, "h_prime", h_args,
@@ -1592,12 +1607,12 @@ class Galambos(Copulae, NoRotations):
          self.h1_u,
          self.h1_prime_u) = map(gen_arr_fun, (h, h_prime, h1, h1_prime))
 
-        h_expr = swap_symbols(h_expr, x, y)
-        h_prime_expr = swap_symbols(h_prime_expr, x, y)
-        h1_expr = swap_symbols(h1_expr, x, y)
-        h1_prime_expr = swap_symbols(h1_prime_expr, x, y)
-        h_args = [x, y, p, delta]
-        h1_args = [r, y, p, delta]
+        h_expr = swap_symbols(h_expr, xx, yy)
+        h_prime_expr = swap_symbols(h_prime_expr, xx, yy)
+        h1_expr = swap_symbols(h1_expr, xx, yy)
+        h1_prime_expr = swap_symbols(h1_prime_expr, xx, yy)
+        h_args = [xx, yy, p, delta]
+        h1_args = [r, yy, p, delta]
         h = ufuncify(self.__class__, "h", h_args, h_expr,
                      backend=self.backend)
         h_prime = ufuncify(self.__class__, "h_prime", h_args,
