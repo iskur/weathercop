@@ -1,0 +1,45 @@
+name: weathercop
+channels:
+  # - intel
+  - defaults
+dependencies:
+  - numpy
+  - python=3.6
+  - mkl
+  # - mkl-devel
+  # - mkl-static
+  - mkl-include
+  - mkl_fft
+  - mkl_random
+  - tbb
+  - blas
+  # - intelpython
+  - intel-openmp
+  # - conda-forge::intel-openmp
+  # - conda-forge::mkl-include
+  # - conda-forge::mkl_fft
+  # - conda-forge::mkl_random
+  # - conda-forge::tbb
+  # - conda-forge::blas
+  # - mkl [not nomkl]
+  # - mkl-devel [not nomkl]
+  # - mkl-include [not nomkl]
+  - cython
+  - setuptools
+  - numexpr
+  - xarray
+  - cartopy
+  - dill
+  - sympy
+  - matplotlib
+  - ipython
+  - scipy
+  - networkx
+  - tqdm
+  - future
+  # lhglib requirements, delete this, once vg is properly packaged
+  - pandas
+  - pytables
+  - pep8
+  - pip:
+      - timezonefinder
