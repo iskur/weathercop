@@ -34,9 +34,9 @@ cdef extern from "mkl.h" nogil:
 
 
 cpdef norm_inv_cdf_given_u_(double[:] uu,
-                           double[:] qq,
-                           double[:] rho,
-                           double[:] result):
+                            double[:] qq,
+                            double[:] rho,
+                            double[:] result):
     cdef int n = len(uu)
     cdef int i
     q_inv = <double *> malloc(sizeof(double) * n)
