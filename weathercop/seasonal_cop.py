@@ -2,8 +2,6 @@ import functools
 from itertools import repeat
 import multiprocessing
 import time
-# from concurrent.futures import as_completed
-# from concurrent.futures.process import ProcessPoolExecutor
 
 import matplotlib.pyplot as plt
 import numexpr as ne
@@ -23,8 +21,8 @@ n_nodes = multiprocessing.cpu_count() - 1
 class SeasonalCop:
 
     def __init__(self, copula, dtimes, ranks_u, ranks_v, *,
-                 window_len=15, fft_order=5, my_cops=None,
-                 verbose=True, asymmetry=False):
+               window_len=15, fft_order=4, cop_candidates=None,
+               verbose=True, asymmetry=False, fit_mask=None):
         """Seasonally adapting copula.
 
         Parameter
@@ -41,37 +39,32 @@ class SeasonalCop:
         asymmetry : boolean, optional
             Assign weights in likelihood estimation in order to favour
             asymmetrical copulas.
+        fit_mask : boolean ndarray or None, optional
+            Use only the corresponding variables for fitting.
         """
         if copula is None:
-            if my_cops is None:
-                my_cops = [cop for cop in cops.all_cops.values()
-                           if not isinstance(cop, cops.Independence)]
+            if cop_candidates is None:
+                cop_candidates = [cop for cop in cops.all_cops.values()
+                                  if not isinstance(cop, cops.Independence)]
 
             if cop_conf.PROFILE:
                 scops = [SeasonalCop(cop, dtimes, ranks_u, ranks_v,
                                      window_len=window_len,
-                                     verbose=verbose)
-                         for cop in my_cops]
+                                     verbose=verbose,
+                                     asymmetry=asymmetry,
+                                     fit_mask=fit_mask)
+                         for cop in cop_candidates]
             else:
                 with multiprocessing.Pool(n_nodes) as pool:
                     scops = pool.map(SeasonalCop._unpack,
-                                     zip(my_cops,
+                                     zip(cop_candidates,
                                          repeat(dtimes),
                                          repeat(ranks_u),
                                          repeat(ranks_v),
                                          repeat(window_len),
                                          repeat(verbose),
-                                         repeat(asymmetry)))
-                # with ProcessPoolExecutor() as executor:
-                #     futures = [executor.submit(SeasonalCop, cop,
-                #                                dtimes, ranks_u,
-                #                                ranks_v,
-                #                                window_len=window_len,
-                #                                verbose=verbose,
-                #                                asymmetry=asymmetry)
-                #                for cop in my_cops]
-                #     scops = [future.result() for future in
-                #              as_completed(futures)]
+                                         repeat(asymmetry),
+                                         repeat(fit_mask)))
             # become the copula with the best likelihood
             self.__dict__ = np.nanmax(scops).__dict__
         else:
@@ -82,6 +75,7 @@ class SeasonalCop:
             self.window_len = window_len
             self.fft_order = fft_order
             self.asymmetry = asymmetry
+            self.fit_mask = fit_mask
             self.verbose = verbose
 
             self.name = f"seasonal {copula.name}"
@@ -102,37 +96,48 @@ class SeasonalCop:
             # calculated again.
             self.likelihood
 
+    def __str__(self):
+        return self.name
+
     @staticmethod
     def _unpack(args):
         copula, dtimes, ranks_u, ranks_v = args[:4]
-        window_len, verbose, asymmetry = args[4:]
+        window_len, verbose, asymmetry, fit_mask = args[4:]
         return SeasonalCop(copula, dtimes, ranks_u, ranks_v,
                       window_len=window_len, verbose=verbose,
-                      asymmetry=asymmetry)
+                      asymmetry=asymmetry, fit_mask=fit_mask)
 
-    def _call_copula_func(self, method_name, conditioned, condition, t=None):
+    def _call_cdf_func(self, method_name, t=None, *, conditioned,
+                        condition):
         if t is None:
-            theta = np.squeeze(self.thetas)
+            theta = self.thetas
         else:
-            theta = self.thetas[None, t % self.n_doys]
-        method = getattr(self.copula, method_name)
-        return method(conditioned, condition, theta)
+            theta = self.thetas[t % self.n_doys]
+        method = getattr(self.copula.__class__, method_name)
+        try:
+            return method(self.copula, conditioned, condition, theta)
+        except TypeError:
+            return method(conditioned, condition, theta)
 
     def cdf_given_u(self, t=None, *, conditioned, condition):
-        return self._call_copula_func("cdf_given_u", condition,
-                                      conditioned, t)
+        return self._call_cdf_func("cdf_given_u", t,
+                              conditioned=condition,
+                              condition=conditioned)
 
     def cdf_given_v(self, t=None, *, conditioned, condition):
-        return self._call_copula_func("cdf_given_v", condition,
-                                      conditioned, t)
+        return self._call_cdf_func("cdf_given_v", t,
+                              conditioned=conditioned,
+                              condition=condition)
 
     def inv_cdf_given_u(self, t=None, *, conditioned, condition):
-        return self._call_copula_func("inv_cdf_given_u", condition,
-                                      conditioned, t)
+        return self._call_cdf_func("inv_cdf_given_u", t,
+                              conditioned=condition,
+                              condition=conditioned)
 
     def inv_cdf_given_v(self, t=None, *, conditioned, condition):
-        return self._call_copula_func("inv_cdf_given_v", condition,
-                                      conditioned, t)
+        return self._call_cdf_func("inv_cdf_given_v", t,
+                              conditioned=conditioned,
+                              condition=condition)
 
     @property
     def doy_mask(self):
@@ -158,20 +163,29 @@ class SeasonalCop:
                                # disable=(not self.verbose)
                                disable=True
                                ):
-                ranks_u = self.ranks_u[self.doy_mask[doy_ii]]
-                ranks_v = self.ranks_v[self.doy_mask[doy_ii]]
+                doy_mask = self.doy_mask[doy_ii]
+                ranks_u = self.ranks_u[doy_mask]
+                ranks_v = self.ranks_v[doy_mask]
+                if self.fit_mask is not None:
+                    fit_mask_doy = self.fit_mask[doy_mask]
+                    f_kwds = dict(fit_mask=fit_mask_doy)
+                else:
+                    f_kwds = dict()
                 if doy_ii == 0:
                     try:
-                        theta = self.copula.fit(ranks_u, ranks_v)
+                        theta = self.copula.fit(ranks_u, ranks_v,
+                                            **f_kwds)
                     except cops.NoConvergence:
                         theta = self.copula.theta_start
                 else:
                     x0 = self._sliding_theta[doy_ii - 1]
                     try:
-                        theta = self.copula.fit(ranks_u, ranks_v, x0=x0)
+                        theta = self.copula.fit(ranks_u, ranks_v, x0=x0,
+                                            **f_kwds)
                     except cops.NoConvergence:
                         try:
-                            theta = self.copula.fit(ranks_u, ranks_v)
+                            theta = self.copula.fit(ranks_u, ranks_v,
+                                                **f_kwds)
                         except cops.NoConvergence:
                             # warnings.warn("No Convergence reached in "
                             #               f"{self.copula.name}.")
@@ -201,23 +215,61 @@ class SeasonalCop:
 
     @property
     def solution_mll(self):
-        A = np.zeros(self.T, dtype=complex)
+        # this is very slow, as it optimizes fft parameters!
+        fft_len = len(np.fft.rfftfreq(self.n_doys))
+        A = np.zeros((1, fft_len), dtype=complex)
         fft_order = self.fft_order
+        ranks_u = self.ranks_u
+        ranks_v = self.ranks_v
+        if self.fit_mask is None:
+            fit_mask = slice(None)
+            censor = False
+        else:
+            fit_mask = self.fit_mask
+            n_dry = np.sum(~fit_mask)
+            ranks_u = ranks_u[fit_mask]
+            ranks_v = ranks_v[fit_mask]
+            u_max = np.array([np.max(self.ranks_u[~fit_mask])])
+            v_max = np.array([np.max(self.ranks_v[~fit_mask])])
+            censor = True
+
+        def fill_A(A_parts):
+            real, imag = A_parts.reshape(2, -1)
+            A[:, :fft_order].real = real
+            A[:, :fft_order].imag = imag
 
         def mml(A_parts):
-            real, imag = A_parts.reshape(2, -1)
-            A[:fft_order].real = real
-            A[:fft_order].imag = imag
+            fill_A(A_parts)
             thetas = self.trig2thetas(A)
-            density = self.density(thetas=thetas)
-            return np.nansum(ne.evaluate("""-(log(density))"""))
+            dens = self.density(ranks_u=ranks_u,
+                                ranks_v=ranks_v,
+                                thetas=thetas[fit_mask])
+            loglike = np.nansum(ne.evaluate("""-(log(dens))"""))
+            if censor:
+                one = 1. - 1e-12
+                if u_max > v_max:
+                    lower_int = self.copula.cdf(
+                        np.full(n_dry, one),
+                        np.full(n_dry, v_max),
+                        thetas[~fit_mask])
+                else:
+                    lower_int = self.copula.cdf(
+                        np.full(n_dry, u_max),
+                        np.full(n_dry, one),
+                        thetas[~fit_mask])
+                # loglike -= np.sum(np.log(lower_int))
+                loglike -= np.nansum(ne.evaluate("""log(lower_int)"""))
+            return loglike
 
         if self._solution is None:
             trig_theta0 = np.fft.rfft(self.sliding_theta)[0, :fft_order]
             x0 = trig_theta0.real, trig_theta0.imag
-            self._solution = minimize(mml, x0,
-                                      options=dict(disp=True)
-                                      ).x
+            _solution = minimize(mml, x0,
+                                 # options=dict(disp=True)
+                                 ).x
+            fill_A(_solution)
+            self._solution = A
+
         self.thetas = self.trig2thetas(self._solution, self._T)
         return self._solution
 
@@ -477,6 +529,15 @@ class SeasonalCop:
             ax.set_title(rf"doy: {doy}, $\theta={theta:.3f}$")
         fig.suptitle(f"Seasonal copula densities ({self.name})")
         return fig, axs
+
+    def plot_density(self, fig=None, ax=None, *args, **kwds):
+        """Plots density with mean theta!"""
+        if fig is None or ax is None:
+            fig, ax = plt.subplots(nrows=1, ncols=1,
+                                   subplot_kw=dict(aspect="equal"))
+        self.copula.plot_density(theta=(np.array([self.thetas.mean()]),),
+                                 fig=fig, ax=ax, *args, **kwds)
+        return fig, ax
 
 
 def phase_rand(*, ranks=None, data_stdn=None, T=None):
