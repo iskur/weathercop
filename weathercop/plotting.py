@@ -56,18 +56,19 @@ def clear_def_cache(function, cache_names=None, cache_name_values=None):
 
 
 def ccplom(data, k=0, kind="img", transform=False, varnames=None,
-           h_kwds=None, s_kwds=None, title=None, opacity=.1,
-           cmap=None, x_bins=15, y_bins=15, display_rho=True,
-           display_asy=True, vmax_fct=1., fontsize=None, fontcolor="yellow",
-           axs=None, fig=None, **fig_kwds):
+         h_kwds=None, s_kwds=None, title=None, opacity=.1,
+         cmap=None, x_bins=15, y_bins=15, display_rho=True,
+         display_asy=True, vmax_fct=1., fontsize=None,
+         fontcolor="yellow", scatter=True,
+         axs=None, fig=None, **fig_kwds):
     """Cross-Copula-plot matrix. Values that appear on the x-axes are shifted
     back k timesteps. Data is assumed to be a 2 dim arrays with
     observations in rows."""
     if transform:
-        data = np.array([stats.rel_ranks(values)
+        ranks = np.array([stats.rel_ranks(values)
                          for values in data])
     else:
-        data = np.asarray(data)
+        ranks = np.asarray(data)
     K, T = data.shape
     h_kwds = {} if h_kwds is None else h_kwds
     s_kwds = {} if s_kwds is None else s_kwds
@@ -90,7 +91,6 @@ def ccplom(data, k=0, kind="img", transform=False, varnames=None,
     if n_variables == 1:
         axs = (axs,),
 
-    ranks = np.array([rel_ranks(var) for var in data])
     x_slice = slice(None, None if k == 0 else -k)
     y_slice = slice(k, None)
     for ii in range(n_variables):
@@ -105,9 +105,10 @@ def ccplom(data, k=0, kind="img", transform=False, varnames=None,
             ranks_y = ranks[ii, y_slice]
             hist2d(ranks_x, ranks_y, x_bins, y_bins, ax=ax, cmap=cmap,
                    scatter=False, kind=kind)
-            ax.scatter(ranks_x, ranks_y,
-                       marker="o", facecolors=(0, 0, 0, 0),
-                       edgecolors=(0, 0, 0, opacity), **s_kwds)
+            if scatter:
+                ax.scatter(ranks_x, ranks_y,
+                           marker="o", facecolors=(0, 0, 0, 0),
+                           edgecolors=(0, 0, 0, opacity), **s_kwds)
             if display_rho:
                 rho = stats.spearmans_rank(ranks_x, ranks_y)
                 ax.text(.5, .5, r"$\rho = %.3f$" % rho,
