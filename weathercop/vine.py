@@ -9,68 +9,63 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import numpy as np
 import networkx as nx
-import pyximport
 import scipy.stats as spstats
 from tqdm import tqdm
 
 from vg import helpers as my
 from vg.time_series_analysis import distributions as dists
 from weathercop import (cop_conf, copulae as cops, find_copula,
-                        seasonal_cop, stats, tools)
+                        seasonal_cop, tools)
+
+
+def csim_py(args):
+    P, cvine, zero, one, tt = args
+    # tt = np.arange(T)
+    zero, one = np.atleast_1d(zero, one)
+    U = np.empty_like(P)
+    U[0] = P[0]
+    U[1] = cvine[0, 1]["C^_1|0"](conditioned=P[1],
+                                 condition=P[0],
+                                 t=tt)
+    for j in range(2, cvine.d):
+        Q = P[j]
+        for l in range(j - 1, -1, -1):
+            cop = cvine[l, j][f"C^_{j}|{l}"]
+            Q = cop(conditioned=Q,
+                    condition=P[l],
+                    t=tt)
+            Q[Q < zero] = zero
+            Q[Q > one] = one
+        U[j] = Q
+    return U
+
+
+def cquant_py(args):
+    U, cvine, zero, one, tt = args
+    # tt = np.arange(T, dtype=int)
+    P = np.empty_like(U)
+    P[0] = U[0]
+    P[1] = cvine[0, 1]["C_1|0"](conditioned=U[1],
+                                condition=P[0],
+                                t=tt)
+    P[1] = np.maximum(zero, np.minimum(one, P[1]))
+    for j in range(2, cvine.d):
+        Q = U[j]
+        for l in range(j):
+            cop = cvine[l, j][f"C_{j}|{l}"]
+            Q = cop(conditioned=Q,
+                    condition=P[l],
+                    t=tt)
+            Q = np.maximum(zero, np.minimum(one, Q))
+        P[j] = Q
+    return P
 
 
 if cop_conf.PROFILE:
-    def csim_one(args):
-        # this is a function and not a method, so it can be pickled by
-        # multiprocessing
-        t, P, cvine, zero, one = args
-        U = np.empty(len(P))
-        U[0] = P[0]
-        U[1] = cvine[0, 1]["C^_1|0"](conditioned=P[None, 1],
-                                     condition=P[None, 0],
-                                     t=t)
-        for j in range(2, cvine.d):
-            q = P[None, j]
-            for l in range(j - 1, -1, -1):
-                cop = cvine[l, j][f"C^_{j}|{l}"]
-                q = cop(conditioned=q,
-                        condition=P[None, l],
-                        t=t)
-            U[j] = q
-        return U
+    csim = csim_py
+    cquant = cquant_py
 else:
-    pyximport.install(setup_args={'include_dirs': np.get_include(),
-                                  # 'gdb_debug': True
-                                  },
-                      reload_support=True)
-    from weathercop.cvine import csim_one
-
-
-if cop_conf.PROFILE:
-    def cquant_one(args):
-        t, U, cvine, zero, one = args
-        P = np.empty(len(U))
-        P[0] = U[0]
-        P[1] = cvine[0, 1]["C_1|0"](conditioned=U[None, 1],
-                                    condition=P[None, 0],
-                                    t=t)
-        P[1] = max(zero, min(one, P[1]))
-        for j in range(2, cvine.d):
-            q = U[None, j]
-            for l in range(j):
-                cop = cvine[l, j][f"C_{j}|{l}"]
-                # q_old = q[0]
-                q = cop(conditioned=q,
-                        condition=P[None, l],
-                        t=t)
-            P[j] = q
-        return P
-else:
-    pyximport.install(setup_args={'include_dirs': np.get_include(),
-                                  # 'gdb_debug': True
-                                  },
-                      reload_support=True)
-    from weathercop.cvine import cquant_one
+    from weathercop.cvine import csim, cquant
 
 
 n_nodes = multiprocessing.cpu_count() - 1
@@ -151,7 +146,7 @@ def get_cond_labels(node1, node2, prefix=""):
 
 
 def set_edge_copulae(tree, *, tau_min=None, names=None, verbose=True,
-                     **kwds):
+                   scop_kwds=None, **kwds):
     """Fits a copula to the ranks at all nodes and sets conditional
     ranks and copula methods as edge attributes.
     """
@@ -176,11 +171,15 @@ def set_edge_copulae(tree, *, tau_min=None, names=None, verbose=True,
                 copula = edge[cop_key]
         else:
             if abs(edge["tau"]) > tau_min:
+                kwds_copy = {key: value for key, value in kwds.items()}
                 if names:
                     print(f"{names[node1]} - {names[node2]}")
+                    if "R" not in (names[node1], names[node2]):
+                        del kwds_copy["fit_mask"]
                 copula = find_copula.mml(ranks1, ranks2,
-                                         plot=False,
-                                         verbose=verbose, **kwds)
+                                         verbose=verbose,
+                                         scop_kwds=scop_kwds,
+                                         **kwds_copy)
             else:
                 if verbose:
                     print("chose independence")
@@ -209,8 +208,9 @@ def set_edge_copulae(tree, *, tau_min=None, names=None, verbose=True,
 class Vine:
 
     def __init__(self, ranks, k=0, varnames=None, verbose=True,
-                 build_trees=True, dtimes=None, weights="tau",
-                 tau_min=None, debug=False, **kwds):
+               build_trees=True, dtimes=None, weights="tau", tau_min=None,
+               debug=False, fit_mask=None, asymmetry=False,
+               cop_candidates=None, debias=False, scop_kwds=None, **kwds):
         """Vine copula.
 
         Parameter
@@ -230,6 +230,11 @@ class Vine:
             If not None, seasonally changing copulas will be fitted.
         weights : str ("tau" or "likelihood"), optional
         tau_min : None or float, optional
+        fit_mask : boolean ndarray or None, optional
+            Use only the corresponding variables for fitting.
+        cop_candidates : dict-like or None
+            str -> copulae.Copula mapping
+            If None, use all available copulas
         """
         self.ranks = ranks
         self.k = k
@@ -242,6 +247,7 @@ class Vine:
                 raise ValueError("varnames must have the same length"
                                  " as ranks.")
             self.varnames = varnames
+        self.K = len(self.varnames)
         # we reorder the variable names. this is a placeholder for the
         # old order.
         self.varnames_old = None
@@ -249,12 +255,29 @@ class Vine:
         self.debug = debug
         self.weights = weights
         self.tau_min = tau_min
+        self.fit_mask = fit_mask
+        self.asymmetry = asymmetry
+        if cop_candidates is None:
+            cop_candidates = cops.all_cops
+        self.cop_candidates = cop_candidates
+        self.debias = debias
+        self.scop_kwds = None
         if build_trees:
             self.trees = self._gen_trees(ranks)
             # property cache
             self._A = self._edge_map = None
             # this relabels nodes to have a natural-order vine array
             self.A
+        if self.debias:
+            # quantiles_uni = np.random.uniform(0, 1, ranks.shape)
+            quantiles_uni = np.full(ranks.shape, 0.5)
+            self.sim_bias = np.zeros((self.K, 1))
+            sim_uni = self.simulate(randomness=quantiles_uni,
+                                    T=np.arange(ranks.shape[1]))
+            rank_bias = dists.norm.ppf(ranks).mean(axis=1)[:, None]
+            sim_bias = dists.norm.ppf(sim_uni).mean(axis=1)[:, None]
+            self.sim_bias = sim_bias - rank_bias
+            print(self.sim_bias)
 
     @property
     def tau_min(self):
@@ -311,7 +334,8 @@ class Vine:
                                                  ranks2,
                                                  verbose=self.verbose,
                                                  dtimes=self.dtimes,
-                                                 plot=False
+                                                 plot=False,
+                                                 scop_kwds=self.scop_kwds,
                                                  )
                         weight = -copula.likelihood
                         edge_dict[cop_key] = copula
@@ -330,7 +354,11 @@ class Vine:
             print(f"Building tree 1 of {self.d - 1}")
         tree = self._gen_first_tree(ranks)
         set_edge_copulae(tree, tau_min=self.tau_min,
-                         dtimes=self.dtimes, names=self.varnames)
+                         dtimes=self.dtimes, names=self.varnames,
+                         fit_mask=self.fit_mask,
+                         asymmetry=self.asymmetry,
+                         cop_candidates=self.cop_candidates,
+                         scop_kwds=self.scop_kwds)
         trees = [tree]
 
         # 2nd to (d-1)th tree
@@ -371,7 +399,8 @@ class Vine:
                                                  ranks2,
                                                  verbose=self.verbose,
                                                  dtimes=self.dtimes,
-                                                 plot=False
+                                                 plot=False,
+                                                 scop_kwds=self.scop_kwds,
                                                  )
                         clabel1 = get_clabel(node2, node1)[0]  # u|v
                         clabel2 = get_clabel(node1, node2)[0]  # v|u
@@ -382,7 +411,11 @@ class Vine:
                                         weight=weight, tau=tau,
                                         **edge_dict)
             tree = self._best_tree(full_graph, tree_i=l)
-            set_edge_copulae(tree, tau_min=self.tau_min, dtimes=self.dtimes)
+            set_edge_copulae(tree, tau_min=self.tau_min,
+                             dtimes=self.dtimes,
+                             fit_mask=self.fit_mask,
+                             cop_candidates=self.cop_candidates,
+                             scop_kwds=self.scop_kwds)
             trees += [tree]
         return trees
 
@@ -391,6 +424,8 @@ class Vine:
             randomness = np.array([randomness[self.varnames_old.index(name)]
                                    for name in self.varnames])
         sim = self._simulate(randomness=randomness, *args, **kwds)
+        if self.debias:
+            sim = spstats.norm.cdf(spstats.norm.ppf(sim) - self.sim_bias)
         # reorder variables according to input order
         return np.array([sim[self.varnames.index(varname_old)]
                          for varname_old in self.varnames_old])
@@ -432,9 +467,25 @@ class Vine:
         return iter(self[i, j] for i, j in zip(ii, jj))
 
     def __str__(self):
-        return "\n".join("tree {tree}: {node_u} <-> {node_v}"
-                         .format(**edge)
-                         for edge in self)
+        str_ = []
+        for edge in self:
+            tree = edge["tree"]
+            node_u, node_v = edge["node_u"], edge["node_v"]
+            name_u = self.varnames[node_u]
+            name_v = self.varnames[node_v]
+            try:
+                copula = edge[f"Copula_{node_u}_{node_v}"]
+                switched = False
+            except KeyError:
+                switched = True
+                copula = edge[f"Copula_{node_v}_{node_u}"]
+            label_u = f"{name_u} ({node_u})"
+            label_v = f"{name_v} ({node_v})"
+            line = f"{tree=}: {label_u} <-> {label_v} {copula}"
+            if switched:
+                line += " switched"
+            str_ += [line]
+        return "\n".join(str_)
 
     @property
     def edge_map(self):
@@ -564,8 +615,8 @@ class Vine:
             self._edge_map = None
         return self._A
 
-    def plot(self, edge_labels="copulas", fig=None, axs=None, figsize=None,
-           *args, **kwds):
+    def plot(self, edge_labels="copulas", fig=None, axs=None,
+           figsize=None, *args, **kwds):
         """Plot vine structure.
 
         Parameter
@@ -577,9 +628,9 @@ class Vine:
         if nrows * 2 < len(self.trees):
             nrows += 1
         node_fontsize = kwds.get("node_fontsize",
-                                 mpl.rcParams["legend.fontsize"])
+                                 .7 * mpl.rcParams["font.size"])
         edge_fontsize = kwds.get("edge_fontsize",
-                                 mpl.rcParams["xtick.labelsize"])
+                                 .6 * mpl.rcParams["font.size"])
         node_size = 75 * node_fontsize
         if fig is None and axs is None:
             fig, axs = plt.subplots(nrows, 2, figsize=figsize,
@@ -616,7 +667,7 @@ class Vine:
                                    node_size=node_size,
                                    node_color="w",
                                    edgecolors="k",
-                                   font_size=node_fontsize,
+                                   # font_size=node_fontsize,
                                    *args, **kwds)
             nx.draw_networkx_labels(tree, ax=ax, pos=pos,
                                     labels=labels,
@@ -664,7 +715,7 @@ class Vine:
             ax.set_axis_off()
         return fig, axs
 
-    def plot_tplom(self, opacity=.25, s_kwds=None, c_kwds=None):
+    def plot_tplom(self, opacity=.1, s_kwds=None, c_kwds=None):
         """Plots all bivariate copulae with scattered (conditioned) ranks.
         """
         if s_kwds is None:
@@ -675,7 +726,8 @@ class Vine:
         y_slice = slice(self.k, None)
 
         fig, axs = plt.subplots(len(self.trees), self.d - 1,
-                                subplot_kw=dict(aspect="equal"))
+                                subplot_kw=dict(aspect="equal"),
+                                constrained_layout=True)
         # first tree, showing actual observations
         tree = self.trees[0]
         for ax_i, (node1, node2) in enumerate(tree.edges()):
@@ -691,14 +743,14 @@ class Vine:
                 print("switched ", cop_key)
                 cop_key = get_cop_key(node2, node1)
                 cop = edge[cop_key]
-            cop.plot_density(ax=ax, kind="contour", scatter=False,
-                             c_kwds=c_kwds)
-            ax.set_title("%s (%.2f)" % (cop.name[len("fitted "):],
-                                        cop.likelihood))
+            cop.plot_density(fig=fig, ax=ax, kind="img",
+                             scatter=False, c_kwds=c_kwds)
+            ax.set_title(f"{cop.name[len('fitted '):]} "
+                         f"({cop.likelihood:.2f})")
             ax.scatter(ranks1[x_slice], ranks2[y_slice],
                        **s_kwds)
-            ax.set_xlabel("%s (%d)" % (self.varnames[node1], node1))
-            ax.set_ylabel("%s (%d)" % (self.varnames[node2], node2))
+            ax.set_xlabel(f"{self.varnames[node1]} ({node1})")
+            ax.set_ylabel(f"{self.varnames[node2]} ({node2})")
 
         # other trees showing conditioned observations
         for tree_i, tree in enumerate(self.trees[1:], start=1):
@@ -716,16 +768,17 @@ class Vine:
                     print("switched ", cop_key)
                     cop_key = get_cop_key(node2, node1)
                     cop = edge[cop_key]
-                cop.plot_density(ax=ax, kind="contour", scatter=False)
-                ax.set_title("%s (%.2f)" % (cop.name[len("fitted "):],
-                                            cop.likelihood))
+                cop.plot_density(fig=fig, ax=ax, kind="img",
+                                 scatter=False)
+                ax.set_title(f"{cop.name[len('fitted '):]} "
+                             f"({cop.likelihood:.2f})")
                 ax.scatter(ranks1[x_slice], ranks2[y_slice],
                            **s_kwds)
                 ax.set_xlabel(ranks1_key)
                 ax.set_ylabel(ranks2_key)
             for ax in axs[tree_i, len(edges):]:
                 ax.set_axis_off()
-        fig.tight_layout()
+        fig.suptitle("")
         return fig, axs
 
     def plot_qqplom(self, opacity=.25, s_kwds=None, c_kwds=None):
@@ -781,7 +834,9 @@ class Vine:
         fig.tight_layout()
         return fig, axs
 
-    def plot_seasonal(self):
+    def plot_seasonal(self, *, dkwds=None):
+        if dkwds is None:
+            dkwds = dict()
         if self.dtimes is None:
             print("We are not seasonal (hint:pass dtimes to init)")
         figs, axs = [], []
@@ -816,7 +871,7 @@ class Vine:
             for plot_doy in plot_doys:
                 axs_[0, 1].axvline(plot_doy, color="gray")
             copula.plot_seasonal_densities(fig=fig, axs=axs_[1:],
-                                           plot_doys=plot_doys)
+                                           plot_doys=plot_doys, **dkwds)
             title = ("tree:{tree}, {varname1}-{varname2}{condition}, {copula}"
                      .format(tree=edge["tree"], varname1=varname1,
                              varname2=varname2, condition=condition,
@@ -874,31 +929,22 @@ class CVine(Vine):
         """
         if self.verbose:
             print("Simulating from CVine")
-        T_sim = self.T if T is None else T
+        T = self.T if T is None else T
 
         if randomness is None:
-            Ps = np.random.rand(self.d, T_sim)
+            Ps = np.random.rand(self.d, T)
         else:
             Ps = randomness
+        if isinstance(T, int):
+            T = np.arange(T)
 
         zero = 1e-15
         one = 1 - zero
 
-        if cop_conf.PROFILE:
-            Us = [csim_one((t, Ps[:, t], self, zero, one))
-                  for t in range(T_sim)]
-        else:
-            with multiprocessing.Pool(n_nodes) as pool:
-                Us = pool.map(csim_one,
-                              zip(range(T_sim),
-                                  Ps.T,
-                                  repeat(self),
-                                  repeat(zero),
-                                  repeat(one)),
-                              chunksize=int(T_sim / n_nodes))
-        return np.array(Us).T
+        Us = csim((Ps, self, zero, one, T))
+        return Us
 
-    def _quantiles(self, ranks, **tqdm_kwds):
+    def _quantiles(self, ranks, T=None, **tqdm_kwds):
         """Returns the 'quantiles' (in the sense that if they would be used as
         random numbers in `simulate`, the input data would be
         reproduced).
@@ -906,24 +952,15 @@ class CVine(Vine):
         """
         if self.verbose:
             print("Obtaining quantiles in CVine")
-        T = ranks.shape[1]
+        T = ranks.shape[1] if T is None else T
+        if isinstance(T, int):
+            T = np.arange(T)
         Us = ranks
-        zero = 1e-6
+        zero = 1e-15
         one = 1 - zero
 
-        if cop_conf.PROFILE:
-            Ps = [cquant_one((t, Us[:, t], self, zero, one))
-                  for t in range(T)]
-        else:
-            with multiprocessing.Pool(n_nodes) as pool:
-                Ps = pool.map(cquant_one,
-                              zip(range(T),
-                                  Us.T,
-                                  repeat(self),
-                                  repeat(zero),
-                                  repeat(one)),
-                              chunksize=(T // n_nodes))
-        return np.array(Ps).T
+        Ps = cquant((Us, self, zero, one, T))
+        return Ps
 
 
 class DVine(Vine):
@@ -1049,14 +1086,14 @@ class RVine(Vine):
         if self.verbose:
             print("Simulating from RVine")
 
-        T_sim = self.T if T is None else T
+        T = self.T if T is None else T
 
         # zero = 1e-15
         zero = 1e-12
         # one = 1 - zero
 
         if randomness is None:
-            Ps = np.random.rand(self.d, T_sim)
+            Ps = np.random.rand(self.d, T)
         else:
             Ps = randomness
 
@@ -1066,14 +1103,14 @@ class RVine(Vine):
 
         if cop_conf.PROFILE:
             Us = [rsim_one((t, Ps[:, t], self, zero, Q, V, Z))
-                  for t in range(T_sim)]
+                  for t in range(T)]
 
         with multiprocessing.Pool(n_nodes) as pool:
             Us = pool.map(rsim_one,
-                          zip(range(T_sim), Ps.T, repeat(self),
+                          zip(range(T), Ps.T, repeat(self),
                               repeat(zero), repeat(Q),
                               repeat(V), repeat(Z)),
-                          chunksize=int(T_sim / n_nodes))
+                          chunksize=int(T / n_nodes))
         return np.array(Us).T
 
 
@@ -1142,7 +1179,14 @@ def vg_ph(vg_obj, sc_pars, refit=False):
                              varnames=vg_obj.var_names,
                              dtimes=vg_obj.times,
                              weights=weights,
-                             central_node=vg_obj.primary_var[0])
+                             central_node=vg_obj.primary_var[0],
+                             verbose=False,
+                             # verbose=self.verbose,
+                             tau_min=0,
+                             fit_mask=(vg_obj.rain_mask
+                                       if "R" in vg_obj.var_names else
+                                       None),
+                             )
                 sh[key] = vine
         vg_ph.data_means = data_means
         vg_ph.data_std = data_std
@@ -1152,16 +1196,15 @@ def vg_ph(vg_obj, sc_pars, refit=False):
         vg_obj.vine = vg_ph.vine
     if vg_ph.phases is None:
         qq_std = dists.norm.ppf(vg_ph.cop_quantiles)
-        qq_std[~np.isfinite(qq_std)] = np.nan
+        qq_std[(~np.isfinite(qq_std)) |
+               (np.abs(qq_std) > 6)] = np.nan
         vg_ph.qq_std = my.interp_nan(qq_std)
         vg_ph.As = np.fft.fft(vg_ph.qq_std)
         vg_ph.phases = np.angle(vg_ph.As)
     T = vg_obj.T
     # phase randomization with same random phases in all variables
-    phases_lh = np.random.choice(vg_ph.phases[vg_obj.primary_var_ii[0]],
-                                 T // 2 if T % 2 == 1 else T // 2 - 1)
-    # phases_lh = np.random.uniform(-np.pi, np.pi,
-    #                               T // 2 if T % 2 == 1 else T // 2 - 1)
+    phases_lh = np.random.uniform(-np.pi, np.pi,
+                                  T // 2 if T % 2 == 1 else T // 2 - 1)
     phases_lh = np.array(vg_obj.K * [phases_lh])
     phases_rh = -phases_lh[:, ::-1]
     if T % 2 == 0:
@@ -1176,16 +1219,15 @@ def vg_ph(vg_obj, sc_pars, refit=False):
 
     try:
         A_new = vg_ph.As * np.exp(1j * phases)
-        adjust_variance = False
+        # adjust_variance = False
     except ValueError:
         vg_ph.As = np.fft.fft(vg_ph.qq_std, n=T)
         vg_ph.phases = np.angle(vg_ph.As)
         A_new = vg_ph.As * np.exp(1j * phases)
-        adjust_variance = True
+        # adjust_variance = True
 
     fft_sim = (np.fft.ifft(A_new)).real
-    if adjust_variance:
-        fft_sim /= fft_sim.std(axis=1)[:, None]
+    fft_sim /= fft_sim.std(axis=1)[:, None]
 
     # adjust means
     fft_sim -= fft_sim.mean(axis=1)[:, None]
@@ -1232,38 +1274,50 @@ def vg_ph(vg_obj, sc_pars, refit=False):
 
 
 if __name__ == '__main__':
-    # for deterministic networkx graphs!
-    # np.random.seed(2)
-    import dill
-    import time
     import vg
-    from vg import vg_plotting, vg_base
-    import config_konstanz_disag as vg_conf
-    vg.conf = vg_plotting.conf = vg_base.conf = vg_conf
-    try:
-        with open("vg.pkl", "rb") as fi:
-            met_vg = dill.load(fi)
-    except:
-        met_vg = vg.VG(("theta", "ILWR", "rh", "R"), verbose=True,
-                       dump_data=False)
-        with open("vg.pkl", "wb+") as fi:
-            dill.dump(met_vg, fi)
-
-    before = time.time()
-    met_vg.simulate(sim_func=vg_ph, theta_incr=.0,
-                    # sim_func_kwds=dict(refit=True)
-                    )
-    print(time.time() - before)
-
-    ranks = np.array([stats.rel_ranks(values)
+    import config_konstanz as vg_conf
+    vg.set_conf(vg_conf)
+    met_vg = vg.VG(("theta", "ILWR", "rh", "R"), verbose=True)
+    ranks = np.array([spstats.norm.cdf(values)
                       for values in met_vg.data_trans])
-
     cvine = CVine(ranks, varnames=met_vg.var_names,
                   dtimes=met_vg.times,
                   # weights="likelihood"
                   )
-    table = cvine.vine_table()
-    print(table)
+    sim = cvine.simulate()
+
+    # for deterministic networkx graphs!
+    # np.random.seed(2)
+    # import dill
+    # import time
+    # import vg
+    # from vg import vg_plotting, vg_base
+    # import config_konstanz_disag as vg_conf
+    # vg.conf = vg_plotting.conf = vg_base.conf = vg_conf
+    # try:
+    #     with open("vg.pkl", "rb") as fi:
+    #         met_vg = dill.load(fi)
+    # except:
+    #     met_vg = vg.VG(("theta", "ILWR", "rh", "R"), verbose=True,
+    #                    dump_data=False)
+    #     with open("vg.pkl", "wb+") as fi:
+    #         dill.dump(met_vg, fi)
+
+    # before = time.time()
+    # met_vg.simulate(sim_func=vg_ph, theta_incr=.0,
+    #                 # sim_func_kwds=dict(refit=True)
+    #                 )
+    # print(time.time() - before)
+
+    # ranks = np.array([stats.rel_ranks(values)
+    #                   for values in met_vg.data_trans])
+
+    # cvine = CVine(ranks, varnames=met_vg.var_names,
+    #               dtimes=met_vg.times,
+    #               # weights="likelihood"
+    #               )
+    # table = cvine.vine_table()
+    # print(table)
     
     # # quantiles = cvine.quantiles()
     # # assert np.all(np.isfinite(quantiles))
