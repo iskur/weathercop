@@ -1,8 +1,12 @@
 import contextlib
 import os
 import shelve
+import dill
 from collections import UserDict
 from hashlib import md5
+
+shelve.Pickler = dill.Pickler
+shelve.Unpickler = dill.Unpickler
 
 
 @contextlib.contextmanager
