@@ -4,12 +4,14 @@ import inspect
 from functools import wraps, partial
 from itertools import repeat
 import collections
+
 # import warnings
 
 import numpy as np
 import pandas as pd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+
 # from scipy.optimize import minimize_scalar
 from scipy import stats, interpolate
 import xarray as xr
@@ -23,10 +25,12 @@ import cartopy.feature as cfeature
 
 import vg
 from vg import helpers as my
-from vg.time_series_analysis import (distributions as dists,
-                                     time_series as ts,
-                                     rain_stats)
-from weathercop import (cop_conf, plotting, tools, copulae as cops)
+from vg.time_series_analysis import (
+    distributions as dists,
+    time_series as ts,
+    rain_stats,
+)
+from weathercop import cop_conf, plotting, tools, copulae as cops
 from weathercop.vine import CVine
 
 n_nodes = cpu_count() - 1
@@ -54,23 +58,35 @@ def nan_corrcoef(data):
             mask = mask1 & mask2
             overlap[row_i, col_i] = overlap[col_i, row_i] = np.mean(mask)
             if np.sum(mask) > 30:
-                obs_corr[row_i, col_i] = np.corrcoef(vals1[mask],
-                                                     vals2[mask])[0, 1]
+                obs_corr[row_i, col_i] = np.corrcoef(vals1[mask], vals2[mask])[
+                    0, 1
+                ]
     nan_corrcoef.overlap = overlap
     return obs_corr
 
 
 def sim_one(args):
-    (real_i, total, wcop, filepath, sim_args, sim_kwds, dis_kwds,
-     sim_times, csv, ensemble_dir, n_digits) = args
+    (
+        real_i,
+        total,
+        wcop,
+        filepath,
+        sim_args,
+        sim_kwds,
+        dis_kwds,
+        sim_times,
+        csv,
+        ensemble_dir,
+        n_digits,
+    ) = args
     np.random.seed(1000 * real_i)
     sim_sea, sim_trans = simulate(wcop, sim_times, *sim_args, **sim_kwds)
     if dis_kwds is not None:
         sim_sea_dis = wcop.disaggregate(**dis_kwds)
-        sim_sea, sim_sea_dis = xr.align(sim_sea, sim_sea_dis,
-                                        join="outer")
-        sim_sea.loc[dict(variable=wcop.varnames)] = \
-            sim_sea_dis.sel(variable=wcop.varnames)
+        sim_sea, sim_sea_dis = xr.align(sim_sea, sim_sea_dis, join="outer")
+        sim_sea.loc[dict(variable=wcop.varnames)] = sim_sea_dis.sel(
+            variable=wcop.varnames
+        )
     sim_sea.to_netcdf(filepath)
     if csv:
         real_str = f"real_{real_i:0{n_digits}}"
@@ -111,14 +127,9 @@ def simulate(wcop, sim_times, *args, phase_randomize_vary_mean=True, **kwds):
         nyquist = np.full(K, 0)[:, None]
         zero_phases = phases[:, 0, None]
         if T_data % 2 == 0:
-            phases = np.hstack((zero_phases,
-                                phases_pos,
-                                nyquist,
-                                phases_neg))
+            phases = np.hstack((zero_phases, phases_pos, nyquist, phases_neg))
         else:
-            phases = np.hstack((zero_phases,
-                                phases_pos,
-                                phases_neg))
+            phases = np.hstack((zero_phases, phases_pos, phases_neg))
         phases_stacked += [phases]
         T_total += T_data
 
@@ -128,28 +139,28 @@ def simulate(wcop, sim_times, *args, phase_randomize_vary_mean=True, **kwds):
             theta_incr = theta_incrs[station_name]
         except (KeyError, TypeError, IndexError):
             theta_incr = theta_incrs
-        _, sim = svg.simulate(sim_func=vg_ph,
-                              primary_var=primary_var,
-                              theta_incr=theta_incr,
-                              *args, **kwds)
+        _, sim = svg.simulate(
+            sim_func=vg_ph,
+            primary_var=primary_var,
+            theta_incr=theta_incr,
+            *args,
+            **kwds,
+        )
         if sim_sea is None:
-            sim_sea = xr.DataArray(np.empty((n_stations,
-                                             K,
-                                             T_sim)),
-                                   coords=[station_names,
-                                           varnames,
-                                           sim_times],
-                                   dims=["station",
-                                         "variable",
-                                         "time"])
+            sim_sea = xr.DataArray(
+                np.empty((n_stations, K, T_sim)),
+                coords=[station_names, varnames, sim_times],
+                dims=["station", "variable", "time"],
+            )
             sim_trans = xr.full_like(sim_sea, np.nan)
         sim_sea.loc[dict(station=station_name)] = sim
         sim_trans.loc[dict(station=station_name)] = svg.sim
     return sim_sea, sim_trans
 
 
-def _vg_ph(vg_obj, sc_pars, wcop=None, rphases=None,
-         phase_randomize_vary_mean=True):
+def _vg_ph(
+    vg_obj, sc_pars, wcop=None, rphases=None, phase_randomize_vary_mean=True
+):
     """Call-back function for VG.simulate. Replaces a time_series_analysis
     model.
 
@@ -174,10 +185,10 @@ def _vg_ph(vg_obj, sc_pars, wcop=None, rphases=None,
         phase_[:, 0] = zero_phases[station_name]
         phases += [phase_]
 
-    fft_sim = np.concatenate([np.fft.ifft(As * np.exp(1j * phases_)).real
-                              for phases_ in phases],
-                             axis=1
-                             )[:, :T]
+    fft_sim = np.concatenate(
+        [np.fft.ifft(As * np.exp(1j * phases_)).real for phases_ in phases],
+        axis=1,
+    )[:, :T]
 
     fft_sim *= (qq_std / fft_sim.std(axis=1))[:, None]
     fft_sim += (qq_mean - fft_sim.mean(axis=1))[:, None]
@@ -194,9 +205,7 @@ def _vg_ph(vg_obj, sc_pars, wcop=None, rphases=None,
     fft_sim[prim_i] += sc_pars.m_t[prim_i]
 
     qq = dists.norm.cdf(fft_sim)
-    ranks_sim = vine.simulate(T=np.arange(qq.shape[1]),
-                              randomness=qq
-                              )
+    ranks_sim = vine.simulate(T=np.arange(qq.shape[1]), randomness=qq)
     sim = dists.norm.ppf(ranks_sim)
     assert np.all(np.isfinite(sim))
     return sim
@@ -253,11 +262,22 @@ class ECDF:
 
 
 class Multisite:
-    def __init__(self, xds, *args, primary_var="theta",
-               discretization="D", verbose=False,
-               phase_inflation=False, refit_vine=False,
-               asymmetry=False, rain_method="regression",
-               cop_candidates=None, debias=True, scop_kwds=None, **kwds):
+    def __init__(
+        self,
+        xds,
+        *args,
+        primary_var="theta",
+        discretization="D",
+        verbose=False,
+        phase_inflation=False,
+        refit_vine=False,
+        asymmetry=False,
+        rain_method="regression",
+        cop_candidates=None,
+        debias=True,
+        scop_kwds=None,
+        **kwds,
+    ):
         """Multisite weather generation using vines and phase randomization.
 
         Parameters
@@ -296,10 +316,9 @@ class Multisite:
             assert np.all(np.isfinite(self.longitudes))
             assert np.all(np.isfinite(self.latitudes))
             xds = xds.drop_vars(("latitude", "longitude"))
-        self.xar = (xds
-                    .to_array('station')
-                    .transpose("station", "variable", "time")
-                    )
+        self.xar = xds.to_array("station").transpose(
+            "station", "variable", "time"
+        )
         self.primary_var = primary_var
         self.discr = discretization
         self.verbose = verbose
@@ -327,8 +346,9 @@ class Multisite:
         self.times = self.xar.time
         self.varnames_refit = None
         start_dt, end_dt = pd.to_datetime(self.xar.time.data[[0, -1]])
-        self.dtimes = (pd.date_range(start_dt, end_dt, freq=self.discr)
-                       .to_pydatetime())
+        self.dtimes = pd.date_range(
+            start_dt, end_dt, freq=self.discr
+        ).to_pydatetime()
 
         if "refit" in kwds and kwds["refit"]:
             self.refit = True
@@ -338,10 +358,12 @@ class Multisite:
             if refits is not True:
                 if isinstance(refits, str):
                     refits = kwds["refit"] = [refits]
-                station_names_refit = [name for name in refits
-                                       if name in self.station_names]
-                self.varnames_refit = [name for name in refits
-                                       if name in self.varnames]
+                station_names_refit = [
+                    name for name in refits if name in self.station_names
+                ]
+                self.varnames_refit = [
+                    name for name in refits if name in self.varnames
+                ]
             else:
                 station_names_refit = None
             self._clear_vgs_cache(station_names_refit)
@@ -350,11 +372,10 @@ class Multisite:
         self._init_vgs(*args, **kwds)
 
         # this is useful from time to time
-        self.data_daily = (self.xar
-                           .resample(time=self.discr)
-                           .mean(dim="time",
-                                 # skipna=True
-                           ))
+        self.data_daily = self.xar.resample(time=self.discr).mean(
+            dim="time",
+            # skipna=True
+        )
 
         nans = self.data_daily.isnull()
         if np.any(nans) and not phase_inflation:
@@ -413,10 +434,13 @@ class Multisite:
             def meta_plot(*args, **kwds):
                 returns = {}
                 for station_name, svg in self.vgs.items():
-                    longitude = float(self.longitudes.sel(station=station_name))
+                    longitude = float(
+                        self.longitudes.sel(station=station_name)
+                    )
                     latitude = float(self.latitudes.sel(station=station_name))
-                    svg._conf_update(dict(longitude=longitude,
-                                          latitude=latitude))
+                    svg._conf_update(
+                        dict(longitude=longitude, latitude=latitude)
+                    )
                     fig, axs = getattr(svg, name)(*args, **kwds)
                     for fig_ in np.atleast_1d(fig):
                         if isinstance(fig_, mpl.figure.Figure):
@@ -427,12 +451,14 @@ class Multisite:
                         fig_.suptitle(f"{station_name} {suptitle}")
                     returns[station_name] = fig, axs
                 return returns
+
             return meta_plot
         try:
             return self.__dict__[name]
         except KeyError:
-            raise AttributeError(f"'{type(self).__name__}' object has "
-                                 f"no attribute '{name}'")
+            raise AttributeError(
+                f"'{type(self).__name__}' object has " f"no attribute '{name}'"
+            )
 
     def __getitem__(self, name):
         if isinstance(name, int):
@@ -462,27 +488,31 @@ class Multisite:
     def _init_vgs(self, *args, **kwds):
         """Initiate VG instances to get transformed data."""
         # gather transformed data from all vg instances
-        data_trans = (xr
-                      .full_like(self.xar, 0)
-                      .resample(time=self.discr)
-                      .mean(dim="time"))
+        data_trans = (
+            xr.full_like(self.xar, 0)
+            .resample(time=self.discr)
+            .mean(dim="time")
+        )
         self.ranks = xr.full_like(data_trans, np.nan)
         if "R" in self.varnames:
-            self.rain_mask = xr.full_like(self.ranks.sel(variable="R"),
-                                          False, dtype=bool)
+            self.rain_mask = xr.full_like(
+                self.ranks.sel(variable="R"), False, dtype=bool
+            )
         refit = "refit" in kwds
         if refit and isinstance(kwds["refit"], collections.Iterable):
             # refit_vars = (set(kwds.get("refit", []))
             #               & set(self.varnames))
             refit_vars = self.varnames_refit
-            refit_stations = (set(kwds.get("refit", []))
-                              & set(self.station_names))
+            refit_stations = set(kwds.get("refit", [])) & set(
+                self.station_names
+            )
         else:
             refit_vars = refit_stations = []
         for station_name in self.station_names:
             cache_file = self.cache_file(station_name)
-            (cop_conf.vgs_cache_dir / station_name).mkdir(exist_ok=True,
-                                                          parents=True)
+            (cop_conf.vgs_cache_dir / station_name).mkdir(
+                exist_ok=True, parents=True
+            )
             seasonal_cache_file = cache_file.parent / cache_file.stem
             if self.longitudes is not None:
                 longitude = float(self.longitudes.sel(station=station_name))
@@ -492,27 +522,39 @@ class Multisite:
                 latitude = float(self.latitudes.sel(station=station_name))
             else:
                 latitude = None
-            if (not refit_vars and
-                station_name not in refit_stations and
-                cache_file.exists()):
+            if (
+                not refit_vars
+                and station_name not in refit_stations
+                and cache_file.exists()
+            ):
                 if self.verbose:
-                    print(f"Recovering VG instance of {station_name} from:\n{cache_file}")
+                    print(
+                        f"Recovering VG instance of {station_name} from:\n{cache_file}"
+                    )
                 with cache_file.open("rb") as fi:
                     svg = dill.load(fi)
-                    svg._conf_update(dict(longitude=longitude,
-                                          latitude=latitude,
-                                          seasonal_cache_file=seasonal_cache_file))
+                    svg._conf_update(
+                        dict(
+                            longitude=longitude,
+                            latitude=latitude,
+                            seasonal_cache_file=seasonal_cache_file,
+                        )
+                    )
             else:
                 if self.verbose:
-                    print(f"Fitting a VG instance on {station_name} "
-                          f"saving to:\n{cache_file}")
-                data = (self.xar
-                        .sel(station=station_name, drop=True)
-                        .to_dataset(dim="variable")
-                        .to_dataframe())
+                    print(
+                        f"Fitting a VG instance on {station_name} "
+                        f"saving to:\n{cache_file}"
+                    )
+                data = (
+                    self.xar.sel(station=station_name, drop=True)
+                    .to_dataset(dim="variable")
+                    .to_dataframe()
+                )
                 cache_dir = str(cop_conf.vgs_cache_dir / station_name)
-                kwds_ = {key: value for key, value in kwds.items()
-                         if key != "refit"}
+                kwds_ = {
+                    key: value for key, value in kwds.items() if key != "refit"
+                }
                 if refit:
                     if kwds["refit"] is True:
                         kwds_["refit"] = True
@@ -520,31 +562,36 @@ class Multisite:
                         kwds_["refit"] = True
                     elif refit_vars:
                         kwds_["refit"] = list(refit_vars)
-                conf_update = dict(longitude=longitude,
-                                   latitude=latitude,
-                                   seasonal_cache_file=seasonal_cache_file)
-                svg = vg.VG(self.varnames,
-                            met_file=data,
-                            cache_dir=cache_dir,
-                            # we do not need it and don't want it to
-                            # be read from the configuration file
-                            data_dir="",
-                            conf_update=conf_update,
-                            dump_data=False,
-                            sum_interval=self.sum_interval,
-                            station_name=station_name,
-                            rain_method=self.rain_method,
-                            *args, **kwds_)
+                conf_update = dict(
+                    longitude=longitude,
+                    latitude=latitude,
+                    seasonal_cache_file=seasonal_cache_file,
+                )
+                svg = vg.VG(
+                    self.varnames,
+                    met_file=data,
+                    cache_dir=cache_dir,
+                    # we do not need it and don't want it to
+                    # be read from the configuration file
+                    data_dir="",
+                    conf_update=conf_update,
+                    dump_data=False,
+                    sum_interval=self.sum_interval,
+                    station_name=station_name,
+                    rain_method=self.rain_method,
+                    *args,
+                    **kwds_,
+                )
                 with cache_file.open("wb") as fi:
                     dill.dump(svg, fi)
             self.vgs[station_name] = svg
             if "R" in self.varnames:
-                self.rain_mask.loc[dict(station=station_name)] = \
-                    svg.rain_mask
+                self.rain_mask.loc[dict(station=station_name)] = svg.rain_mask
             for var_i, varname in enumerate(self.varnames):
                 var_trans = svg.data_trans[var_i]
-                data_trans.loc[dict(station=station_name,
-                                    variable=varname)] = var_trans
+                data_trans.loc[
+                    dict(station=station_name, variable=varname)
+                ] = var_trans
         # this sets verbosity on all vg instances
         self.verbose = self.verbose
         if self.phase_inflation:
@@ -561,11 +608,13 @@ class Multisite:
             self.rain_mask = self.rain_mask.stack(rank=("station", "time"))
 
     def cache_file(self, station_name):
-        return (cop_conf.vgs_cache_dir /
-           station_name /
-           f"{station_name}_{self.discr}_"
-           f"{self.rain_method}_"
-           f"{self.start_str}-{self.end_str}.pkl")
+        return (
+            cop_conf.vgs_cache_dir
+            / station_name
+            / f"{station_name}_{self.discr}_"
+            f"{self.rain_method}_"
+            f"{self.start_str}-{self.end_str}.pkl"
+        )
 
     def _clear_vgs_cache(self, station_names=None):
         if station_names is None:
@@ -598,10 +647,10 @@ class Multisite:
         # find frequencies which are weak in the fullest and strong in
         # the emptiest variables
         n_missing_max = max(nan_mask_stacked.sum(axis=1))
-        ii = np.argsort(np.sum(As_stacked * (1 - missing_mean[:, None]),
-                               axis=0)
-                        - As_stacked[fullest_var_i]
-                        )[:n_missing_max // 2]
+        ii = np.argsort(
+            np.sum(As_stacked * (1 - missing_mean[:, None]), axis=0)
+            - As_stacked[fullest_var_i]
+        )[: n_missing_max // 2]
         # ii = np.argsort(np.sum(As_stacked * (1 - missing_mean[:, None]),
         #                        axis=0)
         #                 - As_stacked[fullest_var_i])
@@ -702,9 +751,14 @@ class Multisite:
             for svg in self.vgs.values():
                 svg.verbose = value
 
-    def simulate(self, *args, usevine=True,
-               phase_randomize_vary_mean=True, return_trans=False,
-               **kwds):
+    def simulate(
+        self,
+        *args,
+        usevine=True,
+        phase_randomize_vary_mean=True,
+        return_trans=False,
+        **kwds,
+    ):
         self.usevine = usevine
         self.phase_randomize_vary_mean = phase_randomize_vary_mean
         # allow for site-specific theta_incr
@@ -721,20 +775,19 @@ class Multisite:
                 theta_incr = theta_incrs[station_name]
             except (KeyError, TypeError, IndexError):
                 theta_incr = theta_incrs
-            sim_times, sim = svg.simulate(sim_func=self._vg_ph,
-                                          primary_var=self.primary_var,
-                                          theta_incr=theta_incr,
-                                          *args, **kwds)
+            sim_times, sim = svg.simulate(
+                sim_func=self._vg_ph,
+                primary_var=self.primary_var,
+                theta_incr=theta_incr,
+                *args,
+                **kwds,
+            )
             if self.sim_sea is None:
-                self.sim_sea = xr.DataArray(np.empty((self.n_stations,
-                                                      self.K,
-                                                      svg.T)),
-                                            coords=[self.station_names,
-                                                    self.varnames,
-                                                    sim_times],
-                                            dims=["station",
-                                                  "variable",
-                                                  "time"])
+                self.sim_sea = xr.DataArray(
+                    np.empty((self.n_stations, self.K, svg.T)),
+                    coords=[self.station_names, self.varnames, sim_times],
+                    dims=["station", "variable", "time"],
+                )
                 self.sim_trans = xr.full_like(self.sim_sea, np.nan)
             self.sim_sea.loc[dict(station=station_name)] = sim
             self.sim_trans.loc[dict(station=station_name)] = svg.sim
@@ -760,22 +813,25 @@ class Multisite:
             svg.verbose = False
             times_dis, sim_dis = svg.disaggregate(*args, **kwds)
             if self.sim_sea_dis is None:
-                self.sim_sea_dis = xr.DataArray(np.empty((self.n_stations,
-                                                          self.K,
-                                                          sim_dis.shape[1])),
-                                                coords=[self.station_names,
-                                                        self.varnames,
-                                                        times_dis],
-                                                dims=["station",
-                                                      "variable",
-                                                      "time"])
+                self.sim_sea_dis = xr.DataArray(
+                    np.empty((self.n_stations, self.K, sim_dis.shape[1])),
+                    coords=[self.station_names, self.varnames, times_dis],
+                    dims=["station", "variable", "time"],
+                )
             self.sim_sea_dis.loc[dict(station=station_name)] = sim_dis
         self.varnames_dis = self[0].var_names_dis
         return self.sim_sea_dis
 
-    def simulate_ensemble(self, n_realizations, name="calibration",
-                        clear_cache=False, csv=False, dis_kwds=None,
-                        *args, **kwds):
+    def simulate_ensemble(
+        self,
+        n_realizations,
+        name="calibration",
+        clear_cache=False,
+        csv=False,
+        dis_kwds=None,
+        *args,
+        **kwds,
+    ):
         if dis_kwds is not None:
             name = f"{name}_disag"
         ensemble_dir = cop_conf.weathercop_dir / "ensembles" / name
@@ -790,8 +846,10 @@ class Multisite:
         verbose = self.verbose
         self.verbose = False
         n_digits = int(np.log10(n_realizations)) + 3
-        filepaths = [ensemble_dir / f"real_{real_i:0{n_digits}}.nc"
-                     for real_i in range(n_realizations)]
+        filepaths = [
+            ensemble_dir / f"real_{real_i:0{n_digits}}.nc"
+            for real_i in range(n_realizations)
+        ]
         # filepaths_trans = [filepath.parent / (filepath.stem + "_trans.nc")
         #                    for filepath in filepaths]
         if cop_conf.PROFILE:
@@ -805,15 +863,19 @@ class Multisite:
                 # sim_trans = self.sim_trans
                 if dis_kwds is not None:
                     sim_sea_dis = self.disaggregate(**dis_kwds)
-                    sim_sea, sim_sea_dis = xr.align(sim_sea, sim_sea_dis,
-                                                    join="outer")
-                    sim_sea.loc[dict(variable=self.varnames)] = \
-                        sim_sea_dis.sel(variable=self.varnames)
+                    sim_sea, sim_sea_dis = xr.align(
+                        sim_sea, sim_sea_dis, join="outer"
+                    )
+                    sim_sea.loc[
+                        dict(variable=self.varnames)
+                    ] = sim_sea_dis.sel(variable=self.varnames)
                 sim_sea.to_netcdf(filepath)
                 if csv:
                     real_str = f"real_{real_i:0{n_digits}}"
                     csv_path = ensemble_dir / "csv" / real_str
-                    self.to_csv(csv_path, sim_sea, filename_prefix=f"{real_str}_")
+                    self.to_csv(
+                        csv_path, sim_sea, filename_prefix=f"{real_str}_"
+                    )
                 # sim_trans.to_netcdf(filepath_trans)
         else:
             # this means we do parallel computation
@@ -824,10 +886,12 @@ class Multisite:
             # sim_trans = self.sim_trans
             if dis_kwds is not None:
                 sim_sea_dis = self.disaggregate(**dis_kwds)
-                sim_sea, sim_sea_dis = xr.align(sim_sea, sim_sea_dis,
-                                                join="outer")
-                sim_sea.loc[dict(variable=self.varnames)] = \
-                    sim_sea_dis.sel(variable=self.varnames)
+                sim_sea, sim_sea_dis = xr.align(
+                    sim_sea, sim_sea_dis, join="outer"
+                )
+                sim_sea.loc[dict(variable=self.varnames)] = sim_sea_dis.sel(
+                    variable=self.varnames
+                )
             sim_sea.to_netcdf(filepaths[0])
             if csv:
                 real_i = 0
@@ -850,33 +914,39 @@ class Multisite:
                     # filepaths_trans_multi += [filepaths_trans[real_i]]
             with Pool(n_nodes) as pool:
                 completed_reals = list(
-                    tqdm(pool.imap(sim_one,
-                                   zip(realizations,
-                                       repeat(len(realizations)),
-                                       repeat(self),
-                                       filepaths_multi,
-                                       # filepaths_trans_multi,
-                                       repeat(args),
-                                       repeat(kwds),
-                                       repeat(dis_kwds),
-                                       repeat(sim_times),
-                                       repeat(csv),
-                                       repeat(ensemble_dir),
-                                       repeat(n_digits),
-                                       )),
-                         total=len(realizations)))
+                    tqdm(
+                        pool.imap(
+                            sim_one,
+                            zip(
+                                realizations,
+                                repeat(len(realizations)),
+                                repeat(self),
+                                filepaths_multi,
+                                # filepaths_trans_multi,
+                                repeat(args),
+                                repeat(kwds),
+                                repeat(dis_kwds),
+                                repeat(sim_times),
+                                repeat(csv),
+                                repeat(ensemble_dir),
+                                repeat(n_digits),
+                            ),
+                        ),
+                        total=len(realizations),
+                    )
+                )
             assert len(completed_reals) == len(realizations)
         # expose the ensemble as a dask array
         drop_dummy = self.n_stations > 1
-        self.ensemble = (xr
-                         .open_mfdataset(filepaths,
-                                         concat_dim="realization",
-                                         combine="nested")
-                         .assign_coords(realization=range(n_realizations))
-                         .to_array("dummy")
-                         .squeeze("dummy", drop=drop_dummy)
-                         # .squeeze(drop=drop_dummy)
-                         )
+        self.ensemble = (
+            xr.open_mfdataset(
+                filepaths, concat_dim="realization", combine="nested"
+            )
+            .assign_coords(realization=range(n_realizations))
+            .to_array("dummy")
+            .squeeze("dummy", drop=drop_dummy)
+            # .squeeze(drop=drop_dummy)
+        )
         # self.ensemble_trans = (xr
         #                        .open_mfdataset(filepaths_trans,
         #                                        concat_dim="realization",
@@ -886,7 +956,7 @@ class Multisite:
         #                        .squeeze("dummy", drop=drop_dummy)
         #                        # .squeeze(drop=drop_dummy)
         #                        )
-        
+
         # # make the first realization available for plotting methods
         # self.sim_sea = self.ensemble.sel(realization=0)
         # for station_name in self.station_names:
@@ -915,102 +985,94 @@ class Multisite:
                 csv_df.to_csv(csv_path / filename)
             else:
                 filename = f"{filename_prefix}{station_name}_daily.csv"
-                varnames_nondis = [name for name in self.varnames
-                                   if name not in self.varnames_dis]
-                csv_daily_df = (xar
-                                .sel(station=station_name,
-                                     variable=varnames_nondis)
-                                .resample(time="D")
-                                .mean()
-                                .to_pandas()
-                                .T)
+                varnames_nondis = [
+                    name
+                    for name in self.varnames
+                    if name not in self.varnames_dis
+                ]
+                csv_daily_df = (
+                    xar.sel(station=station_name, variable=varnames_nondis)
+                    .resample(time="D")
+                    .mean()
+                    .to_pandas()
+                    .T
+                )
                 csv_daily_df.to_csv(csv_path / filename, float_format="%.3f")
                 filename = f"{filename_prefix}{station_name}_hourly.csv"
-                csv_hourly_df = (xar
-                                 .sel(station=station_name,
-                                      variable=self.varnames_dis)
-                                 .to_pandas()
-                                 .T)
+                csv_hourly_df = (
+                    xar.sel(station=station_name, variable=self.varnames_dis)
+                    .to_pandas()
+                    .T
+                )
                 csv_hourly_df.to_csv(csv_path / filename, float_format="%.3f")
 
     def print_means(self, station_name):
-        obs = (self.obs_means
-               .sel(station=station_name, drop=True)
-               .to_dataframe("obs"))
+        obs = self.obs_means.sel(station=station_name, drop=True).to_dataframe(
+            "obs"
+        )
         if self.ensemble is not None:
-            sim = (self.ensemble
-                   .sel(station=station_name, drop=True)
-                   .mean(["time", "realization"])
-                   .to_dataframe("sim"))
+            sim = (
+                self.ensemble.sel(station=station_name, drop=True)
+                .mean(["time", "realization"])
+                .to_dataframe("sim")
+            )
         else:
-            sim = (self.sim_sea
-                   .sel(station=station_name, drop=True)
-                   .mean("time")
-                   .to_dataframe("sim"))
+            sim = (
+                self.sim_sea.sel(station=station_name, drop=True)
+                .mean("time")
+                .to_dataframe("sim")
+            )
         # exclude possible varnames_ext
         sim = sim.loc[self.varnames]
-        diff = pd.DataFrame(sim.values - obs.values,
-                            index=obs.index,
-                            columns=["diff"])
-        diff_perc = pd.DataFrame(100 * (sim.values - obs.values) /
-                                 obs.values,
-                                 index=obs.index,
-                                 columns=["diff [%]"])
-        print(pd.concat([obs, sim, diff, diff_perc],
-                        axis=1)
-              .round(3))
+        diff = pd.DataFrame(
+            sim.values - obs.values, index=obs.index, columns=["diff"]
+        )
+        diff_perc = pd.DataFrame(
+            100 * (sim.values - obs.values) / obs.values,
+            index=obs.index,
+            columns=["diff [%]"],
+        )
+        print(pd.concat([obs, sim, diff, diff_perc], axis=1).round(3))
 
     def print_all_means(self):
-        obs = (self.obs_means
-               .mean("station")
-               .to_dataframe("obs"))
+        obs = self.obs_means.mean("station").to_dataframe("obs")
         if self.ensemble is not None:
-            sim = (self.ensemble
-                   .mean(["time",
-                          "realization",
-                          "station"])
-                   .to_dataframe("sim"))
+            sim = self.ensemble.mean(
+                ["time", "realization", "station"]
+            ).to_dataframe("sim")
         else:
-            sim = (self.sim_sea
-                   .mean(["time", "station"])
-                   .to_dataframe("sim"))
+            sim = self.sim_sea.mean(["time", "station"]).to_dataframe("sim")
         # exclude possible varnames_ext
         sim = sim.loc[self.varnames]
-        diff = pd.DataFrame(sim.values - obs.values,
-                            index=obs.index,
-                            columns=["diff"])
-        diff_perc = pd.DataFrame(100 * (sim.values - obs.values) /
-                                 obs.values,
-                                 index=obs.index,
-                                 columns=["diff [%]"])
-        print(pd.concat([obs, sim, diff, diff_perc],
-                        axis=1)
-              .round(3))
+        diff = pd.DataFrame(
+            sim.values - obs.values, index=obs.index, columns=["diff"]
+        )
+        diff_perc = pd.DataFrame(
+            100 * (sim.values - obs.values) / obs.values,
+            index=obs.index,
+            columns=["diff [%]"],
+        )
+        print(pd.concat([obs, sim, diff, diff_perc], axis=1).round(3))
 
     def print_ensemble_means(self):
-        obs = (self.obs_means
-               .mean("station")
-               .to_dataframe("obs"))
+        obs = self.obs_means.mean("station").to_dataframe("obs")
         if self.ensemble is not None:
-            sim = (self.ensemble
-                   .mean(["time", "station", "realization"])
-                   .to_dataframe("sim"))
+            sim = self.ensemble.mean(
+                ["time", "station", "realization"]
+            ).to_dataframe("sim")
         else:
-            sim = (self.sim_sea
-                   .mean(["time", "station"])
-                   .to_dataframe("sim"))
+            sim = self.sim_sea.mean(["time", "station"]).to_dataframe("sim")
         # exclude possible varnames_ext
         sim = sim.loc[self.varnames]
-        diff = pd.DataFrame(sim.values - obs.values,
-                            index=obs.index,
-                            columns=["diff"])
-        diff_perc = pd.DataFrame(100 * (sim.values - obs.values) /
-                                 obs.values,
-                                 index=obs.index,
-                                 columns=["diff [%]"])
-        print(pd.concat([obs, sim, diff, diff_perc],
-                        axis=1)
-              .round(3))
+        diff = pd.DataFrame(
+            sim.values - obs.values, index=obs.index, columns=["diff"]
+        )
+        diff_perc = pd.DataFrame(
+            100 * (sim.values - obs.values) / obs.values,
+            index=obs.index,
+            columns=["diff [%]"],
+        )
+        print(pd.concat([obs, sim, diff, diff_perc], axis=1).round(3))
 
     def _vg_ph(self, vg_obj, sc_pars):
         """Call-back function for VG.simulate. Replaces a time_series_analysis
@@ -1021,34 +1083,40 @@ class Multisite:
         weights = "tau"
         if self.vine is None and self.usevine:
             with tools.shelve_open(cop_conf.vine_cache) as sh:
-                key = "_".join(("_".join(sorted(vg_obj.var_names)),
-                                "_".join(sorted(self.station_names)),
-                                "_".join(str(i) for i in
-                                         self.data_daily.data.shape),
-                                weights,
-                                vg_obj.primary_var[0],
-                                self.discr,
-                                self.rain_method))
+                key = "_".join(
+                    (
+                        "_".join(sorted(vg_obj.var_names)),
+                        "_".join(sorted(self.station_names)),
+                        "_".join(str(i) for i in self.data_daily.data.shape),
+                        weights,
+                        vg_obj.primary_var[0],
+                        self.discr,
+                        self.rain_method,
+                    )
+                )
                 if key in sh and not (self.refit or self.refit_vine):
                     vine = sh[key]
                 else:
                     dtimes = np.tile(self.dtimes, self.n_stations)
-                    vine = CVine(self.ranks.data,
-                                 # varnames=vg_obj.var_names,
-                                 varnames=self.varnames,
-                                 dtimes=dtimes,
-                                 weights=weights,
-                                 central_node=vg_obj.primary_var[0],
-                                 verbose=False,
-                                 # verbose=self.verbose,
-                                 tau_min=0,
-                                 fit_mask=(self.rain_mask.data
-                                           if "R" in self.varnames else
-                                           None),
-                                 asymmetry=self.asymmetry,
-                                 cop_candidates=self.cop_candidates,
-                                 scop_kwds=self.scop_kwds,
-                                 )
+                    vine = CVine(
+                        self.ranks.data,
+                        # varnames=vg_obj.var_names,
+                        varnames=self.varnames,
+                        dtimes=dtimes,
+                        weights=weights,
+                        central_node=vg_obj.primary_var[0],
+                        verbose=False,
+                        # verbose=self.verbose,
+                        tau_min=0,
+                        fit_mask=(
+                            self.rain_mask.data
+                            if "R" in self.varnames
+                            else None
+                        ),
+                        asymmetry=self.asymmetry,
+                        cop_candidates=self.cop_candidates,
+                        scop_kwds=self.scop_kwds,
+                    )
                     sh[key] = vine
             # these are not so interesting so far...
             vine.verbose = False
@@ -1058,40 +1126,37 @@ class Multisite:
             stacked = self.cop_quantiles.stack(stacked=("station", "time"))
 
             T_data = len(self.cop_quantiles.coords["time"])
-            qq = self.vine.quantiles(T=(np.arange(stacked.shape[1])
-                                        % T_data))
+            qq = self.vine.quantiles(T=(np.arange(stacked.shape[1]) % T_data))
             try:
                 assert np.all(np.isfinite(qq))
             except AssertionError:
                 qq[~np.isfinite(qq)] = np.nan
-                qq = np.array([my.interp_nan(values)
-                               for values in qq])
+                qq = np.array([my.interp_nan(values) for values in qq])
             # normalize cop quantiles
             # qq = np.array([(stats.rankdata(values) - 0.5) / len(values)
             #                for values in qq])
             stacked.data = qq
-            self.cop_quantiles = (stacked
-                                  .unstack(dim="stacked")
-                                  .transpose(*self.data_trans.dims)
-                                  )
+            self.cop_quantiles = stacked.unstack(dim="stacked").transpose(
+                *self.data_trans.dims
+            )
         elif not self.usevine:
             self.qq_std = self.data_trans
         if self.phases is None:
             if self.usevine:
+
                 def ppf_bounded(qq):
                     xx = dists.norm.ppf(qq)
-                    xx[(~np.isfinite(qq)) |
-                       (np.abs(qq) > 6)] = np.nan
+                    xx[(~np.isfinite(qq)) | (np.abs(qq) > 6)] = np.nan
                     return xx
 
                 qq_std = xr.apply_ufunc(ppf_bounded, self.cop_quantiles)
                 self.qq_std = qq_std.interpolate_na("time")
             self.As.data = np.fft.fft(self.qq_std)
             self.phases = np.angle(self.As.sel(station=station_name))
-            self.zero_phases = {station_name:
-                                np.angle(self.As.sel(station=station_name)
-                                         )[:, 0]
-                                for station_name in self.station_names}
+            self.zero_phases = {
+                station_name: np.angle(self.As.sel(station=station_name))[:, 0]
+                for station_name in self.station_names
+            }
             qq_means = self.qq_std.mean("time")
             qq_stds = self.qq_std.std("time")
             self.qq_means, self.qq_stds = qq_means, qq_stds
@@ -1137,14 +1202,11 @@ class Multisite:
                 nyquist = np.full(self.K, 0)[:, None]
                 zero_phases = self.phases[:, 0, None]
                 if T_data % 2 == 0:
-                    phases = np.hstack((zero_phases,
-                                        phases_pos,
-                                        nyquist,
-                                        phases_neg))
+                    phases = np.hstack(
+                        (zero_phases, phases_pos, nyquist, phases_neg)
+                    )
                 else:
-                    phases = np.hstack((zero_phases,
-                                        phases_pos,
-                                        phases_neg))
+                    phases = np.hstack((zero_phases, phases_pos, phases_neg))
                 phases_stacked += [phases]
                 T_total += T_data
             self.rphases = phases_stacked
@@ -1157,17 +1219,20 @@ class Multisite:
                 phases += [phase_]
 
         As = self.As.sel(station=station_name, drop=True)
-        fft_sim = np.concatenate([np.fft.ifft(As * np.exp(1j * phases_)).real
-                                  for phases_ in phases],
-                                 axis=1
-                                 )[:, :vg_obj.T]
+        fft_sim = np.concatenate(
+            [
+                np.fft.ifft(As * np.exp(1j * phases_)).real
+                for phases_ in phases
+            ],
+            axis=1,
+        )[:, : vg_obj.T]
 
-        fft_sim *= (self.qq_stds.sel(station=station_name).data /
-                    fft_sim.std(axis=1)
-                    )[:, None]
-        fft_sim += (self.qq_means.sel(station=station_name).data -
-                    fft_sim.mean(axis=1)
-                    )[:, None]
+        fft_sim *= (
+            self.qq_stds.sel(station=station_name).data / fft_sim.std(axis=1)
+        )[:, None]
+        fft_sim += (
+            self.qq_means.sel(station=station_name).data - fft_sim.mean(axis=1)
+        )[:, None]
         if self.phase_randomize_vary_mean:
             # allow means to vary. let it flow from the central_node to
             # the others
@@ -1181,21 +1246,18 @@ class Multisite:
         fft_sim[prim_i] += sc_pars.m_t[prim_i]
 
         if self.fft_sim is None:
-            self.fft_sim = xr.DataArray(np.full((self.n_stations,
-                                                 self.K,
-                                                 vg_obj.T),
-                                                0.5),
-                                        coords=[self.station_names,
-                                                self.varnames,
-                                                vg_obj.sim_times],
-                                        dims=["station", "variable", "time"])
+            self.fft_sim = xr.DataArray(
+                np.full((self.n_stations, self.K, vg_obj.T), 0.5),
+                coords=[self.station_names, self.varnames, vg_obj.sim_times],
+                dims=["station", "variable", "time"],
+            )
         self.fft_sim.loc[dict(station=station_name)] = fft_sim
 
         if self.usevine:
             qq = dists.norm.cdf(fft_sim)
-            ranks_sim = self.vine.simulate(T=np.arange(qq.shape[1]),
-                                           randomness=qq
-                                           )
+            ranks_sim = self.vine.simulate(
+                T=np.arange(qq.shape[1]), randomness=qq
+            )
             sim = dists.norm.ppf(ranks_sim)
             # sim -= self.vine_bias[station_name]
             # sim += (self.data_trans
@@ -1220,35 +1282,42 @@ class Multisite:
             raise RuntimeError("Cant plot map without coordinates.")
         stamen_terrain = cimgt.StamenTerrain()
         crs = ccrs.PlateCarree()
-        land_10m = cfeature.NaturalEarthFeature('cultural',
-                                                'admin_0_countries',
-                                                '10m',
-                                                edgecolor=(0, 0, 0, 0),
-                                                facecolor=(0, 0, 0, 0), )
+        land_10m = cfeature.NaturalEarthFeature(
+            "cultural",
+            "admin_0_countries",
+            "10m",
+            edgecolor=(0, 0, 0, 0),
+            facecolor=(0, 0, 0, 0),
+        )
         fig = plt.figure(*args, **kwds)
         ax = fig.add_subplot(111, projection=stamen_terrain.crs)
         geodetic_transform = ccrs.Geodetic()._as_mpl_transform(ax)
-        text_transform = offset_copy(geodetic_transform, units='dots', x=-25)
+        text_transform = offset_copy(geodetic_transform, units="dots", x=-25)
         for station_name in self.station_names:
-            ax.text(self.longitudes.loc[station_name],
-                    self.latitudes.loc[station_name],
-                    station_name,
-                    fontsize=8, transform=text_transform,
-                    horizontalalignment="center",
-                    verticalalignment="bottom",
-                    )
+            ax.text(
+                self.longitudes.loc[station_name],
+                self.latitudes.loc[station_name],
+                station_name,
+                fontsize=8,
+                transform=text_transform,
+                horizontalalignment="center",
+                verticalalignment="bottom",
+            )
         ax.scatter(self.longitudes, self.latitudes, transform=crs)
-        ax.add_feature(land_10m, alpha=.1)
+        ax.add_feature(land_10m, alpha=0.1)
         ax.add_feature(cfeature.STATES.with_scale("10m"))
-        ax.add_feature(cfeature.LAKES, alpha=.5)
+        ax.add_feature(cfeature.LAKES, alpha=0.5)
         if terrain:
             ax.add_image(stamen_terrain, resolution)
         return fig, ax
 
     def plot_seasonal(self, figsize=None):
-        fig, axs = plt.subplots(nrows=self.n_stations, ncols=1,
-                                constrained_layout=True,
-                                figsize=figsize)
+        fig, axs = plt.subplots(
+            nrows=self.n_stations,
+            ncols=1,
+            constrained_layout=True,
+            figsize=figsize,
+        )
         axs = np.ravel(axs)
         for stat_i, station_name in enumerate(self.station_names):
             ax = axs[stat_i]
@@ -1276,7 +1345,14 @@ class Multisite:
         axs[0].legend(loc="best")
         return fig, axs
 
-    def plot_ensemble_stats(self, stat_func=np.mean, obs=None, transformed=False, fig=None, axs=None):
+    def plot_ensemble_stats(
+        self,
+        stat_func=np.mean,
+        obs=None,
+        transformed=False,
+        fig=None,
+        axs=None,
+    ):
         if obs is None:
             if transformed:
                 obs = self.data_trans
@@ -1289,50 +1365,63 @@ class Multisite:
 
         # scipy.stats functions require wrapping
         if inspect.getmodule(stat_func) == stats.stats:
+
             @wraps(stat_func)
             def as_xarray(x):
                 return xr.DataArray(stat_func(x, axis=None, nan_policy="omit"))
+
             stat_func_ = as_xarray
         else:
             stat_func_ = stat_func
 
         if fig is None and axs is None:
-            fig, axs = plt.subplots(nrows=self.n_variables, ncols=1,
-                                    sharex=True,
-                                    figsize=(6, 6),
-                                    constrained_layout=True)
+            fig, axs = plt.subplots(
+                nrows=self.n_variables,
+                ncols=1,
+                sharex=True,
+                figsize=(6, 6),
+                constrained_layout=True,
+            )
         xlocs = np.arange(self.n_stations)
         n_realizations = len(self.ensemble.coords["realization"])
         for ax, varname in zip(axs, self.varnames):
-            ax.scatter(xlocs,
-                       (obs
-                        .sel(variable=varname)
-                        .groupby("station")
-                        .apply(stat_func_, shortcut=False)),
-                       facecolor="b", alpha=.5)
-            var_stats = (sim
-                         .sel(variable=varname)
-                         .stack(stacked=["station",
-                                         "realization"])
-                         .groupby("stacked")
-                         .apply(stat_func_, shortcut=False)
-                         .unstack("stacked")
-                         )
+            ax.scatter(
+                xlocs,
+                (
+                    obs.sel(variable=varname)
+                    .groupby("station")
+                    .apply(stat_func_, shortcut=False)
+                ),
+                facecolor="b",
+                alpha=0.5,
+            )
+            var_stats = (
+                sim.sel(variable=varname)
+                .stack(stacked=["station", "realization"])
+                .groupby("stacked")
+                .apply(stat_func_, shortcut=False)
+                .unstack("stacked")
+            )
             try:
                 # this is a known bug in xarray < 0.10.8
                 var_stats = var_stats.rename(
-                    dict(stacked_level_0="station",
-                         stacked_level_1="realization"))
+                    dict(
+                        stacked_level_0="station",
+                        stacked_level_1="realization",
+                    )
+                )
             except ValueError:
                 pass
 
             if n_realizations < 20:
-                ax.scatter(xlocs.repeat(n_realizations),
-                           var_stats.values.ravel(),
-                           s=4, color="grey")
+                ax.scatter(
+                    xlocs.repeat(n_realizations),
+                    var_stats.values.ravel(),
+                    s=4,
+                    color="grey",
+                )
             else:
-                ax.violinplot(var_stats.values.T, xlocs,
-                              showmeans=True)
+                ax.violinplot(var_stats.values.T, xlocs, showmeans=True)
             ax.grid(True)
             ax.set_title(varname)
             ax.set_xticks(xlocs)
@@ -1345,28 +1434,31 @@ class Multisite:
         fig_axs = {}
         for station_name in self.station_names:
             svg = self.vgs[station_name]
-            fig, axs = svg.plot_meteogram_hourly(plot_sim_sea=False,
-                                                  p_kwds=dict(linewidth=.25),
-                                                  *args, **kwds)
+            fig, axs = svg.plot_meteogram_hourly(
+                plot_sim_sea=False, p_kwds=dict(linewidth=0.25), *args, **kwds
+            )
             for ax, varname in zip(axs[:, 0], self.varnames):
-                station_sims = (self.ensemble
-                                .sel(station=station_name,
-                                     variable=varname)
-                                .load())
+                station_sims = self.ensemble.sel(
+                    station=station_name, variable=varname
+                ).load()
                 mins = station_sims.min("realization")
-                q10 = station_sims.quantile(.10, "realization")
-                q90 = station_sims.quantile(.90, "realization")
+                q10 = station_sims.quantile(0.10, "realization")
+                q90 = station_sims.quantile(0.90, "realization")
                 maxs = station_sims.max("realization")
-                ax.fill_between(dtimes, mins, maxs,
-                                color="k", alpha=.5)
-                ax.fill_between(dtimes, q10, q90,
-                                color="red", alpha=.5)
+                ax.fill_between(dtimes, mins, maxs, color="k", alpha=0.5)
+                ax.fill_between(dtimes, q10, q90, color="red", alpha=0.5)
             for ax, varname in zip(axs[:, 1], self.varnames):
-                station_sims = self.ensemble.sel(station=station_name,
-                                                 variable=varname)
-                ax.hist(station_sims.values.ravel(), 40, density=True,
-                        orientation="horizontal", histtype="step",
-                        color="grey")
+                station_sims = self.ensemble.sel(
+                    station=station_name, variable=varname
+                )
+                ax.hist(
+                    station_sims.values.ravel(),
+                    40,
+                    density=True,
+                    orientation="horizontal",
+                    histtype="step",
+                    color="grey",
+                )
             fig_axs[station_name] = fig, axs
         return fig_axs
 
@@ -1375,59 +1467,72 @@ class Multisite:
         fig_axs = {}
         for station_name in self.station_names:
             svg = self.vgs[station_name]
-            fig, axs = svg.plot_meteogram_daily(plot_sim_sea=False,
-                                                 p_kwds=dict(linewidth=.25),
-                                                 *args, **kwds)
+            fig, axs = svg.plot_meteogram_daily(
+                plot_sim_sea=False, p_kwds=dict(linewidth=0.25), *args, **kwds
+            )
             for ax, varname in zip(axs[:, 0], self.varnames):
-                station_sims = (self.ensemble
-                                .sel(station=station_name,
-                                     variable=varname)
-                                .load())
-                # if station_name == "Kinneret_station_A" and 
+                station_sims = self.ensemble.sel(
+                    station=station_name, variable=varname
+                ).load()
+                # if station_name == "Kinneret_station_A" and
                 mins = station_sims.min("realization")
-                q10 = station_sims.quantile(.10, "realization")
-                q90 = station_sims.quantile(.90, "realization")
+                q10 = station_sims.quantile(0.10, "realization")
+                q90 = station_sims.quantile(0.90, "realization")
                 maxs = station_sims.max("realization")
-                ax.fill_between(dtimes, mins, maxs,
-                                color="k", alpha=.5)
-                ax.fill_between(dtimes, q10, q90,
-                                color="red", alpha=.5)
+                ax.fill_between(dtimes, mins, maxs, color="k", alpha=0.5)
+                ax.fill_between(dtimes, q10, q90, color="red", alpha=0.5)
             for ax, varname in zip(axs[:, 1], self.varnames):
-                station_sims = self.ensemble.sel(station=station_name,
-                                                 variable=varname)
-                ax.hist(station_sims.values.ravel(), 40, density=True,
-                        orientation="horizontal", histtype="step",
-                        color="grey")
+                station_sims = self.ensemble.sel(
+                    station=station_name, variable=varname
+                )
+                ax.hist(
+                    station_sims.values.ravel(),
+                    40,
+                    density=True,
+                    orientation="horizontal",
+                    histtype="step",
+                    color="grey",
+                )
             fig_axs[station_name] = fig, axs
         return fig_axs
 
-    def plot_ensemble_qq(self, obs=None, *args, lower_q=.01, upper_q=.99,
-                       figsize=None, fig_axs=None, color="b", **kwds):
+    def plot_ensemble_qq(
+        self,
+        obs=None,
+        *args,
+        lower_q=0.01,
+        upper_q=0.99,
+        figsize=None,
+        fig_axs=None,
+        color="b",
+        **kwds,
+    ):
         if obs is None:
             obs = self.data_daily
         if fig_axs is None:
             fig_axs = {}
         n_axes = len(self.varnames)
-        n_cols = int(np.ceil(n_axes ** .5))
+        n_cols = int(np.ceil(n_axes ** 0.5))
         n_rows = int(np.ceil(float(n_axes) / n_cols))
         alphas = np.linspace(0, 1, 200)
-        bounds_kwds = dict(linestyle="--", color="gray", alpha=.5)
+        bounds_kwds = dict(linestyle="--", color="gray", alpha=0.5)
         for station_name in self.station_names:
             if station_name in fig_axs:
                 fig, axs = fig_axs[station_name]
             else:
-                fig, axs = plt.subplots(n_rows, n_cols,
-                                        subplot_kw=dict(aspect="equal"),
-                                        constrained_layout=True,
-                                        figsize=figsize)
+                fig, axs = plt.subplots(
+                    n_rows,
+                    n_cols,
+                    subplot_kw=dict(aspect="equal"),
+                    constrained_layout=True,
+                    figsize=figsize,
+                )
             axs = np.ravel(axs)
             for ax_i, (ax, varname) in enumerate(zip(axs, self.varnames)):
-                obs_ = obs.sel(station=station_name,
-                               variable=varname)
-                sim_ = (self.ensemble
-                        .sel(station=station_name,
-                             variable=varname)
-                        .load())
+                obs_ = obs.sel(station=station_name, variable=varname)
+                sim_ = self.ensemble.sel(
+                    station=station_name, variable=varname
+                ).load()
                 global_min = min(obs_.min(), sim_.min())
                 global_max = max(obs_.max(), sim_.max())
                 obs_qq = obs_.quantile(alphas, "time")
@@ -1437,15 +1542,18 @@ class Multisite:
                 sim_qq = sim_qq.rename(dict(quantile="qq"))
                 sim_lower = sim_qq.quantile(lower_q, "realization")
                 sim_upper = sim_qq.quantile(upper_q, "realization")
-                ax.plot(sim_qq.median("realization"),
-                        obs_qq, color=color)
+                ax.plot(sim_qq.median("realization"), obs_qq, color=color)
                 ax.plot(sim_qq.min("realization"), obs_qq, **bounds_kwds)
-                ax.fill_betweenx(obs_qq, sim_lower, sim_upper,
-                                 color=color, alpha=.5)
+                ax.fill_betweenx(
+                    obs_qq, sim_lower, sim_upper, color=color, alpha=0.5
+                )
                 ax.plot(sim_qq.max("realization"), obs_qq, **bounds_kwds)
-                ax.plot([global_min, global_max],
-                        [global_min, global_max],
-                        "--", color="k")
+                ax.plot(
+                    [global_min, global_max],
+                    [global_min, global_max],
+                    "--",
+                    color="k",
+                )
                 ax.grid(True)
                 ax.set_ylabel("observed")
                 if ax_i < (n_axes - n_cols):
@@ -1462,40 +1570,37 @@ class Multisite:
             fig_axs[station_name] = fig, axs
         return fig_axs
 
-    def plot_ensemble_exceedance_daily(self, *args, obs=None,
-                                     thresh=None, **kwds):
+    def plot_ensemble_exceedance_daily(
+        self, *args, obs=None, thresh=None, **kwds
+    ):
         assert "R" in self.varnames
         if thresh is None:
             thresh = vg.conf.threshold
         if obs is None:
             obs = self.data_daily.sel(variable="R")
-        name_figaxs = self.plot_exceedance_daily(draw_scatter=True,
-                                                 alpha=0)
+        name_figaxs = self.plot_exceedance_daily(draw_scatter=True, alpha=0)
         bounds_kwds = dict(linestyle="--", color="gray")
         q_levels = np.linspace(0, 1, self.T)
         for station_name, (fig, axs) in name_figaxs.items():
             obs_ = obs.sel(station=station_name)
-            sim_ = (self.ensemble
-                    .sel(station=station_name,
-                         variable="R")
-                    .load())
+            sim_ = self.ensemble.sel(station=station_name, variable="R").load()
             # depth part
-            sim_qq = (sim_
-                      .where(sim_ > thresh)
-                      .quantile(q_levels, "time")
-                      .rename(dict(quantile="qq")))
+            sim_qq = (
+                sim_.where(sim_ > thresh)
+                .quantile(q_levels, "time")
+                .rename(dict(quantile="qq"))
+            )
             mins = sim_qq.min("realization")
-            median = sim_qq.quantile(.5, "realization")
+            median = sim_qq.quantile(0.5, "realization")
             maxs = sim_qq.max("realization")
             ax = axs[0]
             q_levels = q_levels[::-1]
             ax.loglog(mins, q_levels, **bounds_kwds)
             ax.loglog(median, q_levels, color="b")
             ax.loglog(maxs, q_levels, **bounds_kwds)
-            ax.fill_betweenx(q_levels, mins, maxs, alpha=.5)
+            ax.fill_betweenx(q_levels, mins, maxs, alpha=0.5)
 
-            dry_obs, wet_obs = rain_stats.spell_lengths(obs_,
-                                                        thresh=thresh)
+            dry_obs, wet_obs = rain_stats.spell_lengths(obs_, thresh=thresh)
             drys, wets = [], []
             dry_levels = 100 * np.linspace(0, 1, len(dry_obs))
             wet_levels = 100 * np.linspace(0, 1, len(wet_obs))
@@ -1513,35 +1618,35 @@ class Multisite:
                 ax.loglog(mins, level, **bounds_kwds)
                 ax.loglog(median, level, color="b")
                 ax.loglog(maxs, level, **bounds_kwds)
-                ax.fill_betweenx(level, mins, maxs, alpha=.5)
+                ax.fill_betweenx(level, mins, maxs, alpha=0.5)
 
             for ax in axs:
                 ax.grid(True)
         return name_figaxs
 
-    def plot_ensemble_violins(self, figsize=None, time_period="m", *args,
-                            **kwds):
+    def plot_ensemble_violins(
+        self, figsize=None, time_period="m", *args, **kwds
+    ):
         fig_axs = {}
         for station_name in self.station_names:
-            fig, axs = plt.subplots(nrows=self.K, ncols=1,
-                                    figsize=figsize,
-                                    constrained_layout=True)
+            fig, axs = plt.subplots(
+                nrows=self.K, ncols=1, figsize=figsize, constrained_layout=True
+            )
             for ax, varname in zip(axs, self.varnames):
                 month = self.data_daily.time.dt.month
-                obs_means = (self.data_daily
-                             .sel(station=station_name,
-                                  variable=varname)
-                             .groupby(month)
-                             .mean())
+                obs_means = (
+                    self.data_daily.sel(station=station_name, variable=varname)
+                    .groupby(month)
+                    .mean()
+                )
                 month = self.ensemble.time.dt.month
-                sim_means = (self.ensemble
-                             .sel(station=station_name,
-                                  variable=varname)
-                             .groupby(month)
-                             .mean("time"))
+                sim_means = (
+                    self.ensemble.sel(station=station_name, variable=varname)
+                    .groupby(month)
+                    .mean("time")
+                )
                 ax.violinplot(sim_means.T, showmeans=True)
-                ax.scatter(np.arange(1, 13), obs_means, marker="_",
-                           color="k")
+                ax.scatter(np.arange(1, 13), obs_means, marker="_", color="k")
                 ax.set_title(varname)
             fig_axs[station_name] = fig, axs
         return fig_axs
@@ -1550,48 +1655,58 @@ class Multisite:
         fig_axs = {}
         figsize = kwds.get("figsize", None)
         for station_name in self.station_names:
-            fig, axs = plt.subplots(ncols=3,
-                                    figsize=figsize,
-                                    constrained_layout=True)
+            fig, axs = plt.subplots(
+                ncols=3, figsize=figsize, constrained_layout=True
+            )
             svg = self.vgs[station_name]
-            fig, axs = svg.plot_exceedance_daily(fig=fig, axs=axs,
-                                                 *args, **kwds)
+            fig, axs = svg.plot_exceedance_daily(
+                fig=fig, axs=axs, *args, **kwds
+            )
             fig_axs[station_name] = fig, axs
         return fig_axs
 
-    def plot_corr(self, ygreek=None, hourly=False, text=False, *args,
-                **kwds):
-        data = (self.data_daily
-                .stack(stacked=("station", "variable"))
-                .T
-                .data)
-        fig, _ = ts.corr_img(data, 0, "Measured daily",  # greek_short,
-                             text=text, *args, **kwds)
+    def plot_corr(self, ygreek=None, hourly=False, text=False, *args, **kwds):
+        data = self.data_daily.stack(stacked=("station", "variable")).T.data
+        fig, _ = ts.corr_img(
+            data, 0, "Measured daily", text=text, *args, **kwds  # greek_short,
+        )
         fig.name = "corr_measured_daily"
         fig = [fig]
 
-        data = (self.data_trans
-                .stack(stacked=("station", "variable"))
-                .T.data)
-        fig += [ts.corr_img(data, 0,
-                            "Measured daily transformed",  # greek_short,
-                            text=text, *args, **kwds)]
+        data = self.data_trans.stack(stacked=("station", "variable")).T.data
+        fig += [
+            ts.corr_img(
+                data,
+                0,
+                "Measured daily transformed",  # greek_short,
+                text=text,
+                *args,
+                **kwds,
+            )
+        ]
 
         if self.sim_sea is not None:
-            data = (self.sim
-                    .stack(stacked=("station", "variable"))
-                    .T.data)
-            fig_ = ts.corr_img(data, 0,
-                               "Simulated daily normal",  # greek_short,
-                               text=text, *args, **kwds)
+            data = self.sim.stack(stacked=("station", "variable")).T.data
+            fig_ = ts.corr_img(
+                data,
+                0,
+                "Simulated daily normal",  # greek_short,
+                text=text,
+                *args,
+                **kwds,
+            )
             fig_.name = "corr_sim_daily"
             fig += [fig_]
 
-            data = (self.sim_sea
-                    .stack(stacked=("station", "variable"))
-                    .T.data)
-            fig_ = ts.corr_img(data, 0, "Simulated daily",  # greek_short,
-                               text=text, *args, **kwds)
+            data = self.sim_sea.stack(stacked=("station", "variable")).T.data
+            fig_ = ts.corr_img(
+                data,
+                0,
+                "Simulated daily",  # greek_short,
+                text=text,
+                *args,
+                **kwds,
+            )
             fig_.name = "corr_sim_daily"
             fig += [fig_]
 
@@ -1600,43 +1715,48 @@ class Multisite:
             ax.set_xticklabels("")
             ax.set_yticklabels("")
             for i, station_name in enumerate(self.station_names):
-                ax.axvline(i * self.K - .5, linewidth=.5, color="k")
-                ax.axhline(i * self.K - .5, linewidth=.5, color="k")
+                ax.axvline(i * self.K - 0.5, linewidth=0.5, color="k")
+                ax.axhline(i * self.K - 0.5, linewidth=0.5, color="k")
                 if text:
                     name = self.station_names_short[station_name]
-                    ax.text((i + .5) * self.K - .5, 16,
-                            name,
-                            fontsize=6,
-                            horizontalalignment="center",
-                            verticalalignment="top")
-                    ax.text(16, (i + .5) * self.K - .5,
-                            name,
-                            fontsize=6,
-                            horizontalalignment="left",
-                            verticalalignment="center",
-                            rotation=90,
-                            )
+                    ax.text(
+                        (i + 0.5) * self.K - 0.5,
+                        16,
+                        name,
+                        fontsize=6,
+                        horizontalalignment="center",
+                        verticalalignment="top",
+                    )
+                    ax.text(
+                        16,
+                        (i + 0.5) * self.K - 0.5,
+                        name,
+                        fontsize=6,
+                        horizontalalignment="left",
+                        verticalalignment="center",
+                        rotation=90,
+                    )
         return fig
 
-    def plot_corr_scatter_var(self, transformed=False, hourly=False,
-                            fft=False, *args, **kwds):
-        (data_obs,
-         data_sim,
-         title_substring) = self._corr_scatter_data(transformed,
-                                                    hourly, fft)
-        return self._plot_corr_scatter_var(data_obs, data_sim,
-                                      title_substring=title_substring,
-                                      *args, **kwds)
+    def plot_corr_scatter_var(
+        self, transformed=False, hourly=False, fft=False, *args, **kwds
+    ):
+        (data_obs, data_sim, title_substring) = self._corr_scatter_data(
+            transformed, hourly, fft
+        )
+        return self._plot_corr_scatter_var(
+            data_obs, data_sim, title_substring=title_substring, *args, **kwds
+        )
 
-    def plot_corr_scatter_stat(self, transformed=False, hourly=False,
-                             fft=False, *args, **kwds):
-        (data_obs,
-         data_sim,
-         title_substring) = self._corr_scatter_data(transformed,
-                                                    hourly, fft)
-        return self._plot_corr_scatter_stat(data_obs, data_sim,
-                                       title_substring=title_substring,
-                                       *args, **kwds)
+    def plot_corr_scatter_stat(
+        self, transformed=False, hourly=False, fft=False, *args, **kwds
+    ):
+        (data_obs, data_sim, title_substring) = self._corr_scatter_data(
+            transformed, hourly, fft
+        )
+        return self._plot_corr_scatter_stat(
+            data_obs, data_sim, title_substring=title_substring, *args, **kwds
+        )
 
     def _corr_scatter_data(self, transformed=False, hourly=False, fft=False):
         if transformed:
@@ -1664,20 +1784,34 @@ class Multisite:
             title_substring = ""
         return data_obs, data_sim, title_substring
 
-    def _plot_corr_scatter_stat(self, obs_ar, sim_ar, *args,
-                              title_substring="", fig=None, axs=None,
-                              figsize=None, color=None, alpha=.75,
-                              **kwds):
+    def _plot_corr_scatter_stat(
+        self,
+        obs_ar,
+        sim_ar,
+        *args,
+        title_substring="",
+        fig=None,
+        axs=None,
+        figsize=None,
+        color=None,
+        alpha=0.75,
+        **kwds,
+    ):
         if fig is None and axs is None:
-            fig, axs = plt.subplots(nrows=self.n_variables-1,
-                                    ncols=self.n_variables-1,
-                                    figsize=figsize,
-                                    subplot_kw=dict(aspect="equal"),
-                                    constrained_layout=True
-                                    )
+            fig, axs = plt.subplots(
+                nrows=self.n_variables - 1,
+                ncols=self.n_variables - 1,
+                figsize=figsize,
+                subplot_kw=dict(aspect="equal"),
+                constrained_layout=True,
+            )
         if color is None:
-            color = np.array([plt.get_cmap("viridis")(i)
-                              for i in np.linspace(0, 1, self.n_stations)])
+            color = np.array(
+                [
+                    plt.get_cmap("viridis")(i)
+                    for i in np.linspace(0, 1, self.n_stations)
+                ]
+            )
             color[:, -1] = alpha
             draw_legend = True
         else:
@@ -1686,25 +1820,28 @@ class Multisite:
         mins = np.full(2 * (self.n_variables,), np.inf)
         maxs = np.full_like(mins, -np.inf)
         for stat_i, station_name in enumerate(self.station_names):
-            data_sim_ = (sim_ar
-                         .sel(station=station_name)
-                         .values)
+            data_sim_ = sim_ar.sel(station=station_name).values
             sim_corr = np.corrcoef(data_sim_)
             ii, jj = np.triu_indices_from(sim_corr, 1)
             sim_corr = sim_corr[ii, jj]
-            data_obs_ = (obs_ar
-                         .sel(station=station_name)
-                         .values)
+            data_obs_ = obs_ar.sel(station=station_name).values
             obs_corr = nan_corrcoef(data_obs_)
             obs_corr = obs_corr[ii, jj]
             for s_corr, o_corr, i, j in zip(sim_corr, obs_corr, ii, jj):
                 ax = axs[i, j - 1]
-                ax.set_title(f"{self.varnames[min(i,j)]} - "
-                             f"{self.varnames[max(i,j)]}")
-                ax.scatter(s_corr, o_corr,
-                           edgecolor=color[stat_i],
-                           facecolor=(0, 0, 0, 0),
-                           label=station_name, *args, **kwds)
+                ax.set_title(
+                    f"{self.varnames[min(i,j)]} - "
+                    f"{self.varnames[max(i,j)]}"
+                )
+                ax.scatter(
+                    s_corr,
+                    o_corr,
+                    edgecolor=color[stat_i],
+                    facecolor=(0, 0, 0, 0),
+                    label=station_name,
+                    *args,
+                    **kwds,
+                )
                 mins[i, j] = min(mins[i, j], s_corr, o_corr)
                 maxs[i, j] = max(maxs[i, j], s_corr, o_corr)
         for var_i in range(self.n_variables - 1):
@@ -1716,11 +1853,12 @@ class Multisite:
                 elif var_i == var_j:
                     ax.set_xlabel("simulated")
                     ax.set_ylabel("observed")
-                ax.plot([mins[var_i, var_j + 1],
-                         maxs[var_i, var_j + 1]],
-                        [mins[var_i, var_j + 1],
-                         maxs[var_i, var_j + 1]],
-                        linestyle="--", color="gray")
+                ax.plot(
+                    [mins[var_i, var_j + 1], maxs[var_i, var_j + 1]],
+                    [mins[var_i, var_j + 1], maxs[var_i, var_j + 1]],
+                    linestyle="--",
+                    color="gray",
+                )
                 ax.grid(True)
         if draw_legend:
             handles, labels = axs[0, 0].get_legend_handles_labels()
@@ -1794,24 +1932,38 @@ class Multisite:
     #     # fig.tight_layout()
     #     return fig, axs
 
-    def _plot_ensemble_corr_scatter_var(self, obs_ar, sim_ar,
-                                      title_substring="", figsize=None,
-                                      varnames=None, alpha=.75, *args,
-                                      **kwds):
+    def _plot_ensemble_corr_scatter_var(
+        self,
+        obs_ar,
+        sim_ar,
+        title_substring="",
+        figsize=None,
+        varnames=None,
+        alpha=0.75,
+        *args,
+        **kwds,
+    ):
         if varnames is None:
             varnames = self.varnames
         K = len(varnames)
         nrows = int(np.sqrt(K))
         ncols = int(np.ceil(K / nrows))
-        fig, axs = plt.subplots(nrows=nrows, ncols=ncols,
-                                subplot_kw=dict(aspect="equal"),
-                                constrained_layout=True,
-                                figsize=figsize)
+        fig, axs = plt.subplots(
+            nrows=nrows,
+            ncols=ncols,
+            subplot_kw=dict(aspect="equal"),
+            constrained_layout=True,
+            figsize=figsize,
+        )
         axs = np.ravel(axs)
         edgecolor = kwds.pop("edgecolor", None)
         if edgecolor is None:
-            edgecolor = np.array([plt.get_cmap("viridis")(i)
-                                  for i in np.linspace(0, 1, self.n_stations)])
+            edgecolor = np.array(
+                [
+                    plt.get_cmap("viridis")(i)
+                    for i in np.linspace(0, 1, self.n_stations)
+                ]
+            )
             edgecolor[:, -1] = alpha
             draw_legend = True
         else:
@@ -1820,29 +1972,30 @@ class Multisite:
         mins = np.full(2 * (self.n_variables,), np.inf)
         maxs = np.full_like(mins, -np.inf)
         for var_i, varname in enumerate(self.varnames):
-            data_sim_ = (sim_ar
-                         .sel(variable=varname)
-                         .values)
+            data_sim_ = sim_ar.sel(variable=varname).values
             sim_corrs = []
             for values in data_sim_:
                 sim_corr = np.corrcoef(values)
                 ii, jj = np.triu_indices_from(sim_corr, 1)
                 sim_corrs += [sim_corr[ii, jj]]
             sim_corrs = np.array(sim_corrs).T
-            data_obs_ = (obs_ar
-                         .sel(variable=varname)
-                         .values)
+            data_obs_ = obs_ar.sel(variable=varname).values
             obs_corr = nan_corrcoef(data_obs_)
             obs_corr = obs_corr[ii, jj]
             ax = axs[var_i]
             for s_corrs, o_corr in zip(sim_corrs, obs_corr):
-                ax.plot([s_corrs.min(), s_corrs.max()],
-                        [o_corr, o_corr],
-                        linestyle="-", marker="|", markersize=2.5,
-                        color=(0, 0, 1, alpha))
+                ax.plot(
+                    [s_corrs.min(), s_corrs.max()],
+                    [o_corr, o_corr],
+                    linestyle="-",
+                    marker="|",
+                    markersize=2.5,
+                    color=(0, 0, 1, alpha),
+                )
             min_corr = min(sim_corr.min(), obs_corr.min())
-            ax.plot([min_corr, 1], [min_corr, 1], "k", linestyle="--",
-                    zorder=99)
+            ax.plot(
+                [min_corr, 1], [min_corr, 1], "k", linestyle="--", zorder=99
+            )
             ax.set_xlabel("simulated")
             ax.set_ylabel("observed")
             ax.grid(True)
@@ -1850,19 +2003,31 @@ class Multisite:
         fig.suptitle(f"Inter-site correlations {title_substring}")
         return fig, ax
 
-    def _plot_ensemble_corr_scatter_stat(self, obs_ar, sim_ar,
-                                       title_substring="", figsize=None,
-                                       alpha=.75, *args, **kwds):
-        fig, axs = plt.subplots(nrows=self.n_variables-1,
-                                ncols=self.n_variables-1,
-                                figsize=figsize,
-                                # subplot_kw=dict(aspect="equal"),
-                                constrained_layout=True
-                                )
+    def _plot_ensemble_corr_scatter_stat(
+        self,
+        obs_ar,
+        sim_ar,
+        title_substring="",
+        figsize=None,
+        alpha=0.75,
+        *args,
+        **kwds,
+    ):
+        fig, axs = plt.subplots(
+            nrows=self.n_variables - 1,
+            ncols=self.n_variables - 1,
+            figsize=figsize,
+            # subplot_kw=dict(aspect="equal"),
+            constrained_layout=True,
+        )
         edgecolor = kwds.pop("edgecolor", None)
         if edgecolor is None:
-            edgecolor = np.array([plt.get_cmap("viridis")(i)
-                                  for i in np.linspace(0, 1, self.n_stations)])
+            edgecolor = np.array(
+                [
+                    plt.get_cmap("viridis")(i)
+                    for i in np.linspace(0, 1, self.n_stations)
+                ]
+            )
             edgecolor[:, -1] = alpha
             draw_legend = True
         else:
@@ -1871,34 +2036,36 @@ class Multisite:
         mins = np.full(2 * (self.n_variables,), np.inf)
         maxs = np.full_like(mins, -np.inf)
         for stat_i, station_name in enumerate(self.station_names):
-            data_sim_ = (sim_ar
-                         .sel(station=station_name)
-                         .values)
+            data_sim_ = sim_ar.sel(station=station_name).values
             sim_corrs = []
             for values in data_sim_:
                 sim_corr = np.corrcoef(values)
                 ii, jj = np.triu_indices_from(sim_corr, 1)
                 sim_corrs += [sim_corr[ii, jj]]
             sim_corrs = np.array(sim_corrs).T
-            data_obs_ = (obs_ar
-                         .sel(station=station_name)
-                         .values)
+            data_obs_ = obs_ar.sel(station=station_name).values
             obs_corr = nan_corrcoef(data_obs_)
             obs_corr = obs_corr[ii, jj]
             for s_corrs, o_corr, i, j in zip(sim_corrs, obs_corr, ii, jj):
                 ax = axs[i, j - 1]
-                ax.set_title(f"{self.varnames[min(i,j)]} - "
-                             f"{self.varnames[max(i,j)]}")
+                ax.set_title(
+                    f"{self.varnames[min(i,j)]} - "
+                    f"{self.varnames[max(i,j)]}"
+                )
                 # parts = ax.violinplot(s_corrs, [o_corr], vert=False,
                 #                       # showmedians=True,
                 #                       widths=0.01)
                 # for pc in parts["bodies"]:
                 #     pc.set_facecolor("b")
                 #     pc.set_edgecolor("b")
-                ax.plot([s_corrs.min(), s_corrs.max()],
-                        [o_corr, o_corr],
-                        linestyle="-", marker="|", markersize=2.5,
-                        color="b")
+                ax.plot(
+                    [s_corrs.min(), s_corrs.max()],
+                    [o_corr, o_corr],
+                    linestyle="-",
+                    marker="|",
+                    markersize=2.5,
+                    color="b",
+                )
                 mins[i, j] = min(mins[i, j], np.min(s_corrs), o_corr)
                 maxs[i, j] = max(maxs[i, j], np.max(s_corrs), o_corr)
         for var_i in range(self.n_variables - 1):
@@ -1907,11 +2074,12 @@ class Multisite:
                 if var_i > var_j:
                     ax.set_axis_off()
                     continue
-                ax.plot([mins[var_i, var_j + 1],
-                         maxs[var_i, var_j + 1]],
-                        [mins[var_i, var_j + 1],
-                         maxs[var_i, var_j + 1]],
-                        linestyle="--", color="gray")
+                ax.plot(
+                    [mins[var_i, var_j + 1], maxs[var_i, var_j + 1]],
+                    [mins[var_i, var_j + 1], maxs[var_i, var_j + 1]],
+                    linestyle="--",
+                    color="gray",
+                )
                 ax.set_xlabel("simulated")
                 ax.set_ylabel("observed")
                 ax.grid(True)
@@ -1922,43 +2090,56 @@ class Multisite:
         fig.tight_layout()
         return fig, ax
 
-    def _plot_corr_scatter_var(self, obs_ar, sim_ar, title_substring="",
-                             fig=None, axs=None, figsize=None,
-                             varnames=None, *args, **kwds):
+    def _plot_corr_scatter_var(
+        self,
+        obs_ar,
+        sim_ar,
+        title_substring="",
+        fig=None,
+        axs=None,
+        figsize=None,
+        varnames=None,
+        *args,
+        **kwds,
+    ):
         if varnames is None:
             varnames = self.varnames
         K = len(varnames)
         if fig is None and axs is None:
             nrows = int(np.sqrt(K))
             ncols = int(np.ceil(K / nrows))
-            fig, axs = plt.subplots(nrows=nrows, ncols=ncols,
-                                    subplot_kw=dict(aspect="equal"),
-                                    constrained_layout=True,
-                                    figsize=figsize)
+            fig, axs = plt.subplots(
+                nrows=nrows,
+                ncols=ncols,
+                subplot_kw=dict(aspect="equal"),
+                constrained_layout=True,
+                figsize=figsize,
+            )
             axs = np.ravel(axs)
         s = kwds.pop("s", None)
         for var_i, varname in enumerate(varnames):
             ax = axs[var_i]
-            data_sim_ = (sim_ar
-                         .sel(variable=varname)
-                         .values)
+            data_sim_ = sim_ar.sel(variable=varname).values
             sim_corr = nan_corrcoef(data_sim_)
             sim_corr = sim_corr[np.triu_indices_from(sim_corr, 1)]
-            data_obs_ = (obs_ar
-                         .sel(variable=varname)
-                         .values)
+            data_obs_ = obs_ar.sel(variable=varname).values
             obs_corr = nan_corrcoef(data_obs_)
             obs_corr = obs_corr[np.triu_indices_from(obs_corr, 1)]
-            ax.scatter(sim_corr, obs_corr,
-                       s=s,
-                       # s=((50 * nan_corrcoef.overlap)
-                       #    if s is None else s),
-                       # facecolors="None", edgecolors="b",
-                       # alpha=.75,
-                       *args, **kwds)
+            ax.scatter(
+                sim_corr,
+                obs_corr,
+                s=s,
+                # s=((50 * nan_corrcoef.overlap)
+                #    if s is None else s),
+                # facecolors="None", edgecolors="b",
+                # alpha=.75,
+                *args,
+                **kwds,
+            )
             min_corr = min(sim_corr.min(), obs_corr.min())
-            ax.plot([min_corr, 1], [min_corr, 1], "k", linestyle="--",
-                    zorder=99)
+            ax.plot(
+                [min_corr, 1], [min_corr, 1], "k", linestyle="--", zorder=99
+            )
             ax.set_xlabel("simulated")
             ax.set_ylabel("observed")
             ax.grid(True)
@@ -1966,8 +2147,16 @@ class Multisite:
         fig.suptitle(f"Inter-site correlations {title_substring}")
         return fig, axs
 
-    def plot_cross_corr_var(self, *, fig=None, axs=None, varname=None,
-                          max_lags=7, transformed=False, figsize=None):
+    def plot_cross_corr_var(
+        self,
+        *,
+        fig=None,
+        axs=None,
+        varname=None,
+        max_lags=7,
+        transformed=False,
+        figsize=None,
+    ):
         if varname is None:
             varname = self.vgs[self.station_names[0]].primary_var[0]
         if transformed:
@@ -1978,36 +2167,38 @@ class Multisite:
             data_obs = self.data_daily
             data_sim = self.sim_sea
             title_substring = ""
-        data_obs = (data_obs
-                    .sel(variable=varname)
-                    .transpose("station", "time")
-                    .data)
-        kwds = dict(var_names=self.station_names, max_lags=max_lags,
-                    figsize=figsize)
+        data_obs = (
+            data_obs.sel(variable=varname).transpose("station", "time").data
+        )
+        kwds = dict(
+            var_names=self.station_names, max_lags=max_lags, figsize=figsize
+        )
         n_axes = len(self.station_names)
-        n_cols = int(np.ceil(n_axes ** .5))
+        n_cols = int(np.ceil(n_axes ** 0.5))
         n_rows = int(np.ceil(float(n_axes) / n_cols))
         if fig is None and axs is None:
             figsize = kwds.pop("figsize")
-            fig, axs = plt.subplots(nrows=n_rows, ncols=n_cols,
-                                    figsize=figsize)
+            fig, axs = plt.subplots(
+                nrows=n_rows, ncols=n_cols, figsize=figsize
+            )
             axs = np.ravel(axs)
-        fig, axs = ts.plot_cross_corr(data_obs, fig=fig, axs=axs,
-                                      **kwds)
-        fig.suptitle("Crosscorrelations "
-                     f"{title_substring}{varname}")
+        fig, axs = ts.plot_cross_corr(data_obs, fig=fig, axs=axs, **kwds)
+        fig.suptitle("Crosscorrelations " f"{title_substring}{varname}")
 
         if self.sim is not None:
-            data_sim = (data_sim
-                        .sel(variable=varname)
-                        .transpose("station", "time")
-                        .data)
-            fig, axs = ts.plot_cross_corr(data_sim, linestyle="--",
-                                          fig=fig, axs=axs, **kwds)
+            data_sim = (
+                data_sim.sel(variable=varname)
+                .transpose("station", "time")
+                .data
+            )
+            fig, axs = ts.plot_cross_corr(
+                data_sim, linestyle="--", fig=fig, axs=axs, **kwds
+            )
         return fig, axs
 
-    def plot_cross_corr_stat(self, *, station_name=None, max_lags=7,
-                           transformed=False):
+    def plot_cross_corr_stat(
+        self, *, station_name=None, max_lags=7, transformed=False
+    ):
         if station_name is None:
             station_name = self.station_names[0]
         if transformed:
@@ -2018,22 +2209,24 @@ class Multisite:
             data_obs = self.data_daily
             data_sim = self.sim_sea
             title_substring = ""
-        data_obs = (data_obs
-                    .sel(station=station_name)
-                    .transpose("variable", "time")
-                    .data)
+        data_obs = (
+            data_obs.sel(station=station_name)
+            .transpose("variable", "time")
+            .data
+        )
         kwds = dict(var_names=self.varnames, max_lags=max_lags)
         fig, axs = ts.plot_cross_corr(data_obs, **kwds)
-        fig.suptitle("Crosscorrelations "
-                     f"{title_substring}{station_name}")
+        fig.suptitle("Crosscorrelations " f"{title_substring}{station_name}")
 
         if self.sim is not None:
-            data_sim = (data_sim
-                        .sel(station=station_name)
-                        .transpose("variable", "time")
-                        .data)
-            fig, axs = ts.plot_cross_corr(data_sim, linestyle="--",
-                                          fig=fig, axs=axs, **kwds)
+            data_sim = (
+                data_sim.sel(station=station_name)
+                .transpose("variable", "time")
+                .data
+            )
+            fig, axs = ts.plot_cross_corr(
+                data_sim, linestyle="--", fig=fig, axs=axs, **kwds
+            )
         return fig, axs
 
     def plot_meteogram_trans_stat(self, *args, **kwds):
@@ -2047,13 +2240,15 @@ class Multisite:
             svg.plot_meteogram_trans(figs=figs, axss=axss, *args, **kwds)
 
         for fig in figs:
-            fig.subplots_adjust(right=.75, hspace=.25)
-            fig.legend(axss[0][0][0].lines, self.station_names,
-                       loc="center right")
+            fig.subplots_adjust(right=0.75, hspace=0.25)
+            fig.legend(
+                axss[0][0][0].lines, self.station_names, loc="center right"
+            )
         return figs, axss
 
-        figs, axss = vg_first.plot_meteogram_daily(station_name=None,
-                                                    *args, **kwds)
+        figs, axss = vg_first.plot_meteogram_daily(
+            station_name=None, *args, **kwds
+        )
         return figs, axss
 
     def plot_meteogram_daily_stat(self, *args, **kwds):
@@ -2064,12 +2259,14 @@ class Multisite:
             axss = [axss]
         for station_name in self.station_names[1:]:
             svg = self.vgs[station_name]
-            svg.plot_meteogram_daily(station_name=None, figs=figs,
-                                      axss=axss, *args, **kwds)
+            svg.plot_meteogram_daily(
+                station_name=None, figs=figs, axss=axss, *args, **kwds
+            )
         for fig in figs:
-            fig.subplots_adjust(right=.75, hspace=.25)
-            fig.legend(axss[0][0][0].lines, self.station_names,
-                       loc="center right")
+            fig.subplots_adjust(right=0.75, hspace=0.25)
+            fig.legend(
+                axss[0][0][0].lines, self.station_names, loc="center right"
+            )
         return figs, axss
 
     def plot_ccplom(self, masked=False, *args, **kwds):
@@ -2077,20 +2274,19 @@ class Multisite:
         if masked and "R" in self.varnames:
             obs_all = self.ranks[:, self.rain_mask.data]
             thresh = vg.conf.threshold
-            sim_all = (self.ranks_sim
-                       .where(self.sim_sea.sel(variable="R")
-                              >= thresh)
-                       .stack(rank=("time", "station")))
+            sim_all = self.ranks_sim.where(
+                self.sim_sea.sel(variable="R") >= thresh
+            ).stack(rank=("time", "station"))
         else:
             obs_all = self.ranks
             sim_all = self.ranks_sim.stack(rank=("time", "station"))
-        fig_in, axs_in = plotting.ccplom(obs_all.data,
-                                         varnames=self.varnames,
-                                         *args, **kwds)
+        fig_in, axs_in = plotting.ccplom(
+            obs_all.data, varnames=self.varnames, *args, **kwds
+        )
         fig_in.suptitle("Input")
-        fig_out, axs_out = plotting.ccplom(sim_all.data,
-                                           varnames=self.varnames,
-                                           *args, **kwds)
+        fig_out, axs_out = plotting.ccplom(
+            sim_all.data, varnames=self.varnames, *args, **kwds
+        )
         fig_out.suptitle("Output")
         return (fig_in, fig_out), (axs_in, axs_out)
 
@@ -2098,71 +2294,69 @@ class Multisite:
         """Cross-Copula-plot matrix of input and output."""
         figs = {}
         if masked and "R" in self.varnames:
-            obs_all = (self.ranks
-                       [:, self.rain_mask.data]
-                       .unstack("rank"))
+            obs_all = self.ranks[:, self.rain_mask.data].unstack("rank")
             thresh = vg.conf.threshold
-            sim_all = (self.ranks_sim
-                       .where(self.sim_sea.sel(variable="R")
-                              >= thresh))
+            sim_all = self.ranks_sim.where(
+                self.sim_sea.sel(variable="R") >= thresh
+            )
         else:
             obs_all = self.ranks.unstack("rank")
             sim_all = self.ranks_sim
         for season, obs in obs_all.groupby("time.season"):
-            obs = (obs
-                   .stack(rank=("time", "station"))
-                   .dropna("rank"))
-            fig, axs = plotting.ccplom(obs.data,
-                                       varnames=self.varnames,
-                                       *args, **kwds)
+            obs = obs.stack(rank=("time", "station")).dropna("rank")
+            fig, axs = plotting.ccplom(
+                obs.data, varnames=self.varnames, *args, **kwds
+            )
             fig.suptitle(f"Input {season}")
             figs[f"in_{season}"] = fig, axs
         for season, sim in sim_all.groupby("time.season"):
-            sim = (sim
-                   .stack(rank=("time", "station"))
-                   .dropna("rank"))
-            fig, axs = plotting.ccplom(sim.data,
-                                       varnames=self.varnames,
-                                       *args, **kwds)
+            sim = sim.stack(rank=("time", "station")).dropna("rank")
+            fig, axs = plotting.ccplom(
+                sim.data, varnames=self.varnames, *args, **kwds
+            )
             fig.suptitle(f"Output {season}")
             figs[f"out_{season}"] = fig, axs
         return figs
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     import opendata_vg_conf as vg_conf
+
     set_conf(vg_conf)
-    xds = xr.open_dataset("/home/dirk/data/opendata_dwd/"
-                          "multisite_testdata.nc")
+    xds = xr.open_dataset(
+        "/home/dirk/data/opendata_dwd/" "multisite_testdata.nc"
+    )
     # station_names = list(xar.station.values)
     # station_names.remove("Sigmarszell-Zeisertsweiler")
     # xar = xar.sel(station=station_names)
 
     # import warnings
     # warnings.simplefilter("error", category=RuntimeWarning)
-    wc = Multisite(xds,
-                   verbose=True,
-                   # refit=True,
-                   # refit_vine=True,
-                   # refit=True,
-                   # refit="R",
-                   # refit=("R", "sun"),
-                   # refit="sun",
-                   rain_method="regression",
-                   # rain_method="distance",
-                   # debias=True,
-                   # cop_candidates=dict(gaussian=cops.gaussian),
-                   scop_kwds=dict(window_len=30, fft_order=3),
-                   )
+    wc = Multisite(
+        xds,
+        verbose=True,
+        # refit=True,
+        # refit_vine=True,
+        # refit=True,
+        # refit="R",
+        # refit=("R", "sun"),
+        # refit="sun",
+        rain_method="regression",
+        # rain_method="distance",
+        # debias=True,
+        # cop_candidates=dict(gaussian=cops.gaussian),
+        scop_kwds=dict(window_len=30, fft_order=3),
+    )
 
     np.random.seed(0)
     # sim = wc.simulate(usevine=False)
     sim = wc.simulate(usevine=True)
-    sim = wc.simulate_ensemble(25,
-                               "test_vine",
-                               clear_cache=True,
-                               # usevine=False
-                               )
+    sim = wc.simulate_ensemble(
+        25,
+        "test_vine",
+        clear_cache=True,
+        # usevine=False
+    )
     wc.plot_corr_scatter_var(transformed=True)
     wc.plot_seasonal()
     wc.plot_ensemble_stats()
