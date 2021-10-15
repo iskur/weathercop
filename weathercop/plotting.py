@@ -233,7 +233,7 @@ def hist2d(
         ax.imshow(
             H.T,
             extent=(xedges[0], xedges[-1], yedges[0], yedges[-1]),
-            origin="left",
+            origin="lower",
             aspect="equal",
             interpolation="none",
             cmap=cmap,

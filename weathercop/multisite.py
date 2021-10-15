@@ -45,6 +45,15 @@ def set_conf(conf_obj, **kwds):
             setattr(obj.conf, key, value)
 
 
+def suptitle_prepend(fig, name):
+    if isinstance(fig, mpl.figure.Figure):
+        try:
+            suptitle = fig._suptitle.get_text()
+        except AttributeError:
+            suptitle = ""
+    fig.suptitle(f"{name} {suptitle}")
+
+
 def nan_corrcoef(data):
     ndim = data.shape[0]
     obs_corr = np.full(2 * (ndim,), np.nan)
@@ -443,12 +452,7 @@ class Multisite:
                     )
                     fig, axs = getattr(svg, name)(*args, **kwds)
                     for fig_ in np.atleast_1d(fig):
-                        if isinstance(fig_, mpl.figure.Figure):
-                            try:
-                                suptitle = fig_._suptitle.get_text()
-                            except AttributeError:
-                                suptitle = ""
-                        fig_.suptitle(f"{station_name} {suptitle}")
+                        suptitle_prepend(fig_, station_name)
                     returns[station_name] = fig, axs
                 return returns
 
@@ -1571,22 +1575,41 @@ class Multisite:
         return fig_axs
 
     def plot_ensemble_exceedance_daily(
-        self, *args, obs=None, thresh=None, **kwds
+        self,
+        *args,
+        obs=None,
+        figsize=None,
+        thresh=None,
+        name_figaxs=None,
+        sim_color="blue",
+        **kwds,
     ):
         assert "R" in self.varnames
         if thresh is None:
-            thresh = vg.conf.threshold
+            thresh = vg.conf.dists_kwds["R"]["threshold"] / 24
+        if name_figaxs is None:
+            name_figaxs = self.plot_exceedance_daily(
+                draw_scatter=False, figsize=figsize, thresh=thresh, alpha=0
+            )
         if obs is None:
-            obs = self.data_daily.sel(variable="R")
-        name_figaxs = self.plot_exceedance_daily(draw_scatter=True, alpha=0)
-        bounds_kwds = dict(linestyle="--", color="gray")
-        q_levels = np.linspace(0, 1, self.T)
+            obs = self.data_daily
+        bounds_kwds = dict(linestyle="--", color="gray", alpha=0.5)
+        # q_levels = np.linspace(0, 1, self.T)
+        n_levels = self.T_sim / 2
+        q_levels = (np.arange(n_levels) + 0.5) / n_levels
         for station_name, (fig, axs) in name_figaxs.items():
-            obs_ = obs.sel(station=station_name)
-            sim_ = self.ensemble.sel(station=station_name, variable="R").load()
+            obs_ = obs.sel(station=station_name, variable="R").load()
+            sim_ = self.ensemble_daily.sel(
+                station=station_name, variable="R"
+            ).load()
             # depth part
             sim_qq = (
                 sim_.where(sim_ > thresh)
+                .quantile(q_levels, "time")
+                .rename(dict(quantile="qq"))
+            )
+            obs_qq = (
+                obs_.where(obs_ > thresh)
                 .quantile(q_levels, "time")
                 .rename(dict(quantile="qq"))
             )
@@ -1596,32 +1619,40 @@ class Multisite:
             ax = axs[0]
             q_levels = q_levels[::-1]
             ax.loglog(mins, q_levels, **bounds_kwds)
-            ax.loglog(median, q_levels, color="b")
+            ax.loglog(median, q_levels, color=sim_color)
             ax.loglog(maxs, q_levels, **bounds_kwds)
-            ax.fill_betweenx(q_levels, mins, maxs, alpha=0.5)
+            ax.fill_betweenx(q_levels, mins, maxs, alpha=0.5, color=sim_color)
+            ax.loglog(obs_qq, q_levels, color="k")
 
             dry_obs, wet_obs = rain_stats.spell_lengths(obs_, thresh=thresh)
             drys, wets = [], []
             dry_levels = 100 * np.linspace(0, 1, len(dry_obs))
             wet_levels = 100 * np.linspace(0, 1, len(wet_obs))
             for real_i, real in sim_.groupby("realization"):
-                dry, wet = rain_stats.spell_lengths(real)
+                dry, wet = rain_stats.spell_lengths(real, thresh=thresh)
                 drys += [np.percentile(dry, dry_levels)]
                 wets += [np.percentile(wet, wet_levels)]
-            episodes = [drys, wets]
+            episodes_sim = [drys, wets]
+            episodes_obs = [
+                np.percentile(dry_obs, dry_levels),
+                np.percentile(wet_obs, wet_levels),
+            ]
             levels = [dry_levels, wet_levels]
-            for ax, episode, level in zip(axs[1:], episodes, levels):
-                mins = np.min(episode, axis=0)
-                median = np.median(episode, axis=0)
-                maxs = np.max(episode, axis=0)
+            for i, (ax, level) in enumerate(zip(axs[1:], levels)):
+                episode_sim = episodes_sim[i]
+                mins = np.min(episode_sim, axis=0)
+                median = np.median(episode_sim, axis=0)
+                maxs = np.max(episode_sim, axis=0)
                 level = level[::-1] / 100
                 ax.loglog(mins, level, **bounds_kwds)
-                ax.loglog(median, level, color="b")
+                ax.loglog(median, level, color=sim_color)
                 ax.loglog(maxs, level, **bounds_kwds)
-                ax.fill_betweenx(level, mins, maxs, alpha=0.5)
+                ax.loglog(episodes_obs[i], level, color="k")
+                ax.fill_betweenx(level, mins, maxs, alpha=0.5, color=sim_color)
 
             for ax in axs:
                 ax.grid(True)
+            suptitle_prepend(fig, station_name)
         return name_figaxs
 
     def plot_ensemble_violins(
@@ -1648,10 +1679,11 @@ class Multisite:
                 ax.violinplot(sim_means.T, showmeans=True)
                 ax.scatter(np.arange(1, 13), obs_means, marker="_", color="k")
                 ax.set_title(varname)
+            suptitle_prepend(fig, station_name)
             fig_axs[station_name] = fig, axs
         return fig_axs
 
-    def plot_exceedance_daily(self, *args, **kwds):
+    def plot_exceedance_daily(self, draw_scatter=True, *args, **kwds):
         fig_axs = {}
         figsize = kwds.get("figsize", None)
         for station_name in self.station_names:
@@ -1660,8 +1692,9 @@ class Multisite:
             )
             svg = self.vgs[station_name]
             fig, axs = svg.plot_exceedance_daily(
-                fig=fig, axs=axs, *args, **kwds
+                fig=fig, axs=axs, draw_scatter=draw_scatter, *args, **kwds
             )
+            suptitle_prepend(fig, station_name)
             fig_axs[station_name] = fig, axs
         return fig_axs
 
@@ -2231,7 +2264,9 @@ class Multisite:
 
     def plot_meteogram_trans_stat(self, *args, **kwds):
         vg_first = self.vgs[self.station_names[0]]
-        figs, axss = vg_first.plot_meteogram_trans(*args, **kwds)
+        figs, axss = vg_first.plot_meteogram_trans(
+            station_name=None, *args, **kwds
+        )
         if not isinstance(figs, Iterable):
             figs = [figs]
             axss = [axss]
@@ -2253,7 +2288,9 @@ class Multisite:
 
     def plot_meteogram_daily_stat(self, *args, **kwds):
         vg_first = self.vgs[self.station_names[0]]
-        figs, axss = vg_first.plot_meteogram_daily(*args, **kwds)
+        figs, axss = vg_first.plot_meteogram_daily(
+            station_name=None, *args, **kwds
+        )
         if not isinstance(figs, Iterable):
             figs = [figs]
             axss = [axss]
@@ -2261,6 +2298,47 @@ class Multisite:
             svg = self.vgs[station_name]
             svg.plot_meteogram_daily(
                 station_name=None, figs=figs, axss=axss, *args, **kwds
+            )
+        for fig in figs:
+            fig.subplots_adjust(right=0.75, hspace=0.25)
+            fig.legend(
+                axss[0][0][0].lines, self.station_names, loc="center right"
+            )
+        return figs, axss
+
+    def plot_meteogram_daily_decorr(self, varnames=None, *args, **kwds):
+        if varnames is None:
+            varnames = self.varnames
+        station_name = self.station_names[0]
+        vg_first = self.vgs[station_name]
+        obs = self.qq_std.sel(station=station_name).values
+        sim = self.fft_sim.sel(station=station_name).values
+        figs, axss = vg_first.plot_meteogram_daily(
+            obs=obs,
+            sim=sim,
+            var_names=varnames,
+            station_name=None,
+            plot_daily_bounds=False,
+            *args,
+            **kwds,
+        )
+        if not isinstance(figs, Iterable):
+            figs = [figs]
+            axss = [axss]
+        for station_name in self.station_names[1:]:
+            svg = self.vgs[station_name]
+            obs = self.qq_std.sel(station=station_name).values
+            sim = self.fft_sim.sel(station=station_name).values
+            svg.plot_meteogram_daily(
+                obs=obs,
+                sim=sim,
+                var_names=varnames,
+                station_name=None,
+                plot_daily_bounds=False,
+                figs=figs,
+                axss=axss,
+                *args,
+                **kwds,
             )
         for fig in figs:
             fig.subplots_adjust(right=0.75, hspace=0.25)
