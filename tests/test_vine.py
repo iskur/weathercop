@@ -146,7 +146,7 @@ class Test(npt.TestCase):
         npt.assert_almost_equal(
             self.csim_normal.mean(axis=1),
             self.data_normal.mean(axis=1),
-            decimal=2,
+            decimal=1,
         )
         try:
             npt.assert_almost_equal(
@@ -375,7 +375,7 @@ class Test(npt.TestCase):
             print("Seasonal Vine with VG data")
             import vg
             from vg import vg_plotting, vg_base
-            import config_konstanz_disag as conf
+            import config_konstanz as conf
         vg.conf = vg_plotting.conf = vg_base.conf = conf
         # met_vg = vg.VG(("theta", "ILWR", "rh", "R"), verbose=True)
         met_vg = vg.VG(("theta", "ILWR", "rh"), verbose=True)
@@ -452,7 +452,7 @@ class Test(npt.TestCase):
         np.random.seed(0)
         n_realizations = 4
         means_norm0, means0, means1 = [], [], []
-        before = time.time()
+        before = time.perf_counter()
         for _ in range(n_realizations):
             simt0, sim0 = met_vg.simulate(sim_func=vg_ph)  #  theta_incr=0.,
             means_norm0 += [met_vg.sim.mean(axis=1)]
@@ -464,7 +464,7 @@ class Test(npt.TestCase):
             # means1 += [sim1[prim_i].mean()]
             # means0 += [sim0[prin_i].mean()]
             means1 += [sim1.mean(axis=1)]
-        print(time.time() - before)
+        print(time.perf_counter() - before)
         means0 = np.mean(means0, axis=0)
         means1 = np.mean(means1, axis=0)
         # print(means0[prim_i] + theta_incr, means1[prim_i])

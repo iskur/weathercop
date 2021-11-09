@@ -23,8 +23,8 @@ class Test(npt.TestCase):
     def setUp(self):
         self.verbose = True
         self.eps = np.array([1e-5])
-        # test_cop = "all"
-        test_cop = "nelsen15"
+        test_cop = "all"
+        # test_cop = "nelsen15"
         if test_cop != "all":
             cop.all_cops = OrderedDict((name, obj)
                                        for name, obj in cop.all_cops.items()
