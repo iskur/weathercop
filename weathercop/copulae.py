@@ -15,10 +15,10 @@ import matplotlib.pyplot as plt
 import sympy
 from scipy import stats as spstats
 from scipy.optimize import (
-    brentq,
+    # brentq,
     minimize,
-    newton as newton_sp,
-    minimize_scalar,
+    # newton as newton_sp,
+    # minimize_scalar,
 )
 from scipy.special import erf, erfinv
 from sympy import exp, ln
@@ -90,7 +90,9 @@ def ufuncify_cython(cls, name, uargs, expr, *args, verbose=False, **kwds):
         ufunc_dir = ufuncs.__path__._path[0]
     try:
         with tools.chdir(ufunc_dir):
-            ufunc = importlib.import_module(f"{module_name}_0", ufuncs).autofunc_c
+            ufunc = (importlib
+                     .import_module(f"{module_name}_0", ufuncs)
+                     .autofunc_c)
     except (ImportError, AttributeError) as exc:
         if verbose:
             print(exc)
@@ -194,7 +196,6 @@ def newton_py(
     for i, rank1 in enumerate(ranks1):
         quantile, theta = quantiles[i], thetas[..., i]
         theta_ar[:, 0] = theta
-        # rank0 = self.rank0(rank1, quantile, theta)
         eps = 1e-4
         rank0 = max(eps, min(quantile, 1 - eps))
         zk = np.inf
@@ -386,7 +387,9 @@ class MetaCop(ABCMeta):
 
     def mark_failed(new_cls):
         for method_name in new_cls.known_fail:
-            key = "_".join((new_cls.name, method_name, tools.hash_cop(new_cls)))
+            key = "_".join((new_cls.name,
+                            method_name,
+                            tools.hash_cop(new_cls)))
             mark_failed(key)
 
     def rotate_expr(expr, degrees=None):
@@ -502,10 +505,12 @@ class MetaCop(ABCMeta):
             cls_hash = tools.hash_cop(cls)
             key = f"{cls.name}_cdf_given_{conditioning}_prime_{cls_hash}"
             if key not in sh or cls.name in rederive:
-                print(f"Generating {conditioning}-conditional prime {cls.name}")
+                print(f"Generating {conditioning}-"
+                      f"conditional prime {cls.name}")
                 good_cop = cls.cop_expr
                 conditional_cdf_prime = sympy.diff(good_cop, conditioning)
-                conditional_cdf_prime = sympy.diff(conditional_cdf_prime, conditioned)
+                conditional_cdf_prime = sympy.diff(conditional_cdf_prime,
+                                                   conditioned)
                 sh[key] = conditional_cdf_prime
             conditional_cdf_prime = sh[key]
             setattr(cls, expr_attr, conditional_cdf_prime)
@@ -543,11 +548,14 @@ class MetaCop(ABCMeta):
             with tools.shelve_open(conf.sympy_cache) as sh:
                 if key not in sh or cls.name in rederive:
                     print(
-                        "Generating inverse " f"{conditioning}-conditional {cls.name}"
+                        "Generating inverse "
+                        f"{conditioning}-conditional {cls.name}"
                     )
-                    cdf_given_expr = getattr(cls, f"cdf_given_{conditioning}_expr")
+                    cdf_given_expr = getattr(cls,
+                                             f"cdf_given_{conditioning}_expr")
                     try:
-                        inv_cdf = sympy.solve(cdf_given_expr - qq, conditioned)[0]
+                        inv_cdf = sympy.solve(cdf_given_expr - qq,
+                                              conditioned)[0]
                     except (
                         NotImplementedError,
                         ValueError,
@@ -569,7 +577,8 @@ class MetaCop(ABCMeta):
         try:
             ufunc = ufuncify(
                 cls,
-                f"inv_cdf_given_{conditioning}"[conditioning, qq, theta],
+                f"inv_cdf_given_{conditioning}",
+                [conditioning, qq, theta],
                 inv_cdf,
                 backend=cls.backend,
                 verbose=False,
@@ -910,7 +919,7 @@ class Copulae(metaclass=MetaCop):
                 ax.imshow(
                     density.T,
                     extent=(0, 1, 0, 1),
-                    origin="left",
+                    origin="lower",
                     aspect="equal",
                     interpolation="none",
                 )

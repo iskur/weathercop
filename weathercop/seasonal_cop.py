@@ -729,7 +729,7 @@ def vg_sim(vg_obj, sc_pars):
             [dists.norm.ppf(q) for q in vg_sim.cop_quantiles]
         )
         vg_sim.spec = spectral.MultiSpectral(
-            vg_sim.qq_std, vg_sim.qq_std, T=vg_obj.T, pool_size=100
+            vg_sim.qq_std, vg_sim.qq_std, T=vg_obj.T_sim, pool_size=100
         )
     spec_sim = vg_sim.spec.sim
     # change in mean scenario

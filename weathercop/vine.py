@@ -1334,7 +1334,7 @@ def vg_ph(vg_obj, sc_pars, refit=False):
         vg_ph.qq_std = my.interp_nan(qq_std)
         vg_ph.As = np.fft.fft(vg_ph.qq_std)
         vg_ph.phases = np.angle(vg_ph.As)
-    T = vg_obj.T
+    T = vg_obj.T_sim
     # phase randomization with same random phases in all variables
     phases_lh = np.random.uniform(
         -np.pi, np.pi, T // 2 if T % 2 == 1 else T // 2 - 1

@@ -4,20 +4,15 @@ import inspect
 from functools import wraps, partial
 from itertools import repeat
 import collections
-
-# import warnings
-
 import numpy as np
 import pandas as pd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-
-# from scipy.optimize import minimize_scalar
 from scipy import stats, interpolate
 import xarray as xr
 import dill
 from multiprocessing import Pool, cpu_count, Lock
-from tqdm import tqdm, trange
+from tqdm import tqdm
 from matplotlib.transforms import offset_copy
 import cartopy.crs as ccrs
 import cartopy.io.img_tiles as cimgt
@@ -180,7 +175,7 @@ def _vg_ph(
     station_name = vg_obj.station_name
     var_names = vg_obj.var_names
     primary_var_ii = vg_obj.primary_var_ii
-    T = vg_obj.T
+    T_sim = vg_obj.T_sim
     As = wcop.As.sel(station=station_name, drop=True)
     qq_std = wcop.qq_stds.sel(station=station_name).data
     qq_mean = wcop.qq_means.sel(station=station_name).data
@@ -197,16 +192,7 @@ def _vg_ph(
     fft_sim = np.concatenate(
         [np.fft.ifft(As * np.exp(1j * phases_)).real for phases_ in phases],
         axis=1,
-    )[:, :T]
-
-    fft_sim *= (qq_std / fft_sim.std(axis=1))[:, None]
-    fft_sim += (qq_mean - fft_sim.mean(axis=1))[:, None]
-    if phase_randomize_vary_mean:
-        # allow means to vary. let it flow from the central_node to
-        # the others
-        mean_eps = np.zeros(len(var_names))[:, None]
-        mean_eps[0, primary_var_ii[0]] = 0.25 * np.random.randn()
-        fft_sim += mean_eps
+    )[:, :T_sim]
 
     # change in mean scenario
     prim_i = tuple(primary_var_ii)
@@ -461,7 +447,7 @@ class Multisite:
             return self.__dict__[name]
         except KeyError:
             raise AttributeError(
-                f"'{type(self).__name__}' object has " f"no attribute '{name}'"
+                f"'{type(self).__name__}' object has no attribute '{name}'"
             )
 
     def __getitem__(self, name):
@@ -533,7 +519,8 @@ class Multisite:
             ):
                 if self.verbose:
                     print(
-                        f"Recovering VG instance of {station_name} from:\n{cache_file}"
+                        f"Recovering VG instance of {station_name} "
+                        f"from:\n{cache_file}"
                     )
                 with cache_file.open("rb") as fi:
                     svg = dill.load(fi)
@@ -770,14 +757,16 @@ class Multisite:
         # self.sim_sea = xr.full_like(self.cop_quantiles, np.nan)
         # self.sim_trans = xr.full_like(self.sim_sea, np.nan)
         self.sim_sea = self.sim_trans = None
-        # site-spe
+
         for station_name, svg in self.vgs.items():
             if self.verbose:
                 print(f"Simulating {station_name}")
                 svg.verbose = False
-            try:
+            if theta_incrs is None:
+                theta_incr = None
+            elif isinstance(theta_incrs, dict):
                 theta_incr = theta_incrs[station_name]
-            except (KeyError, TypeError, IndexError):
+            else:
                 theta_incr = theta_incrs
             sim_times, sim = svg.simulate(
                 sim_func=self._vg_ph,
@@ -788,7 +777,7 @@ class Multisite:
             )
             if self.sim_sea is None:
                 self.sim_sea = xr.DataArray(
-                    np.empty((self.n_stations, self.K, svg.T)),
+                    np.empty((self.n_stations, self.K, svg.T_sim)),
                     coords=[self.station_names, self.varnames, sim_times],
                     dims=["station", "variable", "time"],
                 )
@@ -798,7 +787,8 @@ class Multisite:
             if self.verbose:
                 self.print_means(station_name)
                 print()
-        self.T = svg.T
+        self.T_sim = svg.T_sim
+        # the following two lines ensure that MultisiteConditional works!
         # make chosen phases available...
         self._rphases = self.rphases
         # ... but reset them also so we get new ones next time
@@ -985,7 +975,7 @@ class Multisite:
         for station_name in self.station_names:
             if self.varnames_dis is None:
                 filename = f"{filename_prefix}{station_name}.csv"
-                csv_df = xar.sel(station=station_name)
+                csv_df = xar.sel(station=station_name).to_pandas()
                 csv_df.to_csv(csv_path / filename)
             else:
                 filename = f"{filename_prefix}{station_name}_daily.csv"
@@ -1104,13 +1094,11 @@ class Multisite:
                     dtimes = np.tile(self.dtimes, self.n_stations)
                     vine = CVine(
                         self.ranks.data,
-                        # varnames=vg_obj.var_names,
                         varnames=self.varnames,
                         dtimes=dtimes,
                         weights=weights,
                         central_node=vg_obj.primary_var[0],
                         verbose=False,
-                        # verbose=self.verbose,
                         tau_min=0,
                         fit_mask=(
                             self.rain_mask.data
@@ -1131,10 +1119,11 @@ class Multisite:
 
             T_data = len(self.cop_quantiles.coords["time"])
             qq = self.vine.quantiles(T=(np.arange(stacked.shape[1]) % T_data))
+            finite_mask = np.isfinite(qq)
             try:
-                assert np.all(np.isfinite(qq))
+                assert np.all(finite_mask)
             except AssertionError:
-                qq[~np.isfinite(qq)] = np.nan
+                qq[~finite_mask] = np.nan
                 qq = np.array([my.interp_nan(values) for values in qq])
             # normalize cop quantiles
             # qq = np.array([(stats.rankdata(values) - 0.5) / len(values)
@@ -1179,7 +1168,7 @@ class Multisite:
             # self.vine_bias = vine_bias
 
         if self.rphases is None:
-            T_sim = vg_obj.T
+            T_sim = vg_obj.T_sim
             T_data = vg_obj.T_summed
             T_total = 0
             phases_stacked = []
@@ -1229,7 +1218,7 @@ class Multisite:
                 for phases_ in phases
             ],
             axis=1,
-        )[:, : vg_obj.T]
+        )[:, : vg_obj.T_sim]
 
         fft_sim *= (
             self.qq_stds.sel(station=station_name).data / fft_sim.std(axis=1)
@@ -1249,9 +1238,9 @@ class Multisite:
         fft_sim[prim_i] += sc_pars.m[prim_i]
         fft_sim[prim_i] += sc_pars.m_t[prim_i]
 
-        if self.fft_sim is None:
+        if self.fft_sim is None or self.fft_sim.time.size != vg_obj.T_sim:
             self.fft_sim = xr.DataArray(
-                np.full((self.n_stations, self.K, vg_obj.T), 0.5),
+                np.full((self.n_stations, self.K, vg_obj.T_sim), 0.5),
                 coords=[self.station_names, self.varnames, vg_obj.sim_times],
                 dims=["station", "variable", "time"],
             )
@@ -1467,7 +1456,7 @@ class Multisite:
         return fig_axs
 
     def plot_ensemble_meteogram_daily(self, *args, **kwds):
-        dtimes = pd.to_datetime(self.ensemble.time.values)
+        dtimes = pd.to_datetime(self.ensemble_daily.time.values)
         fig_axs = {}
         for station_name in self.station_names:
             svg = self.vgs[station_name]
@@ -1475,7 +1464,7 @@ class Multisite:
                 plot_sim_sea=False, p_kwds=dict(linewidth=0.25), *args, **kwds
             )
             for ax, varname in zip(axs[:, 0], self.varnames):
-                station_sims = self.ensemble.sel(
+                station_sims = self.ensemble_daily.sel(
                     station=station_name, variable=varname
                 ).load()
                 # if station_name == "Kinneret_station_A" and
@@ -1486,7 +1475,7 @@ class Multisite:
                 ax.fill_between(dtimes, mins, maxs, color="k", alpha=0.5)
                 ax.fill_between(dtimes, q10, q90, color="red", alpha=0.5)
             for ax, varname in zip(axs[:, 1], self.varnames):
-                station_sims = self.ensemble.sel(
+                station_sims = self.ensemble_daily.sel(
                     station=station_name, variable=varname
                 )
                 ax.hist(
@@ -1670,9 +1659,11 @@ class Multisite:
                     .groupby(month)
                     .mean()
                 )
-                month = self.ensemble.time.dt.month
+                month = self.ensemble_daily.time.dt.month
                 sim_means = (
-                    self.ensemble.sel(station=station_name, variable=varname)
+                    self.ensemble_daily.sel(
+                        station=station_name, variable=varname
+                    )
                     .groupby(month)
                     .mean("time")
                 )
@@ -1715,12 +1706,12 @@ class Multisite:
                 text=text,
                 *args,
                 **kwds,
-            )
+            )[0]
         ]
 
         if self.sim_sea is not None:
             data = self.sim.stack(stacked=("station", "variable")).T.data
-            fig_ = ts.corr_img(
+            fig_, ax = ts.corr_img(
                 data,
                 0,
                 "Simulated daily normal",  # greek_short,
@@ -1732,7 +1723,7 @@ class Multisite:
             fig += [fig_]
 
             data = self.sim_sea.stack(stacked=("station", "variable")).T.data
-            fig_ = ts.corr_img(
+            fig_, ax = ts.corr_img(
                 data,
                 0,
                 "Simulated daily",  # greek_short,
@@ -1998,12 +1989,12 @@ class Multisite:
                 ]
             )
             edgecolor[:, -1] = alpha
-            draw_legend = True
+            # draw_legend = True
         else:
             edgecolor = self.n_stations * [edgecolor]
-            draw_legend = False
-        mins = np.full(2 * (self.n_variables,), np.inf)
-        maxs = np.full_like(mins, -np.inf)
+            # draw_legend = False
+        # mins = np.full(2 * (self.n_variables,), np.inf)
+        # maxs = np.full_like(mins, -np.inf)
         for var_i, varname in enumerate(self.varnames):
             data_sim_ = sim_ar.sel(variable=varname).values
             sim_corrs = []

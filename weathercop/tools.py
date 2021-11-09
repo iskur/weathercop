@@ -56,7 +56,7 @@ class ADict(UserDict):
         if type(other) is dict:
             del_keys = other.keys()
         elif type(other) is str:
-            del_keys = other,
+            del_keys = (other,)
         else:
             del_keys = other
         for del_key in del_keys:
