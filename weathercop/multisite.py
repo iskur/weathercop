@@ -75,6 +75,7 @@ def sim_one(args):
         total,
         wcop,
         filepath,
+        filepath_daily,
         sim_args,
         sim_kwds,
         dis_kwds,
@@ -82,25 +83,119 @@ def sim_one(args):
         csv,
         ensemble_dir,
         n_digits,
+        write_to_disk,
     ) = args
     np.random.seed(1000 * real_i)
     sim_sea, sim_trans = simulate(wcop, sim_times, *sim_args, **sim_kwds)
     if dis_kwds is not None:
+        if write_to_disk:
+            sim_sea.to_netcdf(filepath_daily)
         sim_sea_dis = wcop.disaggregate(**dis_kwds)
         sim_sea, sim_sea_dis = xr.align(sim_sea, sim_sea_dis, join="outer")
         sim_sea.loc[dict(variable=wcop.varnames)] = sim_sea_dis.sel(
             variable=wcop.varnames
         )
-    sim_sea.to_netcdf(filepath)
-    if csv:
-        real_str = f"real_{real_i:0{n_digits}}"
-        csv_path = ensemble_dir / "csv" / real_str
-        wcop.to_csv(csv_path, sim_sea, filename_prefix=f"{real_str}_")
-    # sim_trans.to_netcdf(filepath_trans)
+    if write_to_disk:
+        sim_sea.to_netcdf(filepath)
+        if csv:
+            real_str = f"real_{real_i:0{n_digits}}"
+            csv_path = ensemble_dir / "csv" / real_str
+            wcop.to_csv(csv_path, sim_sea, filename_prefix=f"{real_str}_")
+        # sim_trans.to_netcdf(filepath_trans)
     return real_i
 
 
-def simulate(wcop, sim_times, *args, phase_randomize_vary_mean=True, **kwds):
+@my.cache(mask=None)
+def _random_phases(phases, T_sim, T_data, verbose=False, mask_fun=None):
+    K = phases.shape[0]
+    T_total = 0
+    phases_stacked = []
+    _random_phases.clear_cache()
+    while T_total < T_sim:
+        # phase randomization with same random phases in all
+        # variables and stations
+        phases_len = T_data // 2 - 1 + T_data % 2
+        phases_pos = np.random.uniform(0, 2 * np.pi, phases_len)
+
+        if mask_fun is not None:
+            # e.g.: do not touch phases that are close to the annual
+            # frequency
+            periods = np.fft.rfftfreq(phases_len * 2)[1:] ** -1
+            mask = mask_fun(periods)
+            if verbose > 1:
+                print(
+                    f"Holding {mask.sum()} ({mask.mean() * 100:.3f}%)"
+                    " of phases constant."
+                )
+            phases_pos[mask] = 0
+
+        phases_pos = np.array(K * [phases_pos])
+        phases_neg = -phases_pos[:, ::-1]
+        nyquist = np.full(K, 0)[:, None]
+        zero_phases = phases[:, 0, None]
+        if T_data % 2 == 0:
+            phases = np.hstack((zero_phases, phases_pos, nyquist, phases_neg))
+            if mask_fun is not None:
+                mask = np.hstack(([False], mask, [False], mask))
+        else:
+            phases = np.hstack((zero_phases, phases_pos, phases_neg))
+            if mask_fun is not None:
+                mask = np.hstack(([False], mask, mask))
+        phases_stacked += [phases]
+        T_total += T_data
+        if mask_fun is not None:
+            if _random_phases.mask is None:
+                _random_phases.mask = mask
+            else:
+                _random_phases.mask = np.concatenate(
+                    (_random_phases.mask, mask)
+                )
+    return phases_stacked
+
+
+def _adjust_fft_sim(
+    fft_sim,
+    qq_mean,
+    qq_std,
+    sc_pars,
+    primary_var_ii,
+    phase_randomize_vary_mean,
+):
+    fft_sim *= (qq_std / fft_sim.std(axis=1))[:, None]
+    fft_sim += (qq_mean - fft_sim.mean(axis=1))[:, None]
+
+    # print(f"\n{qq_mean.round(2)=}")
+    # print(f"{fft_sim.mean(axis=1).round(2)=}\n")
+    # print(f"{qq_std.round(2)=}")
+    # print(f"{fft_sim.std(axis=1).round(2)=}")
+
+    if phase_randomize_vary_mean:
+        # allow means to vary. let it flow from the central_node to
+        # the others
+        K = fft_sim.shape[0]
+        mean_eps = np.zeros(K)[:, None]
+        mean_eps[primary_var_ii[0], 0] = (
+            phase_randomize_vary_mean * np.random.randn()
+        )
+        fft_sim += mean_eps
+
+    # change in mean scenario
+    prim_i = tuple(primary_var_ii)
+    fft_sim[prim_i] += sc_pars.m[prim_i]
+    fft_sim[prim_i] += sc_pars.m_t[prim_i]
+    return fft_sim
+
+
+def simulate(
+    wcop,
+    sim_times,
+    *args,
+    phase_randomize_vary_mean=0.25,
+    stop_at=None,
+    mask_fun=None,
+    rphases=None,
+    **kwds,
+):
     """this is like Multisite.simulate, but simplified for multiprocessing."""
     # allow for site-specific theta_incr
     theta_incrs = kwds.pop("theta_incr", None)
@@ -119,25 +214,9 @@ def simulate(wcop, sim_times, *args, phase_randomize_vary_mean=True, **kwds):
     primary_var = wcop.primary_var
     lock.release()
 
-    T_total = 0
-    phases_stacked = []
-    while T_total < T_sim:
-        # phase randomization with same random phases in all
-        # variables and stations
-        phases_len = T_data // 2 - 1 + T_data % 2
-        phases_pos = np.random.uniform(0, 2 * np.pi, phases_len)
-        phases_pos = np.array(K * [phases_pos])
-        phases_neg = -phases_pos[:, ::-1]
-        nyquist = np.full(K, 0)[:, None]
-        zero_phases = phases[:, 0, None]
-        if T_data % 2 == 0:
-            phases = np.hstack((zero_phases, phases_pos, nyquist, phases_neg))
-        else:
-            phases = np.hstack((zero_phases, phases_pos, phases_neg))
-        phases_stacked += [phases]
-        T_total += T_data
-
-    vg_ph = partial(_vg_ph, rphases=phases_stacked, wcop=wcop)
+    if rphases is None:
+        rphases = _random_phases(phases, T_sim, T_data, mask_fun)
+    vg_ph = partial(_vg_ph, rphases=rphases, wcop=wcop)
     for station_name, svg in vgs.items():
         try:
             theta_incr = theta_incrs[station_name]
@@ -147,6 +226,7 @@ def simulate(wcop, sim_times, *args, phase_randomize_vary_mean=True, **kwds):
             sim_func=vg_ph,
             primary_var=primary_var,
             theta_incr=theta_incr,
+            sim_func_kwds=dict(stop_at=stop_at),
             *args,
             **kwds,
         )
@@ -156,14 +236,19 @@ def simulate(wcop, sim_times, *args, phase_randomize_vary_mean=True, **kwds):
                 coords=[station_names, varnames, sim_times],
                 dims=["station", "variable", "time"],
             )
-            sim_trans = xr.full_like(sim_sea, np.nan)
+            # sim_trans = xr.full_like(sim_sea, np.nan)
         sim_sea.loc[dict(station=station_name)] = sim
-        sim_trans.loc[dict(station=station_name)] = svg.sim
+        # sim_trans.loc[dict(station=station_name)] = svg.sim
     return sim_sea, sim_trans
 
 
 def _vg_ph(
-    vg_obj, sc_pars, wcop=None, rphases=None, phase_randomize_vary_mean=True
+    vg_obj,
+    sc_pars,
+    wcop=None,
+    rphases=None,
+    phase_randomize_vary_mean=0.25,
+    stop_at=None,
 ):
     """Call-back function for VG.simulate. Replaces a time_series_analysis
     model.
@@ -173,7 +258,6 @@ def _vg_ph(
     """
     lock.acquire()
     station_name = vg_obj.station_name
-    var_names = vg_obj.var_names
     primary_var_ii = vg_obj.primary_var_ii
     T_sim = vg_obj.T_sim
     As = wcop.As.sel(station=station_name, drop=True)
@@ -188,19 +272,26 @@ def _vg_ph(
     for phase_ in rphases:
         phase_[:, 0] = zero_phases[station_name]
         phases += [phase_]
+    rphases = phases
 
     fft_sim = np.concatenate(
-        [np.fft.ifft(As * np.exp(1j * phases_)).real for phases_ in phases],
+        [np.fft.ifft(As * np.exp(1j * phases_)).real for phases_ in rphases],
         axis=1,
     )[:, :T_sim]
 
-    # change in mean scenario
-    prim_i = tuple(primary_var_ii)
-    fft_sim[prim_i] += sc_pars.m[prim_i]
-    fft_sim[prim_i] += sc_pars.m_t[prim_i]
+    fft_sim = _adjust_fft_sim(
+        fft_sim,
+        qq_mean,
+        qq_std,
+        sc_pars,
+        primary_var_ii,
+        phase_randomize_vary_mean,
+    )
 
     qq = dists.norm.cdf(fft_sim)
-    ranks_sim = vine.simulate(T=np.arange(qq.shape[1]), randomness=qq)
+    ranks_sim = vine.simulate(
+        T=np.arange(qq.shape[1]), randomness=qq, stop_at=stop_at
+    )
     sim = dists.norm.ppf(ranks_sim)
     assert np.all(np.isfinite(sim))
     return sim
@@ -339,7 +430,7 @@ class Multisite:
             return
         self.n_stations = len(self.station_names)
         self.times = self.xar.time
-        self.varnames_refit = None
+        self.varnames_refit = self.varnames_dis = None
         start_dt, end_dt = pd.to_datetime(self.xar.time.data[[0, -1]])
         self.dtimes = pd.date_range(
             start_dt, end_dt, freq=self.discr
@@ -746,12 +837,17 @@ class Multisite:
         self,
         *args,
         usevine=True,
-        phase_randomize_vary_mean=True,
+        phase_randomize_vary_mean=0.25,
+        write_to_disk=True,
         return_trans=False,
+        stop_at=None,
+        mask_fun=None,
+        rphases=None,
         **kwds,
     ):
         self.usevine = usevine
         self.phase_randomize_vary_mean = phase_randomize_vary_mean
+        self.write_to_disk = write_to_disk
         # allow for site-specific theta_incr
         theta_incrs = kwds.pop("theta_incr", None)
         # self.sim_sea = xr.full_like(self.cop_quantiles, np.nan)
@@ -772,6 +868,9 @@ class Multisite:
                 sim_func=self._vg_ph,
                 primary_var=self.primary_var,
                 theta_incr=theta_incr,
+                sim_func_kwds=dict(
+                    stop_at=stop_at, mask_fun=mask_fun, rphases=rphases
+                ),
                 *args,
                 **kwds,
             )
@@ -823,11 +922,15 @@ class Multisite:
         clear_cache=False,
         csv=False,
         dis_kwds=None,
+        write_to_disk=True,
         *args,
         **kwds,
     ):
         if dis_kwds is not None:
+            disaggregate = True
             name = f"{name}_disag"
+        else:
+            disaggregate = False
         ensemble_dir = cop_conf.weathercop_dir / "ensembles" / name
         if clear_cache and ensemble_dir.exists():
             shutil.rmtree(ensemble_dir)
@@ -838,12 +941,23 @@ class Multisite:
         # silence the vgs for the moment, so we can get a nice
         # progress bar
         verbose = self.verbose
+        self.write_to_disk = write_to_disk
         self.verbose = False
         n_digits = int(np.log10(n_realizations)) + 3
         filepaths = [
             ensemble_dir / f"real_{real_i:0{n_digits}}.nc"
             for real_i in range(n_realizations)
         ]
+        if disaggregate:
+            # keep the daily values as well!
+            filepaths_daily = [
+                ensemble_dir / f"real_daily_{real_i:0{n_digits}}.nc"
+                for real_i in range(n_realizations)
+            ]
+        else:
+            # filepaths_daily = [None for path in filepaths]
+            filepaths_daily = filepaths
+
         # filepaths_trans = [filepath.parent / (filepath.stem + "_trans.nc")
         #                    for filepath in filepaths]
         if cop_conf.PROFILE:
@@ -855,7 +969,10 @@ class Multisite:
                 np.random.seed(1000 * real_i)
                 sim_sea = self.simulate(*args, **kwds)
                 # sim_trans = self.sim_trans
-                if dis_kwds is not None:
+                if disaggregate:
+                    filepath_daily = filepaths_daily[real_i]
+                    if write_to_disk:
+                        sim_sea.to_netcdf(filepath_daily)
                     sim_sea_dis = self.disaggregate(**dis_kwds)
                     sim_sea, sim_sea_dis = xr.align(
                         sim_sea, sim_sea_dis, join="outer"
@@ -863,14 +980,15 @@ class Multisite:
                     sim_sea.loc[
                         dict(variable=self.varnames)
                     ] = sim_sea_dis.sel(variable=self.varnames)
-                sim_sea.to_netcdf(filepath)
-                if csv:
-                    real_str = f"real_{real_i:0{n_digits}}"
-                    csv_path = ensemble_dir / "csv" / real_str
-                    self.to_csv(
-                        csv_path, sim_sea, filename_prefix=f"{real_str}_"
-                    )
-                # sim_trans.to_netcdf(filepath_trans)
+                if write_to_disk:
+                    sim_sea.to_netcdf(filepath)
+                    if csv:
+                        real_str = f"real_{real_i:0{n_digits}}"
+                        csv_path = ensemble_dir / "csv" / real_str
+                        self.to_csv(
+                            csv_path, sim_sea, filename_prefix=f"{real_str}_"
+                        )
+                    # sim_trans.to_netcdf(filepath_trans)
         else:
             # this means we do parallel computation
             # do one simulation in the main loop to set up attributes
@@ -878,7 +996,9 @@ class Multisite:
             sim_sea = self.simulate(*args, **kwds)
             sim_times = sim_sea.coords["time"].data
             # sim_trans = self.sim_trans
-            if dis_kwds is not None:
+            if disaggregate:
+                filepath_daily = filepaths_daily[0]
+                sim_sea.to_netcdf(filepath_daily)
                 sim_sea_dis = self.disaggregate(**dis_kwds)
                 sim_sea, sim_sea_dis = xr.align(
                     sim_sea, sim_sea_dis, join="outer"
@@ -886,26 +1006,36 @@ class Multisite:
                 sim_sea.loc[dict(variable=self.varnames)] = sim_sea_dis.sel(
                     variable=self.varnames
                 )
-            sim_sea.to_netcdf(filepaths[0])
-            if csv:
-                real_i = 0
-                real_str = f"real_{real_i:0{n_digits}}"
-                csv_path = ensemble_dir / "csv" / real_str
-                self.to_csv(csv_path, sim_sea, filename_prefix=f"{real_str}_")
-            # sim_trans.to_netcdf(filepaths_trans[0])
+            if write_to_disk:
+                sim_sea.to_netcdf(filepaths[0])
+                if csv:
+                    real_i = 0
+                    real_str = f"real_{real_i:0{n_digits}}"
+                    csv_path = ensemble_dir / "csv" / real_str
+                    self.to_csv(
+                        csv_path, sim_sea, filename_prefix=f"{real_str}_"
+                    )
+                # sim_trans.to_netcdf(filepaths_trans[0])
             # filter realizations in advance according to output file
             # existance
             realizations = []
             filepaths_multi = []
+            filepaths_multi_daily = []
             # filepaths_trans_multi = []
             for real_i in range(1, n_realizations):
                 # real_missing = not (filepaths[real_i].exists() and
                 #                   filepaths_trans[real_i].exists())
-                real_missing = not filepaths[real_i].exists()
+                real_missing = not (
+                    filepaths[real_i].exists()
+                    and filepaths_daily[real_i].exists()
+                )
+                # real_missing = not filepaths[real_i].exists()
                 if real_missing:
                     realizations += [real_i]
                     filepaths_multi += [filepaths[real_i]]
+                    filepaths_multi_daily += [filepaths_daily[real_i]]
                     # filepaths_trans_multi += [filepaths_trans[real_i]]
+            self.varnames_refit = []
             with Pool(n_nodes) as pool:
                 completed_reals = list(
                     tqdm(
@@ -916,6 +1046,7 @@ class Multisite:
                                 repeat(len(realizations)),
                                 repeat(self),
                                 filepaths_multi,
+                                filepaths_multi_daily,
                                 # filepaths_trans_multi,
                                 repeat(args),
                                 repeat(kwds),
@@ -924,9 +1055,11 @@ class Multisite:
                                 repeat(csv),
                                 repeat(ensemble_dir),
                                 repeat(n_digits),
+                                repeat(write_to_disk),
                             ),
                         ),
-                        total=len(realizations),
+                        total=len(realizations) + 1,
+                        initial=1,
                     )
                 )
             assert len(completed_reals) == len(realizations)
@@ -941,6 +1074,17 @@ class Multisite:
             .squeeze("dummy", drop=drop_dummy)
             # .squeeze(drop=drop_dummy)
         )
+        if disaggregate:
+            self.ensemble_daily = (
+                xr.open_mfdataset(
+                    filepaths_daily, concat_dim="realization", combine="nested"
+                )
+                .assign_coords(realization=range(n_realizations))
+                .to_array("dummy")
+                .squeeze("dummy", drop=drop_dummy)
+            )
+        else:
+            self.ensemble_daily = self.ensemble
         # self.ensemble_trans = (xr
         #                        .open_mfdataset(filepaths_trans,
         #                                        concat_dim="realization",
@@ -1068,13 +1212,17 @@ class Multisite:
         )
         print(pd.concat([obs, sim, diff, diff_perc], axis=1).round(3))
 
-    def _vg_ph(self, vg_obj, sc_pars):
+    def _vg_ph(
+        self, vg_obj, sc_pars, stop_at=None, mask_fun=None, rphases=None
+    ):
         """Call-back function for VG.simulate. Replaces a time_series_analysis
         model.
 
         """
         station_name = vg_obj.station_name
         weights = "tau"
+        if rphases is not None:
+            self.rphases = rphases
         if self.vine is None and self.usevine:
             with tools.shelve_open(cop_conf.vine_cache) as sh:
                 key = "_".join(
@@ -1168,75 +1316,42 @@ class Multisite:
             # self.vine_bias = vine_bias
 
         if self.rphases is None:
+            # this means we are the first station to be simulated this cycle!
             T_sim = vg_obj.T_sim
             T_data = vg_obj.T_summed
-            T_total = 0
-            phases_stacked = []
-            while T_total < T_sim:
-                # phase randomization with same random phases in all
-                # variables and stations
-                phases_len = T_data // 2 - 1 + T_data % 2
-                phases_pos = np.random.uniform(0, 2 * np.pi, phases_len)
-                # # do not touch phases that are close to the annual
-                # # frequency
-                # periods = np.fft.rfftfreq(phases_len * 2)[1:] ** -1
-                # # mask = periods < 14
-                # # mask = np.full_like(phases_pos, False, dtype=bool)
-                # mask = (((periods > 7) & (periods < 28))
-                #         | ((periods > 350) & (periods < 380))
-                #         )
-                # print(f"Holding {mask.mean() * 100:.3f} % "
-                #       "of phases constant.")
-                # # phases_pos[(periods > 250) & (periods < 400)] = 0
-                # # phases_pos[periods > 30] = 0
-                # phases_pos[mask] = 0
-                phases_pos = np.array(self.K * [phases_pos])
-                phases_neg = -phases_pos[:, ::-1]
-                nyquist = np.full(self.K, 0)[:, None]
-                zero_phases = self.phases[:, 0, None]
-                if T_data % 2 == 0:
-                    phases = np.hstack(
-                        (zero_phases, phases_pos, nyquist, phases_neg)
-                    )
-                else:
-                    phases = np.hstack((zero_phases, phases_pos, phases_neg))
-                phases_stacked += [phases]
-                T_total += T_data
-            self.rphases = phases_stacked
-            phases = phases_stacked
+            if rphases is None:
+                rphases = _random_phases(
+                    self.phases, T_sim, T_data, self.verbose, mask_fun
+                )
+            self.rphases = rphases
+            if self.verbose > 1:
+                mask = _random_phases.mask
+                if np.any(mask):
+                    self._plot_fixed_harmonics(mask)
         else:
-            # adjust zero-phase
-            phases = []
+            rphases = []
             for phase_ in self.rphases:
+                # adjust zero-phase
                 phase_[:, 0] = self.zero_phases[station_name]
-                phases += [phase_]
+                rphases += [phase_]
 
         As = self.As.sel(station=station_name, drop=True)
         fft_sim = np.concatenate(
             [
-                np.fft.ifft(As * np.exp(1j * phases_)).real
-                for phases_ in phases
+                np.fft.ifft(As * np.exp(1j * rphases_)).real
+                for rphases_ in rphases
             ],
             axis=1,
         )[:, : vg_obj.T_sim]
 
-        fft_sim *= (
-            self.qq_stds.sel(station=station_name).data / fft_sim.std(axis=1)
-        )[:, None]
-        fft_sim += (
-            self.qq_means.sel(station=station_name).data - fft_sim.mean(axis=1)
-        )[:, None]
-        if self.phase_randomize_vary_mean:
-            # allow means to vary. let it flow from the central_node to
-            # the others
-            mean_eps = np.zeros(self.K)[:, None]
-            mean_eps[0, vg_obj.primary_var_ii[0]] = 0.25 * np.random.randn()
-            fft_sim += mean_eps
-
-        # change in mean scenario
-        prim_i = tuple(vg_obj.primary_var_ii)
-        fft_sim[prim_i] += sc_pars.m[prim_i]
-        fft_sim[prim_i] += sc_pars.m_t[prim_i]
+        fft_sim = _adjust_fft_sim(
+            fft_sim,
+            self.qq_means.sel(station=station_name).data,
+            self.qq_stds.sel(station=station_name).data,
+            sc_pars,
+            vg_obj.primary_var_ii,
+            self.phase_randomize_vary_mean,
+        )
 
         if self.fft_sim is None or self.fft_sim.time.size != vg_obj.T_sim:
             self.fft_sim = xr.DataArray(
@@ -1244,12 +1359,16 @@ class Multisite:
                 coords=[self.station_names, self.varnames, vg_obj.sim_times],
                 dims=["station", "variable", "time"],
             )
+            # this means we also need to recalculate ranks_sim
+            self.ranks_sim = None
         self.fft_sim.loc[dict(station=station_name)] = fft_sim
 
         if self.usevine:
             qq = dists.norm.cdf(fft_sim)
             ranks_sim = self.vine.simulate(
-                T=np.arange(qq.shape[1]), randomness=qq
+                T=np.arange(qq.shape[1]),
+                randomness=qq,
+                stop_at=stop_at,
             )
             sim = dists.norm.ppf(ranks_sim)
             # sim -= self.vine_bias[station_name]
@@ -1257,7 +1376,14 @@ class Multisite:
             #         .sel(station=station_name)
             #         .mean("time")
             #         .data[:, None])
-            assert np.all(np.isfinite(sim))
+            if stop_at is None:
+                assert np.all(np.isfinite(sim))
+            else:
+                var_ii = [
+                    self.varnames.index(varname)
+                    for varname in self.vine.varnames[:stop_at]
+                ]
+                assert np.all(np.isfinite(sim[var_ii]))
         else:
             sim = fft_sim
             ranks_sim = dists.norm.cdf(fft_sim)
@@ -1267,8 +1393,46 @@ class Multisite:
             self.sim = xr.full_like(self.fft_sim, 0)
         self.ranks_sim.loc[dict(station=station_name)] = ranks_sim
         # for being able to analyze later
-        # self.sim.loc[dict(station=station_name)] = sim
+        self.sim.loc[dict(station=station_name)] = sim
         return sim
+
+    def _plot_fixed_harmonics(self, mask=None, figsize=None):
+        if mask is None:
+            mask = _random_phases.mask
+        fig_axs = {}
+        for station_name in self.station_names:
+            fig, axs = plt.subplots(
+                nrows=self.K,
+                ncols=1,
+                constrained_layout=True,
+                sharex=True,
+                figsize=figsize,
+            )
+            for varname, ax in zip(self.varnames, axs):
+                A = self.As.sel(
+                    station=station_name, variable=varname, drop=True
+                ).data
+                var = np.fft.ifft(A)
+                A[~mask] = 0
+                var_fixed = np.fft.ifft(A)
+                ax.plot(self.dtimes, var_fixed, label="fixed")
+                ax.plot(
+                    self.dtimes,
+                    var,
+                    color="k",
+                    linestyle="--",
+                    linewidth=1,
+                    alpha=0.5,
+                    label="raw",
+                )
+                ax.set_title(varname)
+            fig.suptitle(
+                station_name
+                + f" n_fixed:{int(mask.sum() / 2)}"
+                + f" ({mask.mean() * 100:.2f} %)"
+            )
+            fig_axs[station_name] = fig, axs
+        return fig_axs
 
     def plot_map(self, resolution=10, terrain=True, *args, **kwds):
         if self.latitudes is None or self.longitudes is None:

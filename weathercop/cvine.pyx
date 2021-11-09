@@ -13,7 +13,8 @@ cdef inline double[:, ::1] _csim(np.ndarray[DTYPE_t, ndim=2] P,
                                  double zero,
                                  double one,
                                  # int T_sim
-                                 np.ndarray[DTYPE_i, ndim=1] tt
+                                 np.ndarray[DTYPE_i, ndim=1] tt,
+                                 unsigned int stop_at,
                                  ):
     cdef np.ndarray[DTYPE_t, ndim=2] U = np.empty_like(P,
                                                        dtype=np.float64)
@@ -21,13 +22,16 @@ cdef inline double[:, ::1] _csim(np.ndarray[DTYPE_t, ndim=2] P,
                                                   dtype=np.float64)
     # cdef np.ndarray[unsigned int, ndim=1] tt = np.arange(T_sim, dtype=np.uint8)
     # cdef np.ndarray[int, ndim=1] tt = np.arange(T_sim, dtype=np.int32)
-    cdef unsigned int d = cvine.d
+    # cdef unsigned int d = cvine.d
+    stop_at = min(stop_at, cvine.d)
     cdef unsigned int j, l, t
     U[0] = P[0]
+    if stop_at == 0:
+        return U
     U[1] = cvine[0, 1]["C^_1|0"](conditioned=P[1],
                                  condition=P[0],
                                  t=tt)
-    for j in range(2, d):
+    for j in range(2, stop_at):
         Q = P[j]
         for l in range(j - 1, -1, -1):
             cop = cvine[l, j][f"C^_{j}|{l}"]
@@ -85,8 +89,12 @@ cdef inline double[:, ::1] _cquant(np.ndarray[DTYPE_t, ndim=2] U,
 
 
 cpdef csim(args):
-    P, cvine, zero, one, tt = args
-    U = _csim(P, cvine, zero, one, tt)
+    P, cvine, zero, one, tt, stop_at = args
+    if stop_at is None:
+        stop_at = cvine.d
+    U = _csim(P, cvine, zero, one, tt, stop_at)
+    if stop_at < cvine.d:
+        U[stop_at + 1:] = np.nan
     return np.array(U)
 
 cpdef cquant(args):

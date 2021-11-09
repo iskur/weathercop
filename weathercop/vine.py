@@ -24,13 +24,18 @@ from weathercop import (
 
 
 def csim_py(args):
-    P, cvine, zero, one, tt = args
-    # tt = np.arange(T)
+    P, cvine, zero, one, tt, stop_at = args
+    if stop_at is None:
+        stop_at = cvine.d
     zero, one = np.atleast_1d(zero, one)
     U = np.empty_like(P)
+    if stop_at < cvine.d:
+        U[stop_at + 1 :] = np.nan
     U[0] = P[0]
+    if stop_at == 0:
+        return U
     U[1] = cvine[0, 1]["C^_1|0"](conditioned=P[1], condition=P[0], t=tt)
-    for j in range(2, cvine.d):
+    for j in range(2, stop_at):
         Q = P[j]
         for l in range(j - 1, -1, -1):
             cop = cvine[l, j][f"C^_{j}|{l}"]
@@ -43,7 +48,6 @@ def csim_py(args):
 
 def cquant_py(args):
     U, cvine, zero, one, tt = args
-    # tt = np.arange(T, dtype=int)
     P = np.empty_like(U)
     P[0] = U[0]
     P[1] = cvine[0, 1]["C_1|0"](conditioned=U[1], condition=P[0], t=tt)
@@ -1031,7 +1035,7 @@ class CVine(Vine):
             new_graph.add_edge(central_node, other_node, **edge_dict)
         return new_graph
 
-    def _simulate(self, T=None, randomness=None, **tqdm_kwds):
+    def _simulate(self, T=None, randomness=None, stop_at=None, **tqdm_kwds):
         """Simulate a sample of size T.
 
         Notes
@@ -1052,7 +1056,7 @@ class CVine(Vine):
         zero = 1e-15
         one = 1 - zero
 
-        Us = csim((Ps, self, zero, one, T))
+        Us = csim((Ps, self, zero, one, T, stop_at))
         return Us
 
     def _quantiles(self, ranks, T=None, **tqdm_kwds):
