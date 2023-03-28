@@ -1,40 +1,64 @@
+{% set name = "weathercop" %}
+{% set version = "0.1" %}
+{% set build = 0 %}
+
 package:
-  name: weathercop
-  version: "0.1"
+  name: {{ name }}
+  version: {{ version }}
 
 source:
+  # fn: {{ name }}-{{ version }}.tar.gz
   # git_rev: v0.13.1
   # git_url: https://github.com/joerick/pyinstrument.git
   path: weathercop
 
 requirements:
-  build:
-    - python >=3.4
+  # host:
+  #   # - python >=3.6
+  #   - python
+  #   # - intelpython
+  #   # - setuptools
+  #   - pip
+  # build:
+  host:
+    - python >=3.10
+    # - intelpython
     - setuptools
     - numpy
-  run:
-    - python >=3.4
     - cython
+    - mkl
+    - mkl-devel
+    - {{ compiler('c') }}
+    - {{ compiler('cxx') }}
+    # - icc_rt
+  run:
+    - python >=3.6
     - numpy
     - scipy
     - matplotlib
     - sympy
     - mpmath
-    - pathos
+    - mkl  [not nomkl]
+    - mkl-devel  [not nomkl]
+    - cython
     - networkx
     - tqdm
     - future
-    # lhglib requirements, delete this, once vg is properly packaged
     - pandas
+    # lhglib requirements, delete this, once vg is properly packaged
+    - timezonefinder
     - pytables
     - pep8
 
 test:
   imports:
-    - weathercop.vine
+    - weathercop
+    # - weathercop.vine
+    # - weathercop.multisite
+    # - weathercop.copulae
 
-# about:
-  # home: https://github.com/joerick/pyinstrument
-  # license: BSD
+about:
+  home: https://fluppenschaechte.mooo.com
+  license: BSD
   # license_file: LICENSE
 
