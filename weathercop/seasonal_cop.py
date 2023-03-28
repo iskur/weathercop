@@ -115,6 +115,7 @@ class SeasonalCop:
             self.n_doys = len(self.doys_unique)
             self._doy_mask = self._sliding_theta = self._solution = None
             self._likelihood = None
+            self.convergence = True
             # we want this to happen in parallel (in the
             # multiprocessing.pool), not later in np.nanmax(scops)!
             # the likelihood value is cached and will not be
@@ -202,8 +203,17 @@ class SeasonalCop:
                 if self.fit_mask is not None:
                     fit_mask_doy = self.fit_mask[doy_mask]
                     f_kwds = dict(fit_mask=fit_mask_doy)
+                    if fit_mask_doy.mean() < 0.05:
+                        self._sliding_theta[doy_ii] = np.nan
+                        continue
                 else:
                     f_kwds = dict()
+
+                # try:
+                #     theta = self.copula.fit(ranks_u, ranks_v, **f_kwds)
+                # except cops.NoConvergence:
+                #     theta = self.copula.theta_start
+
                 if doy_ii == 0:
                     try:
                         theta = self.copula.fit(ranks_u, ranks_v, **f_kwds)
@@ -211,30 +221,70 @@ class SeasonalCop:
                         theta = self.copula.theta_start
                 else:
                     x0 = self._sliding_theta[doy_ii - 1]
+                    if not np.isfinite(x0):
+                        x0 = self.copula.theta_start
                     try:
                         theta = self.copula.fit(
                             ranks_u, ranks_v, x0=x0, **f_kwds
                         )
                     except cops.NoConvergence:
+                        # theta = np.nan
                         try:
-                            theta = self.copula.fit(ranks_u, ranks_v, **f_kwds)
+                            # theta = self.copula.fit(ranks_u, ranks_v, **f_kwds)
+                            theta = self.copula.fit(
+                                ranks_u,
+                                ranks_v,
+                                x0=self.copula.theta_start,
+                                **f_kwds,
+                            )
                         except cops.NoConvergence:
                             # warnings.warn("No Convergence reached in "
                             #               f"{self.copula.name}.")
                             theta = np.nan
+                            # __import__("pdb").set_trace()
+                            # theta = self.copula.fit(ranks_u, ranks_v, **f_kwds)
+
+                # I don't trust fittings that are very close to the
+                # parameter bounds!
+                theta_lower, theta_upper = self.copula.theta_bounds[0]
+                if np.isclose(theta, theta_lower) or np.isclose(
+                    theta, theta_upper
+                ):
+                    theta = np.nan
+
                 self._sliding_theta[doy_ii] = theta
 
-        # try to interpolate over bad fittings
-        thetas = self._sliding_theta
+            # try to interpolate over bad fittings
+            thetas = self._sliding_theta
+            # self.theta_nan_mask = [np.isnan(thet) for thet in thetas]
+            self.theta_nan_mask = np.isnan(thetas)
+            self._sliding_theta = self._interp_thetas(thetas)
+            if np.any(np.isnan(self._sliding_theta)):
+                self.convergence = False
+        return self._sliding_theta.T
+
+    def _interp_thetas(self, thetas):
+        theta_filled = np.empty_like(thetas)
         for theta_i, theta in enumerate(thetas.T):
-            if np.any(np.isnan(theta)):
+            nan_mask = np.isnan(theta)
+            if nan_mask.mean() > 0.5:
+                if self.verbose:
+                    print(
+                        f"\tRejected seasonal {self.copula.name} "
+                        f"({100 * (~nan_mask).mean():.1f}% convergences)"
+                    )
+                self.convergence = False
+                break
+            if np.any(nan_mask):
                 half = len(theta) // 2
                 theta_pad = np.concatenate(
                     (theta[-half:], theta, theta[:half])
                 )
-                interp = my.interp_nan(theta_pad, max_interp=5)[half:-half]
-                self._sliding_theta[:, theta_i] = interp
-        return self._sliding_theta.T
+                # interp = my.interp_nan(theta_pad, max_interp=5)[half:-half]
+                interp = my.interp_nan(theta_pad)[half:-half]
+                theta_filled[:, theta_i] = interp
+        # assert np.all(np.isfinite(theta_filled))
+        return theta_filled
 
     @property
     def solution(self):
@@ -341,7 +391,11 @@ class SeasonalCop:
         if len(doys_ii) < len(doys):
             doys_ii = [my.val2ind(self.doys_unique, doy) for doy in doys]
         fourier_thetas = self.fourier_approx(fft_order, trig_theta)
+        # # no crazy waves where the fitting failed
+        # fourier_thetas[self.theta_nan_mask.T] = np.nan
+        # fourier_thetas = self._interp_thetas(fourier_thetas)
         thetas = np.array([fourier_thetas[:, doy_i] for doy_i in doys_ii])
+        # assert all(np.isfinite(thetas))
         return np.squeeze(thetas.T)
 
     def density(self, dtimes=None, ranks_u=None, ranks_v=None, thetas=None):
@@ -411,24 +465,27 @@ class SeasonalCop:
     @property
     def likelihood(self):
         if self._likelihood is None:
-            before = time.time()
-            density = self.density()
-            mask = np.isfinite(density)
-            density[~mask] = 1e-15
-            density[density <= 0] = 1e-15
-            # self._likelihood = float(ne.evaluate("""sum(log(density))"""))
-            # if self.verbose:
-            #     print(f"\t{self.copula.name}: {self.likelihood:.3f} (symm)")
+            if not self.convergence:
+                self._likelihood = -np.inf
+            else:
+                before = time.time()
+                density = self.density()
+                mask = np.isfinite(density)
+                density[~mask] = 1e-15
+                density[density <= 0] = 1e-15
+                # self._likelihood = float(ne.evaluate("""sum(log(density))"""))
+                # if self.verbose:
+                #     print(f"\t{self.copula.name}: {self.likelihood:.3f} (symm)")
 
-            self._likelihood = float(ne.evaluate("""sum(log(density))"""))
-            if self.verbose:
-                duration = time.time() - before
-                print(
-                    f"\t{self.copula.name}: {self.likelihood:.3f}"
-                    f" ({duration:.3f}s)"
-                )
-            # if self.verbose:
-            #     print(f"\t{self.copula.name}: {self.likelihood:.3f} (asymm)")
+                self._likelihood = float(ne.evaluate("""sum(log(density))"""))
+                if self.verbose:
+                    duration = time.time() - before
+                    print(
+                        f"\t{self.copula.name}: {self.likelihood:.3f}"
+                        f" ({duration:.3f}s)"
+                    )
+                # if self.verbose:
+                #     print(f"\t{self.copula.name}: {self.likelihood:.3f} (asymm)")
         return self._likelihood
 
     def __lt__(self, other):

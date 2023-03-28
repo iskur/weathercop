@@ -1,7 +1,7 @@
 import itertools
 import multiprocessing
 import re
-from collections import Iterable
+from collections.abc import Iterable
 from contextlib import suppress
 from itertools import repeat
 
@@ -456,7 +456,9 @@ class Vine:
             trees += [tree]
         return trees
 
-    def simulate(self, randomness=None, *args, **kwds):
+    def simulate(
+        self, randomness=None, primary_var=None, U_i=None, *args, **kwds
+    ):
         if randomness is not None:
             randomness = np.array(
                 [
@@ -464,7 +466,17 @@ class Vine:
                     for name in self.varnames
                 ]
             )
-        sim = self._simulate(randomness=randomness, *args, **kwds)
+        if primary_var is None:
+            primary_var_i = 0
+        else:
+            primary_var_i = self.varnames.index(primary_var)
+        sim = self._simulate(
+            randomness=randomness,
+            primary_var_i=primary_var_i,
+            U_i=U_i,
+            *args,
+            **kwds,
+        )
         if self.debias:
             sim = spstats.norm.cdf(spstats.norm.ppf(sim) - self.sim_bias)
         # reorder variables according to input order
@@ -531,7 +543,8 @@ class Vine:
                 copula = edge[f"Copula_{node_v}_{node_u}"]
             label_u = f"{name_u} ({node_u})"
             label_v = f"{name_v} ({node_v})"
-            line = f"{tree=}: {label_u} <-> {label_v} {copula}"
+            tau = edge["tau"]
+            line = f"{tree=}: {label_u} <-> {label_v} {copula} ({tau=:.3f})"
             if switched:
                 line += " switched"
             str_ += [line]
@@ -1032,7 +1045,15 @@ class CVine(Vine):
             new_graph.add_edge(central_node, other_node, **edge_dict)
         return new_graph
 
-    def _simulate(self, T=None, randomness=None, stop_at=None, **tqdm_kwds):
+    def _simulate(
+        self,
+        T=None,
+        randomness=None,
+        stop_at=None,
+        primary_var_i=None,
+        U_i=None,
+        **tqdm_kwds,
+    ):
         """Simulate a sample of size T.
 
         Notes
@@ -1052,6 +1073,70 @@ class CVine(Vine):
 
         zero = 1e-15
         one = 1 - zero
+
+        if primary_var_i is not None and primary_var_i > 0:
+            # conditional_cdf = self[0, primary_var_i][f"C^_0|{primary_var_i}"]
+            # U_i = np.full_like(U_i, np.mean(U_i))
+
+            conditional_cdf = self[0, primary_var_i][f"C^_{primary_var_i}|0"]
+            # conditional_cdf = self[0, primary_var_i][f"C^_0|{primary_var_i}"]
+            P0 = conditional_cdf(conditioned=Ps[0], condition=U_i, t=T)
+            conditional_cdf = self[0, primary_var_i][f"C^_0|{primary_var_i}"]
+            # conditional_cdf = self[0, primary_var_i][f"C^_{primary_var_i}|0"]
+            # P_i = conditional_cdf(conditioned=P0, condition=U_i)
+            P_i = conditional_cdf(conditioned=P0, condition=U_i, t=T)
+            # P0 = self[0, primary_var_i][f"C_{primary_var_i}|0"](
+            #     condition=Ps[0], conditioned=U_i, t=T
+            # )
+
+            # print(f"{U_i.mean()=}")
+            # print(f"{Ps[0].mean()=}")
+            # print(f"{P0.mean()=}")
+            # print(f"{P_i.mean()=}")
+
+            # n_points = 1000
+            # n_t = 500
+            # cdfs = np.empty((n_t, n_points))
+            # qq = (0.5 + np.arange(n_points)) / n_points
+            # for t in range(n_t):
+            #     cdfs[t] = conditional_cdf(
+            #         conditioned=qq,
+            #         condition=np.full(n_points, U_i[t]),
+            #         t=np.full(n_points, t),
+            #     )
+            # fig, axs = plt.subplots(nrows=1, ncols=2)
+            # ax = axs[0]
+            # pc = ax.pcolormesh(T[:n_t], qq, cdfs.T, vmin=0, vmax=1)
+            # ax.plot(U_i[:n_t], linewidth=0.5, label="U_i", color="k")
+            # # ax.plot(Ps[0, :n_t], linewidth=0.5, label="Ps[0]", color="r")
+            # ax.plot(P0[:n_t], linewidth=0.5, label="P0", color="r")
+            # ax.legend()
+            # fig.colorbar(pc, ax=ax)
+            # ax = axs[1]
+            # ax.scatter(
+            #     U_i,
+            #     # Ps[0],
+            #     P0,
+            #     marker="o",
+            #     facecolor=(0, 0, 0, 0),
+            #     edgecolor=(0, 0, 0, 0.5),
+            # )
+            # ax.set_xlim(0, 1)
+            # ax.set_xlabel("U_i")
+            # ax.set_ylabel("P0")
+            # plt.show()
+            # __import__("pdb").set_trace()
+            # # P0 = self[0, primary_var_i][f"C^_0|{primary_var_i}"](
+            # #     conditioned=Ps[0], condition=U_i, t=T
+            # # )
+            # # Ps[0] = 0.5 * (Ps[0] + P0)
+
+            # print()
+            # print(f"{Ps# [primary_var_i].mean()=}")
+            # print(f"{P_i.mean()=}")
+
+            Ps[0] = P0
+            Ps[primary_var_i] = P_i
 
         Us = csim((Ps, self, zero, one, T, stop_at))
         return Us

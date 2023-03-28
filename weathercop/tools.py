@@ -5,6 +5,8 @@ import datetime
 from collections import UserDict
 from hashlib import md5
 import dill
+import numpy as np
+import pandas as pd
 
 shelve.Pickler = dill.Pickler
 shelve.Unpickler = dill.Unpickler
@@ -63,17 +65,3 @@ class ADict(UserDict):
         for del_key in del_keys:
             del left_dict[del_key]
         return ADict(left_dict)
-
-
-def hyd_year_sums(data_xar):
-    time = data_xar.time
-    oct_mask = (time.dt.month == 10) & (time.dt.day == 1) & (time.dt.hour == 0)
-    hyd_year = oct_mask.cumsum() - 1
-    hyd_year += hyd_year.time[0].dt.year
-    summed = data_xar.groupby(hyd_year).sum("time").rename(group="hydyear")
-    hyd_year_coord = [
-        datetime.datetime(int(year), time[0].dt.month, time[0].dt.day)
-        for year in summed.hydyear.values
-    ]
-    summed = summed.assign_coords(dict(hydyear=hyd_year_coord))
-    return summed

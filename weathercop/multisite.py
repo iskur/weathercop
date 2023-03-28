@@ -1,9 +1,10 @@
-from collections import Iterable, OrderedDict
+from collections.abc import Iterable
+from collections import OrderedDict
 import shutil
 import inspect
 from functools import wraps, partial
 from itertools import repeat
-import collections
+import warnings
 import numpy as np
 import pandas as pd
 import matplotlib as mpl
@@ -11,7 +12,7 @@ import matplotlib.pyplot as plt
 from scipy import stats, interpolate
 import xarray as xr
 import dill
-from multiprocessing import Pool, cpu_count, Lock
+from multiprocessing import Pool, Lock, current_process
 from tqdm import tqdm
 from matplotlib.transforms import offset_copy
 import cartopy.crs as ccrs
@@ -25,10 +26,22 @@ from vg.time_series_analysis import (
     time_series as ts,
     rain_stats,
 )
-from weathercop import cop_conf, plotting, tools, copulae as cops
+from vg.time_series_analysis.phase_randomization import _random_phases
+from weathercop import cop_conf, plotting as wplt, tools, copulae as cops
 from weathercop.vine import CVine
 
+DEBUG = cop_conf.DEBUG
 lock = Lock()
+# from dask.distributed import Client
+
+# client = Client(
+#     n_workers=cop_conf.n_nodes,
+#     threads_per_worker=2,
+#     memory_limit=cop_conf.memory_limit,
+# )
+# import webbrowser
+
+# webbrowser.open(client.cluster.dashboard_link)
 
 
 def set_conf(conf_obj, **kwds):
@@ -37,6 +50,21 @@ def set_conf(conf_obj, **kwds):
         obj.conf = conf_obj
         for key, value in kwds.items():
             setattr(obj.conf, key, value)
+
+
+def pickle_filepath(xds, rain_method="simulation", warn=True):
+    start_str_data = str(xds.time[0].dt.strftime("%Y-%m-%d").data)
+    stop_str_data = str(xds.time[-1].dt.strftime("%Y-%m-%d").data)
+    station_names = station_names = xds.coords["station"].values
+    station_names_str = "_".join(sorted(station_names))
+    ms_filename = (
+        f"{station_names_str}_D_{rain_method}_"
+        f"{start_str_data}_{stop_str_data}.pkl"
+    )
+    ms_filepath = cop_conf.cache_dir / ms_filename
+    if warn and not ms_filepath.exists():
+        warnings.warn(f"{ms_filepath} does not exist")
+    return ms_filepath
 
 
 def suptitle_prepend(fig, name):
@@ -75,6 +103,8 @@ def sim_one(args):
         wcop,
         filepath,
         filepath_daily,
+        filepath_rphases,
+        filepath_rphases_src,
         sim_args,
         sim_kwds,
         dis_kwds,
@@ -85,71 +115,38 @@ def sim_one(args):
         write_to_disk,
     ) = args
     np.random.seed(1000 * real_i)
-    sim_sea, sim_trans = simulate(wcop, sim_times, *sim_args, **sim_kwds)
+    # sim_sea, sim_trans = simulate(wcop, sim_times, *sim_args, **sim_kwds)
+    if filepath_rphases_src:
+        rphases = np.load(filepath_rphases_src.with_suffix(".npy"))
+    else:
+        rphases = None
+    sim_sea = simulate(wcop, sim_times, rphases=rphases, *sim_args, **sim_kwds)
     if dis_kwds is not None:
         if write_to_disk:
             sim_sea.to_netcdf(filepath_daily)
+        np.random.seed(1000 * real_i)
+        if DEBUG:
+            print(current_process().name + " in sim_one. before disagg")
         sim_sea_dis = wcop.disaggregate(**dis_kwds)
+        if DEBUG:
+            print(current_process().name + " in sim_one. after disagg")
         sim_sea, sim_sea_dis = xr.align(sim_sea, sim_sea_dis, join="outer")
         sim_sea.loc[dict(variable=wcop.varnames)] = sim_sea_dis.sel(
             variable=wcop.varnames
         )
     if write_to_disk:
+        if DEBUG:
+            print(current_process().name + " in sim_one. before to_netcdf")
         sim_sea.to_netcdf(filepath)
+        if DEBUG:
+            print(current_process().name + " in sim_one. after to_netcdf")
         if csv:
             real_str = f"real_{real_i:0{n_digits}}"
             csv_path = ensemble_dir / "csv" / real_str
             wcop.to_csv(csv_path, sim_sea, filename_prefix=f"{real_str}_")
         # sim_trans.to_netcdf(filepath_trans)
+        np.save(filepath_rphases, wcop._rphases)
     return real_i
-
-
-@my.cache(mask=None)
-def _random_phases(phases, T_sim, T_data, verbose=False, mask_fun=None):
-    K = phases.shape[0]
-    T_total = 0
-    phases_stacked = []
-    _random_phases.clear_cache()
-    while T_total < T_sim:
-        # phase randomization with same random phases in all
-        # variables and stations
-        phases_len = T_data // 2 - 1 + T_data % 2
-        phases_pos = np.random.uniform(0, 2 * np.pi, phases_len)
-
-        if mask_fun is not None:
-            # e.g.: do not touch phases that are close to the annual
-            # frequency
-            periods = np.fft.rfftfreq(phases_len * 2)[1:] ** -1
-            mask = mask_fun(periods)
-            if verbose > 1:
-                print(
-                    f"Holding {mask.sum()} ({mask.mean() * 100:.3f}%)"
-                    " of phases constant."
-                )
-            phases_pos[mask] = 0
-
-        phases_pos = np.array(K * [phases_pos])
-        phases_neg = -phases_pos[:, ::-1]
-        nyquist = np.full(K, 0)[:, None]
-        zero_phases = phases[:, 0, None]
-        if T_data % 2 == 0:
-            phases = np.hstack((zero_phases, phases_pos, nyquist, phases_neg))
-            if mask_fun is not None:
-                mask = np.hstack(([False], mask, [False], mask))
-        else:
-            phases = np.hstack((zero_phases, phases_pos, phases_neg))
-            if mask_fun is not None:
-                mask = np.hstack(([False], mask, mask))
-        phases_stacked += [phases]
-        T_total += T_data
-        if mask_fun is not None:
-            if _random_phases.mask is None:
-                _random_phases.mask = mask
-            else:
-                _random_phases.mask = np.concatenate(
-                    (_random_phases.mask, mask)
-                )
-    return phases_stacked
 
 
 def _adjust_fft_sim(
@@ -159,14 +156,10 @@ def _adjust_fft_sim(
     sc_pars,
     primary_var_ii,
     phase_randomize_vary_mean,
+    adjust_prim=True,
 ):
     fft_sim *= (qq_std / fft_sim.std(axis=1))[:, None]
     fft_sim += (qq_mean - fft_sim.mean(axis=1))[:, None]
-
-    # print(f"\n{qq_mean.round(2)=}")
-    # print(f"{fft_sim.mean(axis=1).round(2)=}\n")
-    # print(f"{qq_std.round(2)=}")
-    # print(f"{fft_sim.std(axis=1).round(2)=}")
 
     if phase_randomize_vary_mean:
         # allow means to vary. let it flow from the central_node to
@@ -178,10 +171,15 @@ def _adjust_fft_sim(
         )
         fft_sim += mean_eps
 
-    # change in mean scenario
-    prim_i = tuple(primary_var_ii)
-    fft_sim[prim_i] += sc_pars.m[prim_i]
-    fft_sim[prim_i] += sc_pars.m_t[prim_i]
+    if adjust_prim:
+        # change in mean scenario
+        prim_i = tuple(primary_var_ii)
+        fft_sim[prim_i] += sc_pars.m[prim_i]
+        fft_sim[prim_i] += sc_pars.m_t[prim_i]
+        T = fft_sim.shape[1]
+        fft_sim[prim_i] += (
+            np.arange(T, dtype=float) / T * sc_pars.m_trend[prim_i]
+        )
     return fft_sim
 
 
@@ -193,42 +191,103 @@ def simulate(
     stop_at=None,
     mask_fun=None,
     rphases=None,
+    return_rphases=False,
+    heat_wave_kwds=None,
     **kwds,
 ):
     """this is like Multisite.simulate, but simplified for multiprocessing."""
     # allow for site-specific theta_incr
     theta_incrs = kwds.pop("theta_incr", None)
-    sim_sea = sim_trans = None
+    # sim_sea = sim_trans = None
+    sim_sea = None
     T_sim = len(sim_times)
 
-    lock.acquire()
-    vgs = wcop.vgs
-    vg_obj = list(vgs.values())[0]
-    T_data = vg_obj.T_summed
-    K = wcop.K
-    station_names = wcop.station_names
-    n_stations = len(station_names)
-    varnames = wcop.varnames
-    phases = wcop.phases
-    primary_var = wcop.primary_var
-    lock.release()
+    if DEBUG:
+        print(current_process().name + " in simulate. aquiring lock")
+    with lock:
+        vgs = wcop.vgs
+        vg_obj = list(vgs.values())[0]
+        T_data = vg_obj.T_summed
+        K = wcop.K
+        station_names = wcop.station_names
+        n_stations = len(station_names)
+        varnames = wcop.varnames
+        phases = wcop.phases
+        primary_var = wcop.primary_var
 
+        # As = wcop.As
+        # qq_means = wcop.qq_means
+        # qq_stds = wcop.qq_stds
+    if DEBUG:
+        print(current_process().name + " in simulate. released lock")
+
+    primary_var_sim = kwds.pop("primary_var", primary_var)
     if rphases is None:
         rphases = _random_phases(phases, T_sim, T_data, mask_fun)
-    vg_ph = partial(_vg_ph, rphases=rphases, wcop=wcop)
+    # fft_sim = xr.DataArray(
+    #     np.full((n_stations, K, T_sim), 0.5),
+    #     coords=[
+    #         station_names,
+    #         varnames,
+    #         vg_obj.sim_times,
+    #     ],
+    #     dims=["station", "variable", "time"],
+    # )
+    # for station_name_ in station_names:
+    #     As = As.sel(station=station_name_, drop=True)
+    #     fft_sim = np.concatenate(
+    #         [
+    #             np.fft.ifft(As * np.exp(1j * rphases_)).real
+    #             for rphases_ in rphases
+    #         ],
+    #         axis=1,
+    #     )[:, : vg_obj.T_sim]
+    #     fft_sim = _adjust_fft_sim(
+    #         fft_sim,
+    #         self.qq_means.sel(station=station_name_).data,
+    #         self.qq_stds.sel(station=station_name_).data,
+    #         sc_pars,
+    #         vg_obj.primary_var_ii,
+    #         self.phase_randomize_vary_mean,
+    #         adjust_prim=(primary_var_sim == self.primary_var),
+    #     )
+    #     self.fft_sim.loc[dict(station=station_name_)] = fft_sim
+    # if heat_wave_kwds is not None:
+    #     self.heat_waves = wplt.HeatWavesN(
+    #         self.fft_sim.sel(variable=primary_var_sim).mean("station"),
+    #         **heat_wave_kwds,
+    #     )
+    vg_ph = partial(
+        _vg_ph,
+        rphases=rphases,
+        wcop=wcop,
+        phase_randomize_vary_mean=phase_randomize_vary_mean,
+    )
     for station_name, svg in vgs.items():
         try:
             theta_incr = theta_incrs[station_name]
         except (KeyError, TypeError, IndexError):
             theta_incr = theta_incrs
-        _, sim = svg.simulate(
+        if DEBUG:
+            print("in sim_one ", heat_wave_kwds)
+        sim_returned = svg.simulate(
             sim_func=vg_ph,
             primary_var=primary_var,
             theta_incr=theta_incr,
-            sim_func_kwds=dict(stop_at=stop_at),
+            sim_func_kwds=dict(
+                stop_at=stop_at,
+                wcop=wcop,
+                return_rphases=return_rphases,
+                primary_var_sim=primary_var_sim,
+                heat_wave_kwds=heat_wave_kwds,
+            ),
             *args,
             **kwds,
         )
+        if return_rphases:
+            _, sim, rphases = sim_returned
+        else:
+            _, sim = sim_returned
         if sim_sea is None:
             sim_sea = xr.DataArray(
                 np.empty((n_stations, K, T_sim)),
@@ -238,7 +297,10 @@ def simulate(
             # sim_trans = xr.full_like(sim_sea, np.nan)
         sim_sea.loc[dict(station=station_name)] = sim
         # sim_trans.loc[dict(station=station_name)] = svg.sim
-    return sim_sea, sim_trans
+    # return sim_sea, sim_trans
+    if return_rphases:
+        return sim_sea, rphases
+    return sim_sea
 
 
 def _vg_ph(
@@ -248,6 +310,9 @@ def _vg_ph(
     rphases=None,
     phase_randomize_vary_mean=0.25,
     stop_at=None,
+    return_rphases=False,
+    primary_var_sim=None,
+    heat_wave_kwds=None,
 ):
     """Call-back function for VG.simulate. Replaces a time_series_analysis
     model.
@@ -255,16 +320,27 @@ def _vg_ph(
     Simlified version of Multisite._vg_ph for multiprocessing
 
     """
-    lock.acquire()
-    station_name = vg_obj.station_name
-    primary_var_ii = vg_obj.primary_var_ii
-    T_sim = vg_obj.T_sim
-    As = wcop.As.sel(station=station_name, drop=True)
-    qq_std = wcop.qq_stds.sel(station=station_name).data
-    qq_mean = wcop.qq_means.sel(station=station_name).data
-    zero_phases = wcop.zero_phases
-    vine = wcop.vine
-    lock.release()
+    if DEBUG:
+        print(current_process().name + " in _vg_ph. acquiring lock")
+    with lock:
+        station_name = vg_obj.station_name
+        primary_var = vg_obj.primary_var
+        primary_var_ii = vg_obj.primary_var_ii
+        T_sim = vg_obj.T_sim
+        sim_times = vg_obj.sim_times
+        As = wcop.As.sel(station=station_name, drop=True)
+        qq_std = wcop.qq_stds.sel(station=station_name).data
+        qq_mean = wcop.qq_means.sel(station=station_name).data
+        zero_phases = wcop.zero_phases
+        vine = wcop.vine
+        varnames_wcop = wcop.varnames
+        varnames_vine = wcop.vine.varnames
+        heat_waves = wcop.heat_waves
+    if DEBUG:
+        print(current_process().name + " in _vg_ph. released lock")
+
+    if primary_var_sim is None:
+        primary_var_sim = primary_var
 
     # adjust zero-phase
     phases = []
@@ -285,14 +361,83 @@ def _vg_ph(
         sc_pars,
         primary_var_ii,
         phase_randomize_vary_mean,
+        adjust_prim=(primary_var_sim == primary_var),
     )
 
     qq = dists.norm.cdf(fft_sim)
-    ranks_sim = vine.simulate(
-        T=np.arange(qq.shape[1]), randomness=qq, stop_at=stop_at
-    )
+    if primary_var_sim != primary_var:
+        primary_var_sim_i = varnames_wcop.index(primary_var_sim)
+
+        # heat wave experimentation
+        # get heat waves and make them worse
+        if DEBUG:
+            print(current_process().name + " in _vg_ph. before heatwave")
+        if heat_wave_kwds is not None:
+            sim_prim_xr = xr.DataArray(
+                fft_sim[primary_var_sim_i], coords=dict(time=sim_times)
+            )
+            # heat_waves = wplt.heatwaves_kuglitsch(sim_prim_xr)
+            # heat_waves = wplt.HeatWavesN(sim_prim_xr, n_per_summer=3)
+            if DEBUG:
+                print(
+                    f"Adding heat waves (n_days={heat_waves.mask.sum().values}, "
+                    f"diff={heat_wave_kwds['diff']})"
+                )
+            sim_prim_xr.values[heat_waves.mask] += heat_wave_kwds["diff"]
+            print(qq[primary_var_sim_i, heat_waves.mask].mean())
+            qq[primary_var_sim_i] = dists.norm.cdf(sim_prim_xr.values)
+            print(qq[primary_var_sim_i, heat_waves.mask].mean())
+        if DEBUG:
+            print(current_process().name + " in _vg_ph. after heatwave")
+
+        # get a baseline U
+        T = qq.shape[1]
+        ranks_sim = vine.simulate(
+            T=np.arange(T),
+            randomness=qq,
+            stop_at=varnames_vine.index(primary_var_sim) + 1,
+        )
+        trend = (
+            np.arange(T, dtype=float) / T * sc_pars.m_trend[primary_var_sim_i]
+        )
+        U_i = dists.norm.cdf(
+            dists.norm.ppf(ranks_sim[primary_var_sim_i])
+            + (sc_pars.m_t + sc_pars.m)[primary_var_sim_i]
+            + trend
+        )
+        qq[primary_var_sim_i] = U_i
+        ranks_sim = vine.simulate(
+            T=np.arange(T),
+            randomness=qq,
+            stop_at=stop_at,
+            primary_var=primary_var_sim,
+            U_i=U_i,
+        )
+    else:
+        U_i = None
+        ranks_sim = vine.simulate(
+            T=np.arange(qq.shape[1]),
+            randomness=qq,
+            stop_at=stop_at,
+        )
     sim = dists.norm.ppf(ranks_sim)
-    assert np.all(np.isfinite(sim))
+
+    # ranks_sim = vine.simulate(
+    #     T=np.arange(qq.shape[1]), randomness=qq, stop_at=stop_at
+    # )
+    # sim = dists.norm.ppf(ranks_sim)
+    if stop_at is None:
+        assert np.all(np.isfinite(sim))
+    else:
+        var_ii = [
+            varnames_wcop.index(varname) for varname in varnames_vine[:stop_at]
+        ]
+        assert np.all(np.isfinite(sim[var_ii]))
+
+    if DEBUG:
+        print(current_process().name + " in _vh_ph. done.")
+    if return_rphases:
+        return sim, rphases
     return sim
 
 
@@ -354,13 +499,17 @@ class Multisite:
         primary_var="theta",
         discretization="D",
         verbose=False,
-        phase_inflation=False,
+        infilling=None,
         refit_vine=False,
         asymmetry=False,
         rain_method="regression",
         cop_candidates=None,
         debias=True,
         scop_kwds=None,
+        vgs_cache_dir=None,
+        vine_cache=None,
+        pad_input=True,
+        reinitialize_vgs=False,
         **kwds,
     ):
         """Multisite weather generation using vines and phase randomization.
@@ -375,11 +524,22 @@ class Multisite:
             All disturbances (mean_arrival, distrubance_std, theta_incr,
             theta_grad and climate_signal) correspond to changes in this
             variable.
-        phase_inflation : boolean
-            Do phase inflation before fitting the vine. This might
-            possibly alter the dependency structure, but fills in
-            missing values.
+        infilling : None or "phase_inflation" or "vg"
+            phase_inflation
+                Do phase inflation before fitting the vine. This might
+                possibly alter the dependency structure, but fills in
+                missing values.
+            vg
+                Use vg's VAR process for infilling.
+        pad_hourly : boolean
+            Pad missing hours at the beginning of the input.
         """
+        self.vgs_cache_dir = (
+            cop_conf.vgs_cache_dir if vgs_cache_dir is None else vgs_cache_dir
+        )
+        self.vine_cache = (
+            cop_conf.vine_cache if vine_cache is None else vine_cache
+        )
         self.varnames = list(xds.coords["variable"].data)
         # if "R" is included, put it second for better fitting!
         # if "R" in self.varnames:
@@ -401,13 +561,25 @@ class Multisite:
             assert np.all(np.isfinite(self.longitudes))
             assert np.all(np.isfinite(self.latitudes))
             xds = xds.drop_vars(("latitude", "longitude"))
-        self.xar = xds.to_array("station").transpose(
-            "station", "variable", "time"
+        self.xar = (
+            xds.to_array("station")
+            .transpose("station", "variable", "time")
+            .sel(station=self.station_names)
         )
+        if pad_input:
+            self.xar = self.pad_input()
+        if isinstance(primary_var, str):
+            primary_var = (primary_var,)
         self.primary_var = primary_var
         self.discr = discretization
         self.verbose = verbose
-        self.phase_inflation = phase_inflation
+        self.verbose_old = None
+        self.phase_inflation = False
+        self.vg_infilling = False
+        if infilling == "phase_inflation":
+            self.phase_inflation = True
+        elif infilling == "vg":
+            self.vg_infilling = True
         self.asymmetry = asymmetry
         self.rain_method = rain_method
         if cop_candidates is None:
@@ -429,11 +601,10 @@ class Multisite:
             return
         self.n_stations = len(self.station_names)
         self.times = self.xar.time
-        self.varnames_refit = self.varnames_dis = None
+        self.varnames_refit = self.varnames_dis = self.sim_sea_dis = None
         start_dt, end_dt = pd.to_datetime(self.xar.time.data[[0, -1]])
-        self.dtimes = pd.date_range(
-            start_dt, end_dt, freq=self.discr
-        ).to_pydatetime()
+        self.times_daily = pd.date_range(start_dt, end_dt, freq=self.discr)
+        self.dtimes = self.times_daily.to_pydatetime()
 
         if "refit" in kwds and kwds["refit"]:
             self.refit = True
@@ -454,7 +625,7 @@ class Multisite:
             self._clear_vgs_cache(station_names_refit)
         else:
             self.refit = False
-        self._init_vgs(*args, **kwds)
+        self._init_vgs(reinitialize_vgs, *args, **kwds)
 
         # this is useful from time to time
         self.data_daily = self.xar.resample(time=self.discr).mean(
@@ -463,17 +634,15 @@ class Multisite:
         )
 
         nans = self.data_daily.isnull()
-        if np.any(nans) and not phase_inflation:
+        if np.any(nans) and infilling is None:
             print("Nan sums:\n", nans.sum("time").to_pandas())
-            raise ValueError("nans in xds. Remove or use phase_inflation.")
+            raise ValueError("nans in xds. Remove or use an infilling method.")
 
         # household variables for vines and phase randomization
         self.cop_quantiles = xr.full_like(self.data_trans, np.nan)
         self.fft_sim = None  # xr.full_like(self.data_trans, np.nan)
-        # we will expand in frequency space in order to have variation
-        # in mean
         self.As = xr.full_like(self.data_trans, np.nan)
-        self.rphases = self.phases = self.vine = None
+        self.rphases = self._rphases = self.phases = self.vine = None
 
         # property caches
         self._obs_means = None
@@ -481,7 +650,11 @@ class Multisite:
         # filled during simulation
         self.sim = None  # xr.full_like(self.data_trans, np.nan)
         self.ranks_sim = None  # xr.full_like(self.sim, np.nan)
-        self.sim_sea = self.ensemble = None
+        self.sim_sea = self._sim_sea = self._sim_sea_dis = self.ensemble = None
+        self.ensemble_dir = self.sc_pars_sum = None
+
+        # for saving expensive heatwave calculation intermediate results
+        self._heatwave_bounds = self.heat_waves = None
 
     def __getstate__(self):
         dict_ = dict(self.__dict__)
@@ -493,6 +666,22 @@ class Multisite:
         self.__dict__ = dict_
         self.vgs = OrderedDict()
         self._init_vgs(*self.args, **self.kwds)
+
+    def save(self):
+        filename = (
+            "_".join(sorted(self.station_names) + [self.identifier]) + ".pkl"
+        )
+        filepath = cop_conf.cache_dir / filename
+        if self.verbose:
+            print(f"Pickling {self} to:\n{filepath}")
+        with open(filepath, "wb") as fi:
+            dill.dump(self, fi)
+        return filepath
+
+    @classmethod
+    def load(cls, filepath):
+        with open(filepath, "rb") as fi:
+            return dill.load(fi)
 
     @property
     def obs_means(self):
@@ -515,10 +704,15 @@ class Multisite:
 
     def __getattr__(self, name):
         if name.startswith("plot_") and name not in dir(self):
-            # call the plotting method on all vgs
+            # call the wplt method on all vgs
             def meta_plot(*args, **kwds):
                 returns = {}
-                for station_name, svg in self.vgs.items():
+                station_names = kwds.pop("stations", self.vgs.keys())
+                fig_axs = kwds.pop("fig_axs", None)
+                if isinstance(station_names, str):
+                    station_names = (station_names,)
+                stations = {name: self.vgs[name] for name in station_names}
+                for station_name, svg in stations.items():
                     longitude = float(
                         self.longitudes.sel(station=station_name)
                     )
@@ -526,7 +720,13 @@ class Multisite:
                     svg._conf_update(
                         dict(longitude=longitude, latitude=latitude)
                     )
-                    fig, axs = getattr(svg, name)(*args, **kwds)
+                    if fig_axs is not None:
+                        fig, axs = fig_axs[station_name]
+                    else:
+                        fig, axs = None, None
+                    fig, axs = getattr(svg, name)(
+                        figs=fig, axss=axs, *args, **kwds
+                    )
                     for fig_ in np.atleast_1d(fig):
                         suptitle_prepend(fig_, station_name)
                     returns[station_name] = fig, axs
@@ -565,7 +765,21 @@ class Multisite:
     def end_str(self):
         return self.dtimes[-1].strftime("%Y-%m-%d")
 
-    def _init_vgs(self, *args, **kwds):
+    def pad_input(self):
+        start_hour = int(self.xar.coords["time"][0].dt.hour)
+        if start_hour:
+            xar_pad = self.xar.isel(time=slice(24 - start_hour, 24))
+            xar_pad.coords["time"] = xar_pad.time - pd.Timedelta(days=1)
+            return xr.concat(
+                (xar_pad, self.xar),
+                dim="time",
+            )
+        else:
+            if self.verbose:
+                print("No need to pad input")
+            return self.xar
+
+    def _init_vgs(self, reinitialize_vgs=False, *args, **kwds):
         """Initiate VG instances to get transformed data."""
         # gather transformed data from all vg instances
         data_trans = (
@@ -579,7 +793,7 @@ class Multisite:
                 self.ranks.sel(variable="R"), False, dtype=bool
             )
         refit = "refit" in kwds
-        if refit and isinstance(kwds["refit"], collections.Iterable):
+        if refit and isinstance(kwds["refit"], Iterable):
             # refit_vars = (set(kwds.get("refit", []))
             #               & set(self.varnames))
             refit_vars = self.varnames_refit
@@ -590,7 +804,7 @@ class Multisite:
             refit_vars = refit_stations = []
         for station_name in self.station_names:
             cache_file = self.cache_file(station_name)
-            (cop_conf.vgs_cache_dir / station_name).mkdir(
+            (self.vgs_cache_dir / station_name).mkdir(
                 exist_ok=True, parents=True
             )
             seasonal_cache_file = cache_file.parent / cache_file.stem
@@ -606,6 +820,7 @@ class Multisite:
                 not refit_vars
                 and station_name not in refit_stations
                 and cache_file.exists()
+                and not reinitialize_vgs
             ):
                 if self.verbose:
                     print(
@@ -632,7 +847,7 @@ class Multisite:
                     .to_dataset(dim="variable")
                     .to_dataframe()
                 )
-                cache_dir = str(cop_conf.vgs_cache_dir / station_name)
+                cache_dir = str(self.vgs_cache_dir / station_name)
                 kwds_ = {
                     key: value for key, value in kwds.items() if key != "refit"
                 }
@@ -660,6 +875,7 @@ class Multisite:
                     sum_interval=self.sum_interval,
                     station_name=station_name,
                     rain_method=self.rain_method,
+                    infill=self.vg_infilling,
                     *args,
                     **kwds_,
                 )
@@ -679,6 +895,10 @@ class Multisite:
             if self.verbose:
                 print("Phase inflation")
             data_trans = self._phase_inflation(data_trans)
+        # elif self.vg_infilling:
+        #     if self.verbose:
+        #         print("Infilling nans with vg's VAR process.")
+        #     data_trans = self._vg_infilling(data_trans)
         self.data_trans = data_trans.interpolate_na("time")
         self.ranks.values = dists.norm.cdf(self.data_trans)
         assert np.all(np.isfinite(self.ranks.values))
@@ -688,13 +908,17 @@ class Multisite:
         if "R" in self.varnames:
             self.rain_mask = self.rain_mask.stack(rank=("station", "time"))
 
+    @property
+    def identifier(self):
+        return "_".join(
+            (self.discr, self.rain_method, self.start_str, self.end_str)
+        )
+
     def cache_file(self, station_name):
         return (
-            cop_conf.vgs_cache_dir
+            self.vgs_cache_dir
             / station_name
-            / f"{station_name}_{self.discr}_"
-            f"{self.rain_method}_"
-            f"{self.start_str}-{self.end_str}.pkl"
+            / f"{station_name}_{self.identifier}.pkl"
         )
 
     def _clear_vgs_cache(self, station_names=None):
@@ -819,6 +1043,15 @@ class Multisite:
         data_ar.data = data
         return data_ar
 
+    def _vg_infilling(self, data_trans):
+        for station_name, svg in self.vgs.items():
+            if self.verbose:
+                print(station_name)
+            data_trans.loc[
+                dict(station=station_name)
+            ] = svg.infill_trans_nans()
+        return data_trans
+
     @property
     def verbose(self):
         if not hasattr(self, "_verbose"):
@@ -842,6 +1075,8 @@ class Multisite:
         stop_at=None,
         mask_fun=None,
         rphases=None,
+        return_rphases=False,
+        heat_wave_kwds=None,
         **kwds,
     ):
         self.usevine = usevine
@@ -849,10 +1084,9 @@ class Multisite:
         self.write_to_disk = write_to_disk
         # allow for site-specific theta_incr
         theta_incrs = kwds.pop("theta_incr", None)
-        # self.sim_sea = xr.full_like(self.cop_quantiles, np.nan)
+        primary_var_sim = kwds.pop("primary_var", self.primary_var)
         # self.sim_trans = xr.full_like(self.sim_sea, np.nan)
         self.sim_sea = self.sim_trans = None
-
         for station_name, svg in self.vgs.items():
             if self.verbose:
                 print(f"Simulating {station_name}")
@@ -863,22 +1097,34 @@ class Multisite:
                 theta_incr = theta_incrs[station_name]
             else:
                 theta_incr = theta_incrs
-            sim_times, sim = svg.simulate(
+            sim_returned = svg.simulate(
                 sim_func=self._vg_ph,
                 primary_var=self.primary_var,
+                # primary_var=primary_var_sim,
                 theta_incr=theta_incr,
                 sim_func_kwds=dict(
-                    stop_at=stop_at, mask_fun=mask_fun, rphases=rphases
+                    stop_at=stop_at,
+                    mask_fun=mask_fun,
+                    rphases=rphases,
+                    wcop=self,
+                    return_rphases=return_rphases,
+                    primary_var_sim=primary_var_sim,
+                    heat_wave_kwds=heat_wave_kwds,
                 ),
                 *args,
                 **kwds,
             )
+            if return_rphases:
+                sim_times, sim, rphases = sim_returned
+            else:
+                sim_times, sim = sim_returned
             if self.sim_sea is None:
                 self.sim_sea = xr.DataArray(
                     np.empty((self.n_stations, self.K, svg.T_sim)),
                     coords=[self.station_names, self.varnames, sim_times],
                     dims=["station", "variable", "time"],
                 )
+            if self.sim_trans is None:
                 self.sim_trans = xr.full_like(self.sim_sea, np.nan)
             self.sim_sea.loc[dict(station=station_name)] = sim
             self.sim_trans.loc[dict(station=station_name)] = svg.sim
@@ -893,9 +1139,39 @@ class Multisite:
         self.rphases = None
         if self.verbose:
             self.print_all_means()
+        if return_rphases:
+            return self.sim_sea, rphases
         if return_trans:
             return self.sim_sea, self.sim_trans
         return self.sim_sea
+
+    @property
+    def sim_sea(self):
+        return self._sim_sea
+
+    @sim_sea.setter
+    def sim_sea(self, xar):
+        if xar is None:
+            return
+        self._sim_sea = xar
+        times = pd.to_datetime(xar.time)
+        for svg in self:
+            svg.sim_times = times
+            svg.sim_sea = xar.sel(station=svg.station_name).load().values
+
+    @property
+    def sim_sea_dis(self):
+        return self._sim_sea_dis
+
+    @sim_sea_dis.setter
+    def sim_sea_dis(self, xar):
+        if xar is None:
+            return
+        self._sim_sea_dis = xar
+        times = pd.to_datetime(xar.time)
+        for svg in self:
+            svg.dis_sim_times = times
+            svg.sim_sea_dis = xar.sel(station=svg.station_name).load().values
 
     def disaggregate(self, *args, **kwds):
         self.sim_sea_dis = None
@@ -903,7 +1179,18 @@ class Multisite:
             if self.verbose:
                 print(f"Disaggregating {station_name}")
             svg.verbose = False
-            times_dis, sim_dis = svg.disaggregate(*args, **kwds)
+            longitude = float(self.longitudes.sel(station=station_name))
+            latitude = float(self.latitudes.sel(station=station_name))
+            svg._conf_update(
+                dict(
+                    longitude=longitude,
+                    latitude=latitude,
+                    station_name=station_name,
+                )
+            )
+            times_dis, sim_dis = svg.disaggregate(
+                latitude=latitude, longitude=longitude, *args, **kwds
+            )
             if self.sim_sea_dis is None:
                 self.sim_sea_dis = xr.DataArray(
                     np.empty((self.n_stations, self.K, sim_dis.shape[1])),
@@ -918,10 +1205,12 @@ class Multisite:
         self,
         n_realizations,
         name="calibration",
+        name_derived=None,
         clear_cache=False,
         csv=False,
         dis_kwds=None,
         write_to_disk=True,
+        ensemble_root=None,
         *args,
         **kwds,
     ):
@@ -930,31 +1219,58 @@ class Multisite:
             name = f"{name}_disag"
         else:
             disaggregate = False
-        ensemble_dir = cop_conf.weathercop_dir / "ensembles" / name
+        ensemble_root = (
+            cop_conf.ensemble_root if ensemble_root is None else ensemble_root
+        )
+        self.ensemble_dir = ensemble_dir = ensemble_root / name
         if clear_cache and ensemble_dir.exists():
             shutil.rmtree(ensemble_dir)
-        ensemble_dir.mkdir(exist_ok=True)
+        ensemble_dir.mkdir(exist_ok=True, parents=True)
         if self.verbose:
             print(f"Starting Ensemble Simulations for {name}")
-            print(f"Saving nc-files here:\n{ensemble_dir}")
+            print(f"Will save nc-files here:\n{ensemble_dir}")
         # silence the vgs for the moment, so we can get a nice
-        # progress bar
-        verbose = self.verbose
+        # uninterrupted progress bar
+        self.verbose_old = self.verbose
         self.write_to_disk = write_to_disk
         self.verbose = False
-        n_digits = int(np.log10(n_realizations)) + 3
         filepaths = [
-            ensemble_dir / f"real_{real_i:0{n_digits}}.nc"
+            ensemble_dir / f"{name}_real_{real_i:0{cop_conf.n_digits}}.nc"
             for real_i in range(n_realizations)
         ]
+        # filepath_rphases = filepaths[0].parent / (
+        #     filepaths[0].stem + "_phases"
+        # )
+        filepaths_rphases = [
+            filepath.parent / (filepath.stem + "_phases.npy")
+            for filepath in filepaths
+        ]
+        if name_derived:
+            ensemble_dir_derived = ensemble_root / name_derived
+            if not ensemble_dir_derived.exists():
+                name_derived = (
+                    f"{name_derived}_disag"
+                    if not name_derived.endswith("_disag")
+                    else name_derived
+                )
+                ensemble_dir_derived = ensemble_root / name_derived
+            filepaths_rphases_src = [
+                ensemble_dir_derived
+                / (name_derived + filepath.stem[len(name) :] + "_phases.npy")
+                for filepath in filepaths
+            ]
+            if not filepaths_rphases_src[0].exists():
+                raise RuntimeError(
+                    f"Could not find phases here: {filepaths_rphases_src[0]}"
+                )
         if disaggregate:
             # keep the daily values as well!
             filepaths_daily = [
-                ensemble_dir / f"real_daily_{real_i:0{n_digits}}.nc"
+                ensemble_dir
+                / f"{name}_real_daily_{real_i:0{cop_conf.n_digits}}.nc"
                 for real_i in range(n_realizations)
             ]
         else:
-            # filepaths_daily = [None for path in filepaths]
             filepaths_daily = filepaths
 
         # filepaths_trans = [filepath.parent / (filepath.stem + "_trans.nc")
@@ -966,7 +1282,12 @@ class Multisite:
                     continue
                 # filepath_trans = filepaths_trans[real_i]
                 np.random.seed(1000 * real_i)
-                sim_sea = self.simulate(*args, **kwds)
+                if name_derived:
+                    rphases = np.load(filepaths_rphases_src[real_i])
+                else:
+                    rphases = None
+                sim_sea = self.simulate(rphases=rphases, *args, **kwds)
+                assert np.all(np.isfinite(sim_sea))
                 # sim_trans = self.sim_trans
                 if disaggregate:
                     filepath_daily = filepaths_daily[real_i]
@@ -982,17 +1303,26 @@ class Multisite:
                 if write_to_disk:
                     sim_sea.to_netcdf(filepath)
                     if csv:
-                        real_str = f"real_{real_i:0{n_digits}}"
+                        real_str = f"real_{real_i:0{cop_conf.n_digits}}"
                         csv_path = ensemble_dir / "csv" / real_str
                         self.to_csv(
                             csv_path, sim_sea, filename_prefix=f"{real_str}_"
                         )
+                    np.save(filepaths_rphases[real_i], self.rphases)
                     # sim_trans.to_netcdf(filepath_trans)
         else:
             # this means we do parallel computation
             # do one simulation in the main loop to set up attributes
             np.random.seed(0)
-            sim_sea = self.simulate(*args, **kwds)
+            if (
+                name_derived
+                and filepaths_rphases_src[0].with_suffix(".npy").exists()
+            ):
+                rphases = np.load(filepaths_rphases_src[0].with_suffix(".npy"))
+            else:
+                rphases = None
+            sim_sea = self.simulate(rphases=rphases, *args, **kwds)
+            np.save(filepaths_rphases[0], self._rphases)
             sim_times = sim_sea.coords["time"].data
             # sim_trans = self.sim_trans
             if disaggregate:
@@ -1009,7 +1339,7 @@ class Multisite:
                 sim_sea.to_netcdf(filepaths[0])
                 if csv:
                     real_i = 0
-                    real_str = f"real_{real_i:0{n_digits}}"
+                    real_str = f"real_{real_i:0{cop_conf.n_digits}}"
                     csv_path = ensemble_dir / "csv" / real_str
                     self.to_csv(
                         csv_path, sim_sea, filename_prefix=f"{real_str}_"
@@ -1021,19 +1351,22 @@ class Multisite:
             filepaths_multi = []
             filepaths_multi_daily = []
             # filepaths_trans_multi = []
+            filepaths_multi_rphases = []
+            filepaths_multi_rphases_src = []
             for real_i in range(1, n_realizations):
-                # real_missing = not (filepaths[real_i].exists() and
-                #                   filepaths_trans[real_i].exists())
                 real_missing = not (
                     filepaths[real_i].exists()
                     and filepaths_daily[real_i].exists()
                 )
-                # real_missing = not filepaths[real_i].exists()
                 if real_missing:
                     realizations += [real_i]
                     filepaths_multi += [filepaths[real_i]]
                     filepaths_multi_daily += [filepaths_daily[real_i]]
                     # filepaths_trans_multi += [filepaths_trans[real_i]]
+                    filepaths_multi_rphases += [filepaths_rphases[real_i]]
+                    filepaths_multi_rphases_src += [
+                        filepaths_rphases_src[real_i] if name_derived else None
+                    ]
             self.varnames_refit = []
             with Pool(cop_conf.n_nodes) as pool:
                 completed_reals = list(
@@ -1047,13 +1380,15 @@ class Multisite:
                                 filepaths_multi,
                                 filepaths_multi_daily,
                                 # filepaths_trans_multi,
+                                filepaths_multi_rphases,
+                                filepaths_multi_rphases_src,
                                 repeat(args),
                                 repeat(kwds),
                                 repeat(dis_kwds),
                                 repeat(sim_times),
                                 repeat(csv),
                                 repeat(ensemble_dir),
-                                repeat(n_digits),
+                                repeat(cop_conf.n_digits),
                                 repeat(write_to_disk),
                             ),
                         ),
@@ -1064,19 +1399,37 @@ class Multisite:
             assert len(completed_reals) == len(realizations)
         # expose the ensemble as a dask array
         drop_dummy = self.n_stations > 1
+        # chunks = dict(
+        #     realization=1,
+        #     # time=100000,
+        #     time=len(sim_times),
+        #     variable=self.n_variables,
+        #     station=self.n_stations,
+        # )
+        # chunks = "auto"
+        # chunks = dict(realization=1, time=None, variable=None, station=None)
+        chunks = dict(variable=1, station=1)
+        # chunks = None
         self.ensemble = (
             xr.open_mfdataset(
-                filepaths, concat_dim="realization", combine="nested"
+                filepaths,
+                concat_dim="realization",
+                combine="nested",
+                chunks=chunks,
+                parallel=True,
             )
             .assign_coords(realization=range(n_realizations))
             .to_array("dummy")
             .squeeze("dummy", drop=drop_dummy)
-            # .squeeze(drop=drop_dummy)
         )
         if disaggregate:
             self.ensemble_daily = (
                 xr.open_mfdataset(
-                    filepaths_daily, concat_dim="realization", combine="nested"
+                    filepaths_daily,
+                    concat_dim="realization",
+                    combine="nested",
+                    chunks=chunks,
+                    parallel=True,
                 )
                 .assign_coords(realization=range(n_realizations))
                 .to_array("dummy")
@@ -1094,7 +1447,7 @@ class Multisite:
         #                        # .squeeze(drop=drop_dummy)
         #                        )
 
-        # # make the first realization available for plotting methods
+        # # make the first realization available for wplt methods
         # self.sim_sea = self.ensemble.sel(realization=0)
         # for station_name in self.station_names:
         #     svg = self.vgs[station_name]
@@ -1103,13 +1456,44 @@ class Multisite:
         # np.random.seed(0)
         # self.simulate(*args, **kwds)
 
-        self.verbose = verbose
+        self.verbose = self.verbose_old
         if self.verbose:
             for station_name in self.station_names:
                 print(f"\n{station_name}")
                 self.print_means(station_name)
             self.print_ensemble_means()
         return self.ensemble
+
+    @classmethod
+    def load_ensemble(self, name, n_realizations):
+        self.ensemble_dir = cop_conf.ensemble_root / name
+        filepaths = [
+            self.ensemble_dir / f"{name}_real_{real_i:0{cop_conf.n_digits}}.nc"
+            for real_i in range(n_realizations)
+        ]
+        # chunks = dict(
+        #     realization=1,
+        #     # time=100000,
+        #     time=len(sim_times),
+        #     variable=self.n_variables,
+        #     station=self.n_stations,
+        # )
+        # chunks = "auto"
+        # chunks = dict(realization=1, time=None, variable=None, station=None)
+        chunks = dict(variable=1, station=1)
+        # chunks = None
+        return (
+            xr.open_mfdataset(
+                filepaths,
+                concat_dim="realization",
+                combine="nested",
+                chunks=chunks,
+                parallel=True,
+            )
+            .assign_coords(realization=range(n_realizations))
+            .to_array("dummy")
+            .squeeze("dummy", drop=True)
+        )
 
     def to_csv(self, csv_path, xar=None, filename_prefix=""):
         if xar is None:
@@ -1143,19 +1527,23 @@ class Multisite:
                 )
                 csv_hourly_df.to_csv(csv_path / filename, float_format="%.3f")
 
-    def print_means(self, station_name):
+    def print_means(self, station_name, n_eval=100):
         obs = self.obs_means.sel(station=station_name, drop=True).to_dataframe(
             "obs"
         )
         if self.ensemble is not None:
             sim = (
                 self.ensemble.sel(station=station_name, drop=True)
+                .isel(realization=slice(None, n_eval))
                 .mean(["time", "realization"])
                 .to_dataframe("sim")
             )
         else:
+            sim_sea = (
+                self.sim_sea if self.sim_sea_dis is None else self.sim_sea_dis
+            )
             sim = (
-                self.sim_sea.sel(station=station_name, drop=True)
+                sim_sea.sel(station=station_name, drop=True)
                 .mean("time")
                 .to_dataframe("sim")
             )
@@ -1171,14 +1559,19 @@ class Multisite:
         )
         print(pd.concat([obs, sim, diff, diff_perc], axis=1).round(3))
 
-    def print_all_means(self):
+    def print_all_means(self, n_eval=100):
         obs = self.obs_means.mean("station").to_dataframe("obs")
         if self.ensemble is not None:
-            sim = self.ensemble.mean(
-                ["time", "realization", "station"]
-            ).to_dataframe("sim")
+            sim = (
+                self.ensemble.isel(realization=slice(None, n_eval))
+                .mean(["time", "realization", "station"])
+                .to_dataframe("sim")
+            )
         else:
-            sim = self.sim_sea.mean(["time", "station"]).to_dataframe("sim")
+            sim_sea = (
+                self.sim_sea if self.sim_sea_dis is None else self.sim_sea_dis
+            )
+            sim = sim_sea.mean(["time", "station"]).to_dataframe("sim")
         # exclude possible varnames_ext
         sim = sim.loc[self.varnames]
         diff = pd.DataFrame(
@@ -1191,12 +1584,14 @@ class Multisite:
         )
         print(pd.concat([obs, sim, diff, diff_perc], axis=1).round(3))
 
-    def print_ensemble_means(self):
+    def print_ensemble_means(self, n_eval=100):
         obs = self.obs_means.mean("station").to_dataframe("obs")
         if self.ensemble is not None:
-            sim = self.ensemble.mean(
-                ["time", "station", "realization"]
-            ).to_dataframe("sim")
+            sim = (
+                self.ensemble.isel(realization=slice(None, n_eval))
+                .mean(["time", "station", "realization"])
+                .to_dataframe("sim")
+            )
         else:
             sim = self.sim_sea.mean(["time", "station"]).to_dataframe("sim")
         # exclude possible varnames_ext
@@ -1212,7 +1607,16 @@ class Multisite:
         print(pd.concat([obs, sim, diff, diff_perc], axis=1).round(3))
 
     def _vg_ph(
-        self, vg_obj, sc_pars, stop_at=None, mask_fun=None, rphases=None
+        self,
+        vg_obj,
+        sc_pars,
+        stop_at=None,
+        mask_fun=None,
+        rphases=None,
+        return_rphases=False,
+        primary_var_sim=None,
+        heat_wave_kwds=None,
+        **kwds,
     ):
         """Call-back function for VG.simulate. Replaces a time_series_analysis
         model.
@@ -1220,31 +1624,46 @@ class Multisite:
         """
         station_name = vg_obj.station_name
         weights = "tau"
+        # rphases_before = None
         if rphases is not None:
-            self.rphases = rphases
+            # if self._rphases is not None and not np.all(
+            #     np.isclose(self._rphases[0], rphases[0])
+            # ):
+            #     rphases_before = self._rphases
+            self.rphases = self._rphases = rphases
+        if primary_var_sim is None:
+            primary_var_sim = self.primary_var
         if self.vine is None and self.usevine:
-            with tools.shelve_open(cop_conf.vine_cache) as sh:
+            with tools.shelve_open(self.vine_cache) as sh:
                 key = "_".join(
                     (
                         "_".join(sorted(vg_obj.var_names)),
                         "_".join(sorted(self.station_names)),
                         "_".join(str(i) for i in self.data_daily.data.shape),
                         weights,
-                        vg_obj.primary_var[0],
+                        # vg_obj.primary_var[0],
+                        # self.primary_var,
+                        "_".join(sorted(self.primary_var)),
                         self.discr,
                         self.rain_method,
                     )
                 )
+                vine = None
                 if key in sh and not (self.refit or self.refit_vine):
-                    vine = sh[key]
-                else:
+                    try:
+                        vine = sh[key]
+                    except EOFError:
+                        # we have to refit
+                        pass
+                if vine is None:
                     dtimes = np.tile(self.dtimes, self.n_stations)
                     vine = CVine(
                         self.ranks.data,
                         varnames=self.varnames,
                         dtimes=dtimes,
                         weights=weights,
-                        central_node=vg_obj.primary_var[0],
+                        # central_node=vg_obj.primary_var[0],
+                        central_nodes=vg_obj.primary_var,
                         verbose=False,
                         tau_min=0,
                         fit_mask=(
@@ -1290,16 +1709,23 @@ class Multisite:
                     return xx
 
                 qq_std = xr.apply_ufunc(ppf_bounded, self.cop_quantiles)
-                self.qq_std = qq_std.interpolate_na("time")
+                self.qq_std = qq_std.interpolate_na(
+                    "time", fill_value="extrapolate"
+                )
+                nonfin_mask = ~np.isfinite(self.qq_std).data
+                if np.any(nonfin_mask):
+                    self.qq_std.data[nonfin_mask] = 0.5
+
             self.As.data = np.fft.fft(self.qq_std)
             self.phases = np.angle(self.As.sel(station=station_name))
             self.zero_phases = {
                 station_name: np.angle(self.As.sel(station=station_name))[:, 0]
                 for station_name in self.station_names
             }
-            qq_means = self.qq_std.mean("time")
-            qq_stds = self.qq_std.std("time")
-            self.qq_means, self.qq_stds = qq_means, qq_stds
+            self.qq_means = self.qq_std.mean("time")
+            self.qq_stds = self.qq_std.std("time")
+            # print(f"{self.qq_means.values.round(2)=}")
+            # print(f"{self.qq_stds.values.round(2)=}")
 
             # vine_bias = {}
             # for station_name in self.station_names:
@@ -1307,9 +1733,12 @@ class Multisite:
             #     # quantiles_uni = np.full(qq_station.shape, 0.5)
             #     quantiles_uni = np.random.uniform(0, 1, qq_station.shape)
             #     self.sim_bias = np.zeros((self.K, 1))
-            #     sim_uni = self.vine.simulate(randomness=quantiles_uni,
-            #                                  T=np.arange(T_data))
-            #     rank_bias = dists.norm.ppf(self.ranks.sel(station=station_name)).mean(axis=1)[:, None]
+            #     sim_uni = self.vine.simulate(
+            #         randomness=quantiles_uni, T=np.arange(T_data)
+            #     )
+            #     rank_bias = dists.norm.ppf(
+            #         self.ranks.sel(station=station_name)
+            #     ).mean(axis=1)[:, None]
             #     sim_bias = dists.norm.ppf(sim_uni).mean(axis=1)[:, None]
             #     vine_bias[station_name] = sim_bias - rank_bias
             # self.vine_bias = vine_bias
@@ -1334,47 +1763,210 @@ class Multisite:
                 phase_[:, 0] = self.zero_phases[station_name]
                 rphases += [phase_]
 
-        As = self.As.sel(station=station_name, drop=True)
-        fft_sim = np.concatenate(
-            [
-                np.fft.ifft(As * np.exp(1j * rphases_)).real
-                for rphases_ in rphases
-            ],
-            axis=1,
-        )[:, : vg_obj.T_sim]
-
-        fft_sim = _adjust_fft_sim(
-            fft_sim,
-            self.qq_means.sel(station=station_name).data,
-            self.qq_stds.sel(station=station_name).data,
-            sc_pars,
-            vg_obj.primary_var_ii,
-            self.phase_randomize_vary_mean,
-        )
-
+        # calculate the phase randomized decorrelated time series in
+        # advance for all stations, so that we can determine heat
+        # waves regionally
+        # if any of the sc_pars have changed, we need to rerun the next block
+        sc_pars_sum = sum(par.sum() for par in sc_pars)
+        if self.sc_pars_sum is None:
+            self.sc_pars_sum = sc_pars_sum
+        elif self.sc_pars_sum != sc_pars_sum:
+            self.sc_pars_sum = sc_pars_sum
+            self.fft_sim = None
         if self.fft_sim is None or self.fft_sim.time.size != vg_obj.T_sim:
             self.fft_sim = xr.DataArray(
                 np.full((self.n_stations, self.K, vg_obj.T_sim), 0.5),
-                coords=[self.station_names, self.varnames, vg_obj.sim_times],
+                coords=[
+                    self.station_names,
+                    self.varnames,
+                    vg_obj.sim_times,
+                ],
                 dims=["station", "variable", "time"],
             )
             # this means we also need to recalculate ranks_sim
             self.ranks_sim = None
-        self.fft_sim.loc[dict(station=station_name)] = fft_sim
+            for station_name_ in self.station_names:
+                As = self.As.sel(station=station_name_, drop=True)
+                fft_sim = np.concatenate(
+                    [
+                        np.fft.ifft(As * np.exp(1j * rphases_)).real
+                        for rphases_ in rphases
+                    ],
+                    axis=1,
+                )[:, : vg_obj.T_sim]
+                fft_sim = _adjust_fft_sim(
+                    fft_sim,
+                    self.qq_means.sel(station=station_name_).data,
+                    self.qq_stds.sel(station=station_name_).data,
+                    sc_pars,
+                    vg_obj.primary_var_ii,
+                    self.phase_randomize_vary_mean,
+                    adjust_prim=(primary_var_sim == self.primary_var),
+                )
+                self.fft_sim.loc[dict(station=station_name_)] = fft_sim
+            if heat_wave_kwds is not None:
+                self.heat_waves = wplt.HeatWavesN(
+                    self.fft_sim.sel(variable=primary_var_sim).mean("station"),
+                    **heat_wave_kwds,
+                )
+        else:
+            fft_sim = self.fft_sim.sel(station=station_name)
+
+        # As = self.As.sel(station=station_name, drop=True)
+        # fft_sim = np.concatenate(
+        #     [
+        #         np.fft.ifft(As * np.exp(1j * rphases_)).real
+        #         for rphases_ in rphases
+        #     ],
+        #     axis=1,
+        # )[:, : vg_obj.T_sim]
+
+        # fft_sim = _adjust_fft_sim(
+        #     fft_sim,
+        #     self.qq_means.sel(station=station_name).data,
+        #     self.qq_stds.sel(station=station_name).data,
+        #     sc_pars,
+        #     vg_obj.primary_var_ii,
+        #     self.phase_randomize_vary_mean,
+        #     adjust_prim=(primary_var_sim == self.primary_var),
+        # )
+
+        # if self.fft_sim is None or self.fft_sim.time.size != vg_obj.T_sim:
+        #     self.fft_sim = xr.DataArray(
+        #         np.full((self.n_stations, self.K, vg_obj.T_sim), 0.5),
+        #         coords=[self.station_names, self.varnames, vg_obj.sim_times],
+        #         dims=["station", "variable", "time"],
+        #     )
+        #     # this means we also need to recalculate ranks_sim
+        #     self.ranks_sim = None
+        # self.fft_sim.loc[dict(station=station_name)] = fft_sim
 
         if self.usevine:
             qq = dists.norm.cdf(fft_sim)
-            ranks_sim = self.vine.simulate(
-                T=np.arange(qq.shape[1]),
-                randomness=qq,
-                stop_at=stop_at,
-            )
+            if primary_var_sim != self.primary_var:
+                primary_var_sim_i = self.varnames.index(primary_var_sim)
+
+                # heat wave experimentation
+                # get heat waves and make them worse
+                if heat_wave_kwds is not None:
+                    sim_prim_xr = xr.DataArray(
+                        fft_sim[primary_var_sim_i],
+                        coords=dict(time=vg_obj.sim_times),
+                    )
+                    # heat_waves = wplt.HeatWavesN(sim_prim_xr, n_per_summer=3)
+                    sim_prim_xr.values[self.heat_waves.mask] += heat_wave_kwds[
+                        "diff"
+                    ]
+                    qq[primary_var_sim_i] = dists.norm.cdf(sim_prim_xr.values)
+
+                # get a baseline U
+                T = qq.shape[1]
+                ranks_sim = self.vine.simulate(
+                    T=np.arange(T),
+                    randomness=qq,
+                    stop_at=self.vine.varnames.index(primary_var_sim) + 1,
+                )
+                trend = (
+                    np.arange(T, dtype=float)
+                    / T
+                    * sc_pars.m_trend[primary_var_sim_i]
+                )
+                U_i = dists.norm.cdf(
+                    dists.norm.ppf(ranks_sim[primary_var_sim_i])
+                    + (sc_pars.m_t + sc_pars.m)[primary_var_sim_i]
+                    + trend
+                )
+
+                # U_i = dists.norm.cdf(
+                #     fft_sim[primary_var_sim_i]
+                #     + (sc_pars.m_t + sc_pars.m)[primary_var_sim_i]
+                # )
+                # U_i = (sc_pars.m_t + sc_pars.m)[
+                #     self.varnames.index(primary_var_sim)
+                # ]
+                # print(f"{qq.mean(axis=1)=}")
+
+                # fig, ax = plt.subplots(
+                #     nrows=1, ncols=1, subplot_kw=dict(aspect="equal")
+                # )
+                # ax.scatter(qq[primary_var_sim_i], U_i, marker="o")
+                # plt.show()
+
+                # fig, ax = plt.subplots(nrows=1, ncols=1)
+                # ax.plot(U_i, label="U_i")
+                # ax.plot(qq[primary_var_sim_i], label="qq[etc]")
+                # ax.grid(True)
+                # ax.legend()
+                # plt.show()
+                # __import__("pdb").set_trace()
+
+                # fig, axs = plt.subplots(nrows=2, ncols=1, sharex=True)
+                # p_kwds = dict(alpha=0.75)
+                # # axs[0].plot(qq[primary_var_sim_i], label="before", **p_kwds)
+                # axs[0].plot(U_i, label="U_i after", **p_kwds)
+                # # axs[1].plot(
+                # #     dists.norm.ppf(ranks_sim[primary_var_sim_i]),
+                # #     label="before",
+                # #     **p_kwds,
+                # # )
+                # axs[1].plot(
+                #     dists.norm.ppf(ranks_sim[primary_var_sim_i])
+                #     + (sc_pars.m_t + sc_pars.m)[primary_var_sim_i]
+                #     + trend,
+                #     label="after",
+                #     **p_kwds,
+                # )
+                # axs[1].plot(
+                #     fft_sim[primary_var_sim_i], label="fft_sim", **p_kwds
+                # )
+
+                qq[primary_var_sim_i] = U_i
+                # print(f"{qq.mean(axis=1)=}")
+                ranks_sim = self.vine.simulate(
+                    T=np.arange(T),
+                    randomness=qq,
+                    stop_at=stop_at,
+                    primary_var=primary_var_sim,
+                    U_i=U_i,
+                )
+
+                # ranks_sim_prim = ranks_sim[primary_var_sim_i]
+                # axs[0].plot(ranks_sim_prim, label="after vine", **p_kwds)
+                # axs[1].plot(
+                #     dists.norm.ppf(ranks_sim_prim),
+                #     label="after vine",
+                #     **p_kwds,
+                # )
+                # axs[1].plot(trend, label="trend", linestyle="--", **p_kwds)
+                # trend_sim = stats.linregress(
+                #     np.arange(T), dists.norm.ppf(ranks_sim_prim)
+                # ).slope * np.arange(T)
+                # axs[1].plot(
+                #     trend_sim, label="trend vine", linestyle="--", **p_kwds
+                # )
+                # for ax in axs:
+                #     ax.legend(loc="best")
+                #     ax.grid(True)
+                # fig.suptitle(f"{primary_var_sim=}")
+                # plt.show()
+                # # __import__("pdb").set_trace()
+
+            else:
+                U_i = None
+                ranks_sim = self.vine.simulate(
+                    T=np.arange(qq.shape[1]),
+                    randomness=qq,
+                    stop_at=stop_at,
+                )
             sim = dists.norm.ppf(ranks_sim)
             # sim -= self.vine_bias[station_name]
             # sim += (self.data_trans
             #         .sel(station=station_name)
             #         .mean("time")
             #         .data[:, None])
+            # for row_i, row in enumerate(sim):
+            #     if not np.all(np.isnan(row)):
+            #         sim[row_i] = my.interp_nan(row)
             if stop_at is None:
                 assert np.all(np.isfinite(sim))
             else:
@@ -1393,6 +1985,8 @@ class Multisite:
         self.ranks_sim.loc[dict(station=station_name)] = ranks_sim
         # for being able to analyze later
         self.sim.loc[dict(station=station_name)] = sim
+        if return_rphases:
+            return sim, rphases
         return sim
 
     def _plot_fixed_harmonics(self, mask=None, figsize=None):
@@ -1436,7 +2030,7 @@ class Multisite:
     def plot_map(self, resolution=10, terrain=True, *args, **kwds):
         if self.latitudes is None or self.longitudes is None:
             raise RuntimeError("Cant plot map without coordinates.")
-        stamen_terrain = cimgt.StamenTerrain()
+        stamen_terrain = cimgt.Stamen("terrain-background")
         crs = ccrs.PlateCarree()
         land_10m = cfeature.NaturalEarthFeature(
             "cultural",
@@ -1535,7 +2129,7 @@ class Multisite:
                 nrows=self.n_variables,
                 ncols=1,
                 sharex=True,
-                figsize=(6, 6),
+                figsize=(4, 4 * self.K),
                 constrained_layout=True,
             )
         xlocs = np.arange(self.n_stations)
@@ -1585,10 +2179,16 @@ class Multisite:
         fig.suptitle(f"{stat_func.__name__} {transformed=}")
         return fig, axs
 
-    def plot_ensemble_meteogram_hourly(self, *args, **kwds):
+    def plot_ensemble_meteogram_hourly(
+        self, station_names=None, *args, **kwds
+    ):
+        if station_names is None:
+            station_names = self.station_names
+        elif isinstance(station_names, str):
+            station_names = (station_names,)
         dtimes = pd.to_datetime(self.ensemble.time.values)
         fig_axs = {}
-        for station_name in self.station_names:
+        for station_name in station_names:
             svg = self.vgs[station_name]
             fig, axs = svg.plot_meteogram_hourly(
                 plot_sim_sea=False, p_kwds=dict(linewidth=0.25), *args, **kwds
@@ -1616,12 +2216,17 @@ class Multisite:
                     color="grey",
                 )
             fig_axs[station_name] = fig, axs
+            suptitle_prepend(fig, station_name)
         return fig_axs
 
-    def plot_ensemble_meteogram_daily(self, *args, **kwds):
+    def plot_ensemble_meteogram_daily(self, station_names=None, *args, **kwds):
+        if station_names is None:
+            station_names = self.station_names
+        elif isinstance(station_names, str):
+            station_names = (station_names,)
         dtimes = pd.to_datetime(self.ensemble_daily.time.values)
         fig_axs = {}
-        for station_name in self.station_names:
+        for station_name in station_names:
             svg = self.vgs[station_name]
             fig, axs = svg.plot_meteogram_daily(
                 plot_sim_sea=False, p_kwds=dict(linewidth=0.25), *args, **kwds
@@ -1630,7 +2235,6 @@ class Multisite:
                 station_sims = self.ensemble_daily.sel(
                     station=station_name, variable=varname
                 ).load()
-                # if station_name == "Kinneret_station_A" and
                 mins = station_sims.min("realization")
                 q10 = station_sims.quantile(0.10, "realization")
                 q90 = station_sims.quantile(0.90, "realization")
@@ -1650,6 +2254,7 @@ class Multisite:
                     color="grey",
                 )
             fig_axs[station_name] = fig, axs
+            suptitle_prepend(fig, station_name)
         return fig_axs
 
     def plot_ensemble_qq(
@@ -1668,7 +2273,7 @@ class Multisite:
         if fig_axs is None:
             fig_axs = {}
         n_axes = len(self.varnames)
-        n_cols = int(np.ceil(n_axes ** 0.5))
+        n_cols = int(np.ceil(n_axes**0.5))
         n_rows = int(np.ceil(float(n_axes) / n_cols))
         alphas = np.linspace(0, 1, 200)
         bounds_kwds = dict(linestyle="--", color="gray", alpha=0.5)
@@ -1686,7 +2291,7 @@ class Multisite:
             axs = np.ravel(axs)
             for ax_i, (ax, varname) in enumerate(zip(axs, self.varnames)):
                 obs_ = obs.sel(station=station_name, variable=varname)
-                sim_ = self.ensemble.sel(
+                sim_ = self.ensemble_daily.sel(
                     station=station_name, variable=varname
                 ).load()
                 global_min = min(obs_.min(), sim_.min())
@@ -1724,6 +2329,7 @@ class Multisite:
                     fig.delaxes(ax)
                 plt.draw()
             fig_axs[station_name] = fig, axs
+            suptitle_prepend(fig, station_name)
         return fig_axs
 
     def plot_ensemble_exceedance_daily(
@@ -1810,6 +2416,8 @@ class Multisite:
     def plot_ensemble_violins(
         self, figsize=None, time_period="m", *args, **kwds
     ):
+        if figsize is None:
+            figsize = (6, 4 * self.K)
         fig_axs = {}
         for station_name in self.station_names:
             fig, axs = plt.subplots(
@@ -1830,10 +2438,156 @@ class Multisite:
                     .groupby(month)
                     .mean("time")
                 )
-                ax.violinplot(sim_means.T, showmeans=True)
+                ax.violinplot(sim_means, showmeans=True)
                 ax.scatter(np.arange(1, 13), obs_means, marker="_", color="k")
+                ax.grid(True)
                 ax.set_title(varname)
+            fig_axs[station_name] = fig, axs
             suptitle_prepend(fig, station_name)
+        return fig_axs
+
+    def plot_ensemble_hydyearsum_cdfs(
+        self,
+        *args,
+        figsize=None,
+        lower_q=0.01,
+        upper_q=0.99,
+        color="b",
+        **kwds,
+    ):
+        if figsize is None:
+            figsize = (6, 4 * self.n_stations)
+        alphas = np.linspace(0, 1, 200)
+        bounds_kwds = dict(linestyle="--", color="gray", alpha=0.5)
+        fig, axs = plt.subplots(
+            nrows=self.n_stations,
+            ncols=1,
+            sharex=True,  # sharey=True
+            figsize=figsize,
+            constrained_layout=True,
+        )
+        for station_name, ax in zip(self.station_names, axs):
+            obs = self.data_daily.sel(station=station_name, variable="R")
+            obs = np.sort(rain_stats.hyd_year_sums(obs, full_years=True))
+            sim = self.ensemble_daily.sel(
+                station=station_name, variable="R"
+            ).load()
+            sim = rain_stats.hyd_year_sums(sim, full_years=True)
+            sim_qq = sim.quantile(alphas, "hydyear")
+            sim_qq = sim_qq.rename(dict(quantile="qq"))
+            sim_lower = sim_qq.quantile(lower_q, "realization")
+            sim_upper = sim_qq.quantile(upper_q, "realization")
+            ax.step(
+                obs,
+                my.rel_ranks(len(obs)),
+                where="mid",
+                label="obs",
+                color="k",
+            )
+            ax.plot(sim_qq.median("realization"), alphas, color=color)
+            ax.plot(sim_qq.min("realization"), alphas, **bounds_kwds)
+            ax.plot(sim_qq.max("realization"), alphas, **bounds_kwds)
+            ax.fill_betweenx(
+                alphas, sim_lower, sim_upper, color=color, alpha=0.5
+            )
+            ax.grid(True)
+            ax.set_ylabel("cdf")
+            ax.set_xlabel("precipitation")
+            ax.set_title(station_name)
+        title_str = "Hydrological year sums (cdf)"
+        fig.suptitle(title_str)
+        # fig.canvas.set_window_title(
+        #     "%s (%d)" % (title_str, fig.canvas.manager.num)
+        # )
+        try:
+            set_window_title = fig.canvas.set_window_title
+        except AttributeError:
+            set_window_title = fig.canvas.setWindowTitle
+        set_window_title("%s (%d)" % (title_str, fig.canvas.manager.num))
+        return fig, axs
+
+    def plot_ensemble_member_heatwaves(
+        self,
+        realization=0,
+        n_realizations=100,
+        station_names=None,
+        reference=None,
+        drop_variables=tuple("R"),
+        individual_wave_filepath=None,
+        definition="kuglitsch",
+        *args,
+        **kwds,
+    ):
+        if isinstance(station_names, str):
+            station_names = (station_names,)
+        if station_names is None:
+            station_names = self.station_names
+        if reference is None:
+            reference = self.ensemble
+        elif isinstance(reference, str):
+            reference = self.load_ensemble(
+                reference, n_realizations=n_realizations
+            )
+        match definition:
+            case "kuglitsch":
+                HeatWaves = wplt.HeatwavesKuglitsch
+            case "zitis":
+                HeatWaves = wplt.HeatWavesZitis
+            case _:
+                raise RuntimeError(
+                    f"{definition=} not understood. "
+                    f" Must be 'kuglitsch' or 'zitis'"
+                )
+        if self._heatwave_bounds is None:
+            heatwave_bounds = {}
+            for station_name in station_names:
+                station_data = self.ensemble.sel(
+                    station=station_name, variable="theta"
+                )
+                station_reference = reference.sel(
+                    station=station_name, variable="theta"
+                )
+                # heatwaves = wplt.heatwaves_kuglitsch(
+                #     station_data.sel(realization=0).load(),
+                #     station_reference.isel(
+                #         realization=slice(None, n_realizations)
+                #     ).load(),
+                # )
+                # heatwave_bounds[station_name] = (
+                #     heatwaves.bound_day,
+                #     heatwaves.bound_night,
+                # )
+                heatwaves = HeatWaves(
+                    station_data.sel(realization=realization).load(),
+                    station_reference.isel(
+                        realization=slice(None, n_realizations)
+                    ).load(),
+                )
+                heatwave_bounds[station_name] = heatwaves.bound
+            self._heatwave_bounds = heatwave_bounds
+        else:
+            heatwave_bounds = self._heatwave_bounds
+        varnames = self.varnames
+        if drop_variables:
+            varnames = [
+                varname
+                for varname in varnames
+                if varname not in drop_variables
+            ]
+        fig_axs = {}
+        for station_name in station_names:
+            station_data = self.ensemble.sel(
+                station=station_name, variable=varnames
+            )
+            fig, axs = wplt.plot_heatwaves(
+                station_data.sel(realization=realization).load(),
+                # station_reference.isel(
+                #     realization=slice(None, n_realizations)
+                # ).load(),
+                bound_day=heatwave_bounds[station_name][0],
+                bound_night=heatwave_bounds[station_name][1],
+                individual_wave_filepath=individual_wave_filepath,
+            )
             fig_axs[station_name] = fig, axs
         return fig_axs
 
@@ -1850,6 +2604,7 @@ class Multisite:
             )
             suptitle_prepend(fig, station_name)
             fig_axs[station_name] = fig, axs
+            suptitle_prepend(fig, station_name)
         return fig_axs
 
     def plot_corr(self, ygreek=None, hourly=False, text=False, *args, **kwds):
@@ -2361,7 +3116,7 @@ class Multisite:
             var_names=self.station_names, max_lags=max_lags, figsize=figsize
         )
         n_axes = len(self.station_names)
-        n_cols = int(np.ceil(n_axes ** 0.5))
+        n_cols = int(np.ceil(n_axes**0.5))
         n_rows = int(np.ceil(float(n_axes) / n_cols))
         if fig is None and axs is None:
             figsize = kwds.pop("figsize")
@@ -2501,7 +3256,7 @@ class Multisite:
             )
         return figs, axss
 
-    def plot_ccplom(self, masked=False, *args, **kwds):
+    def plot_ccplom(self, masked=False, alpha=0.1, *args, **kwds):
         """Cross-Copula-plot matrix of input and output."""
         if masked and "R" in self.varnames:
             obs_all = self.ranks[:, self.rain_mask.data]
@@ -2512,17 +3267,17 @@ class Multisite:
         else:
             obs_all = self.ranks
             sim_all = self.ranks_sim.stack(rank=("time", "station"))
-        fig_in, axs_in = plotting.ccplom(
-            obs_all.data, varnames=self.varnames, *args, **kwds
+        fig_in, axs_in = wplt.ccplom(
+            obs_all.data, varnames=self.varnames, alpha=alpha, *args, **kwds
         )
         fig_in.suptitle("Input")
-        fig_out, axs_out = plotting.ccplom(
-            sim_all.data, varnames=self.varnames, *args, **kwds
+        fig_out, axs_out = wplt.ccplom(
+            sim_all.data, varnames=self.varnames, alpha=alpha, *args, **kwds
         )
         fig_out.suptitle("Output")
         return (fig_in, fig_out), (axs_in, axs_out)
 
-    def plot_ccplom_seasonal(self, masked=False, *args, **kwds):
+    def plot_ccplom_seasonal(self, masked=False, alpha=0.2, *args, **kwds):
         """Cross-Copula-plot matrix of input and output."""
         figs = {}
         if masked and "R" in self.varnames:
@@ -2536,15 +3291,15 @@ class Multisite:
             sim_all = self.ranks_sim
         for season, obs in obs_all.groupby("time.season"):
             obs = obs.stack(rank=("time", "station")).dropna("rank")
-            fig, axs = plotting.ccplom(
-                obs.data, varnames=self.varnames, *args, **kwds
+            fig, axs = wplt.ccplom(
+                obs.data, varnames=self.varnames, alpha=alpha, *args, **kwds
             )
             fig.suptitle(f"Input {season}")
             figs[f"in_{season}"] = fig, axs
         for season, sim in sim_all.groupby("time.season"):
             sim = sim.stack(rank=("time", "station")).dropna("rank")
-            fig, axs = plotting.ccplom(
-                sim.data, varnames=self.varnames, *args, **kwds
+            fig, axs = wplt.ccplom(
+                sim.data, varnames=self.varnames, alpha=alpha, *args, **kwds
             )
             fig.suptitle(f"Output {season}")
             figs[f"out_{season}"] = fig, axs
@@ -2568,13 +3323,13 @@ if __name__ == "__main__":
         xds,
         verbose=True,
         # refit=True,
-        # refit_vine=True,
+        refit_vine=True,
         # refit=True,
         # refit="R",
         # refit=("R", "sun"),
         # refit="sun",
-        rain_method="regression",
-        # rain_method="distance",
+        # rain_method="regression",
+        rain_method="distance",
         # debias=True,
         # cop_candidates=dict(gaussian=cops.gaussian),
         scop_kwds=dict(window_len=30, fft_order=3),
@@ -2589,10 +3344,10 @@ if __name__ == "__main__":
         clear_cache=True,
         # usevine=False
     )
-    wc.plot_corr_scatter_var(transformed=True)
+    # wc.plot_corr_scatter_var(transformed=True)
     wc.plot_seasonal()
     wc.plot_ensemble_stats()
-    wc.plot_ensemble_stats(transformed=True)
+    # wc.plot_ensemble_stats(transformed=True)
     # wc.vine.plot()
     print(wc.vine)
     plt.show()
