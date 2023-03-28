@@ -1,13 +1,18 @@
 # -*- coding: utf-8 -*-
+from collections import namedtuple
 import functools
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 from scipy import stats as spstats
+import xarray as xr
 from weathercop import stats
 
 
 def rel_ranks(data, method="average"):
+    if isinstance(data, int):
+        N = data
+        return (np.arange(N) + 0.5) / N
     return (spstats.rankdata(data, method) - 0.5) / len(data)
 
 
@@ -67,7 +72,7 @@ def ccplom(
     h_kwds=None,
     s_kwds=None,
     title=None,
-    opacity=0.1,
+    alpha=0.1,
     cmap=None,
     x_bins=15,
     y_bins=15,
@@ -79,7 +84,7 @@ def ccplom(
     scatter=True,
     axs=None,
     fig=None,
-    **fig_kwds
+    **fig_kwds,
 ):
     """Cross-Copula-plot matrix. Values that appear on the x-axes are shifted
     back k timesteps. Data is assumed to be a 2 dim arrays with
@@ -108,7 +113,7 @@ def ccplom(
             n_variables,
             n_variables,
             subplot_kw=dict(aspect="equal"),
-            **fig_kwds
+            **fig_kwds,
         )
     if n_variables == 1:
         axs = ((axs,),)
@@ -141,8 +146,8 @@ def ccplom(
                     ranks_y,
                     marker="o",
                     facecolors=(0, 0, 0, 0),
-                    edgecolors=(0, 0, 0, opacity),
-                    **s_kwds
+                    edgecolors=(0, 0, 0, alpha),
+                    **s_kwds,
                 )
             if display_rho:
                 rho = stats.spearmans_rank(ranks_x, ranks_y)
@@ -205,7 +210,7 @@ def hist2d(
     ax=None,
     cmap=None,
     scatter=True,
-    opacity=0.6,
+    alpha=0.6,
     vmax=None,
 ):
     if ax is None:
@@ -248,7 +253,7 @@ def hist2d(
             y,
             marker="o",
             facecolors=(0, 0, 0, 0),
-            edgecolors=(0, 0, 0, opacity),
+            edgecolors=(0, 0, 0, alpha),
         )
     return fig, ax
 
@@ -261,7 +266,7 @@ def plot_cross_corr(
     fig=None,
     axs=None,
     *args,
-    **kwds
+    **kwds,
 ):
     K = data.shape[0]
     if varnames is None:

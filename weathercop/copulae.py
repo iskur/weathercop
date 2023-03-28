@@ -59,6 +59,7 @@ else:
 # used wherever theta can be inf in principle
 theta_large = 50
 zero, one = 1e-19, 1 - 1e-19
+zeroish, oneish = 1e-9, 1 - 1e-9
 
 # here expressions are kept that sympy has problems with
 faillog_file = conf.ufunc_tmp_dir / "known_fail"
@@ -347,6 +348,7 @@ class MetaCop(ABCMeta):
         new_cls = super().__new__(cls, name, bases, cls_dict)
         new_cls.name = name.lower()
         new_cls.name_camel = name
+        MetaCop.check_defaults(cls_dict)
         with suppress(TypeError):
             new_cls.n_par = len(new_cls.par_names) - 2
         if "backend" not in cls_dict:
@@ -384,6 +386,16 @@ class MetaCop(ABCMeta):
         # if "kendall_expr" in cls_dict:
         #     new_cls.kendall = MetaCop.kendall_func(new_cls)
         return new_cls
+
+    def check_defaults(cls_dict):
+        theta_start = cls_dict.get("theta_start", None)
+        theta_bounds = cls_dict.get("theta_bounds", None)
+        if None in (theta_start, theta_bounds):
+            return 
+        if isinstance(theta_start, abstractproperty):
+            return 
+        for start, (lower, upper) in zip(theta_start, theta_bounds):
+            assert (lower <= start) & (start <= upper)
 
     def mark_failed(new_cls):
         for method_name in new_cls.known_fail:
@@ -807,7 +819,7 @@ class Copulae(metaclass=MetaCop):
         self,
         ranks_u,
         ranks_v,
-        method=None,
+        method="L-BFGS-B",
         x0=None,
         verbose=False,
         fit_mask=None,
@@ -832,9 +844,11 @@ class Copulae(metaclass=MetaCop):
                 loglike = -np.sum(np.log(dens))
                 if censor:
                     if u_max > v_max:
-                        lower_int = self.cdf(np.array([1.0]), v_max, *theta)
+                        # lower_int = self.cdf(np.array([1.0]), v_max, *theta)
+                        lower_int = self.cdf(np.array([oneish]), v_max, *theta)
                     else:
-                        lower_int = self.cdf(u_max, np.array([1.0]), *theta)
+                        # lower_int = self.cdf(u_max, np.array([1.0]), *theta)
+                        lower_int = self.cdf(u_max, np.array([oneish]), *theta)
                     loglike -= n_dry * np.log(lower_int)
             return loglike
 
@@ -854,6 +868,18 @@ class Copulae(metaclass=MetaCop):
         self.likelihood = -result.fun if result.success else -np.inf
         if not result.success:
             # print(f"\tNo convergence for {self.name_camel}")
+            if censor:
+                return self.fit_ml(ranks_u, ranks_v)
+                # try:
+                #     # fit without mask
+                #     return self.fit_ml(ranks_u, ranks_v)
+                # except NoConvergence:
+                #     fig, ax = plt.subplots(nrows=1, ncols=1,
+                #                            subplot_kw=dict(aspect="equal"))
+                #     ax.scatter(ranks_u, ranks_v, alpha=.2, s=1)
+                #     ax.scatter(ranks_u[fit_mask], ranks_v[fit_mask], marker="x")
+                #     plt.show()
+                #     __import__('pdb').set_trace()
             raise NoConvergence
         return self.theta
 
@@ -902,7 +928,8 @@ class Copulae(metaclass=MetaCop):
         else:
             n_per_dim = 100
         uu = vv = stats.rel_ranks(np.arange(n_per_dim))
-        theta_dens = tuple(np.repeat(the, n_per_dim ** 2) for the in theta[0])
+        # theta_dens = tuple(np.repeat(the, n_per_dim ** 2) for the in theta[0])
+        theta_dens = tuple(np.repeat(the, n_per_dim ** 2) for the in theta)
         density = self.density(
             uu.repeat(n_per_dim), np.tile(vv, n_per_dim), *theta_dens
         ).reshape(n_per_dim, n_per_dim)
@@ -1201,14 +1228,16 @@ class BB(Copulae, metaclass=MetaArch):
 
 
 # conditionals are returning values > 1 for theta=3
-class Clayton(Copulae, No90):
+# class Clayton(Copulae, No90):
+class Clayton(Copulae):
     """p. 168"""
 
     # backend = "numpy"
     par_names = "uu", "vv", "theta"
-    theta_start = (0.5,)
+    theta_start = (0.05,)
     # theta_start = np.array([2.5])
-    theta_bounds = [(1e-8, 2.0)]
+    # theta_bounds = [(1e-8, 2.0)]
+    theta_bounds = [(1e-8, 0.1)]
     # uu, vv, t, theta = sympy.symbols("uu vv t theta")
     uu, vv, t, theta, qq = sympy.symbols("uu vv t theta qq")
     cop_expr = (uu ** -theta + vv ** -theta - 1) ** (-1 / theta)
@@ -1267,7 +1296,6 @@ clayton = Clayton()
 # inverse conditionals causing pain
 class GumbelBarnett(Archimedean, No90, No270):
     """Also Nelsen09"""
-
     theta_start = (0.9,)
     theta_bounds = [(1e-9, 1.0 - 1e-9)]
     t, theta = sympy.symbols("t theta")
@@ -1281,8 +1309,6 @@ class GumbelBarnett(Archimedean, No90, No270):
     #               (1 - theta * ln(1 - uu)) *
     #               (1 - theta * ln(1 - vv))) *
     #              exp(-theta * ln(1 - uu) * ln(1 - vv)))
-
-
 gumbelbarnett = GumbelBarnett()
 
 
@@ -1552,8 +1578,9 @@ joe = Joe()
 
 
 class Gumbel(Archimedean):
-    theta_start = (2.5,)
-    theta_bounds = [(1 + 1e-9, 22.5)]
+    theta_start = (1.5,)
+    # theta_bounds = [(1 + 1e-9, 22.5)]
+    theta_bounds = [(1 + 1e-9, 15)]
     t, theta = sympy.symbols("t theta")
     gen_expr = (-ln(t)) ** theta
     known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
@@ -1815,7 +1842,8 @@ class Gaussian(Copulae, NoRotations):
 
     def fit(self, ranks_u, ranks_v, x0=None, *args, **kwds):
         if x0 is None:
-            x0 = spstats.pearsonr(ranks_u, ranks_v)[0]
+            mask = np.isfinite(ranks_u) & np.isfinite(ranks_v)
+            x0 = spstats.pearsonr(ranks_u[mask], ranks_v[mask])[0]
         return self.fit_ml(ranks_u, ranks_v, x0=x0, *args, **kwds)
 
 
