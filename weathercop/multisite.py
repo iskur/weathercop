@@ -28,7 +28,6 @@ from vg.time_series_analysis import (
 from weathercop import cop_conf, plotting, tools, copulae as cops
 from weathercop.vine import CVine
 
-n_nodes = cpu_count() - 1
 lock = Lock()
 
 
@@ -1036,7 +1035,7 @@ class Multisite:
                     filepaths_multi_daily += [filepaths_daily[real_i]]
                     # filepaths_trans_multi += [filepaths_trans[real_i]]
             self.varnames_refit = []
-            with Pool(n_nodes) as pool:
+            with Pool(cop_conf.n_nodes) as pool:
                 completed_reals = list(
                     tqdm(
                         pool.imap(

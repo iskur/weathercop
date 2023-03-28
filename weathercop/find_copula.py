@@ -14,8 +14,6 @@ from weathercop import (
     stats,
 )
 
-n_nodes = multiprocessing.cpu_count() - 1
-
 
 def generate_fitted(args, verbose=False, **kwds):
     name, cop, ranks_u, ranks_v, fit_mask = args
@@ -79,7 +77,7 @@ def mml(
         # the full set of copula families
         if not cop_candidates:
             if verbose:
-                print(f"None of the copulas offer the asymmetries.")
+                print("None of the copulas offer the asymmetries.")
             cop_candidates = copulae.all_cops
         with suppress(KeyError):
             del cop_candidates["independence"]
@@ -95,7 +93,7 @@ def mml(
             ),
         )
     else:
-        with multiprocessing.Pool(n_nodes) as pool:
+        with multiprocessing.Pool(cop_conf.n_nodes) as pool:
             fitted_cops = pool.map(
                 generate_fitted,
                 zip(
@@ -142,7 +140,7 @@ def mml(
             cop.plot_density(fig=fig, ax=ax, scatter=False, kind="img")
             name = cop.name_camel
             ax.set_title(
-                fr"{name} $\theta$ = {cop.theta[0][0]:.3f}"
+                rf"{name} $\theta$ = {cop.theta[0][0]:.3f}"
                 f"\n{cop.likelihood:.2f}",
                 fontsize=12,
             )
@@ -158,7 +156,7 @@ def mml(
 def mml_futures(
     ranks_u, ranks_v, cops=copulae.all_cops, dtimes=None, verbose=False, **kwds
 ):
-    with ProcessPoolExecutor() as executor:
+    with ProcessPoolExecutor(cop_conf.n_nodes) as executor:
         futures = {
             executor.submit(generate_fitted, cop, ranks_u, ranks_v): cop_name
             for cop_name, cop in cops.items()

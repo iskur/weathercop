@@ -69,9 +69,6 @@ else:
     from weathercop.cvine import csim, cquant
 
 
-n_nodes = multiprocessing.cpu_count() - 1
-
-
 def clear_vine_cache():
     for suffix in "bak dat dir".split():
         with suppress(FileNotFoundError):
@@ -1232,7 +1229,7 @@ class RVine(Vine):
                 rsim_one((t, Ps[:, t], self, zero, Q, V, Z)) for t in range(T)
             ]
 
-        with multiprocessing.Pool(n_nodes) as pool:
+        with multiprocessing.Pool(cop_conf.n_nodes) as pool:
             Us = pool.map(
                 rsim_one,
                 zip(
@@ -1244,7 +1241,7 @@ class RVine(Vine):
                     repeat(V),
                     repeat(Z),
                 ),
-                chunksize=int(T / n_nodes),
+                chunksize=int(T / cop_conf.n_nodes),
             )
         return np.array(Us).T
 

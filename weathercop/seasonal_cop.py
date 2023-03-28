@@ -14,8 +14,6 @@ from vg.time_series_analysis import distributions as dists, spectral
 from weathercop import copulae as cops, stats
 from weathercop import cop_conf
 
-n_nodes = multiprocessing.cpu_count() - 1
-
 
 @functools.total_ordering
 class SeasonalCop:
@@ -75,7 +73,7 @@ class SeasonalCop:
                     for cop in cop_candidates
                 ]
             else:
-                with multiprocessing.Pool(n_nodes) as pool:
+                with multiprocessing.Pool(cop_conf.n_nodes) as pool:
                     scops = pool.map(
                         SeasonalCop._unpack,
                         zip(

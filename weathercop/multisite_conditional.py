@@ -2,7 +2,7 @@ from functools import reduce
 import numpy as np
 from scipy.optimize import minimize_scalar
 from weathercop import multisite as ms
-from weathercop import tools
+from weathercop import tools, cop_conf
 
 
 def fft2rfft(params):
