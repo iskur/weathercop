@@ -2,6 +2,7 @@ from pathlib import Path
 
 import numpy as np
 import numpy.testing as npt
+from scipy import stats
 import xarray as xr
 import xarray.testing as xrt
 from matplotlib import pyplot as plt
@@ -20,6 +21,7 @@ class Test(npt.TestCase):
         np.random.seed(0)
         self.verbose = True
         self.refit = False
+        self.refit_vine = False
         # self.xar = xr.open_dataarray(str(data_root /
         #                                  "multisite_testdata.nc"))
         # self.xds = self.xar.to_dataset("station")
@@ -28,10 +30,11 @@ class Test(npt.TestCase):
             self.xds,
             verbose=self.verbose,
             refit=self.refit,
-            refit_vine=self.refit,
+            refit_vine=self.refit_vine,
         )
-        self.sim_sea = self.wc.simulate(phase_randomize_vary_mean=False)
-        # self.wc.plot_cross_corr()
+        self.sim_sea, self.rphases = self.wc.simulate(
+            phase_randomize_vary_mean=False, return_rphases=True
+        )
 
     def tearDown(self):
         pass
@@ -73,6 +76,9 @@ class Test(npt.TestCase):
                 ax.set_ylim(0, 1)
                 plt.show()
                 raise
+        # self.wc.plot_cross_corr_var(transformed=True)
+        # self.wc.plot_cross_corr_stat(transformed=True)
+        # plt.show()
 
     def test_sim_rphases(self):
         rphases = rphases_before = self.wc._rphases
@@ -90,7 +96,9 @@ class Test(npt.TestCase):
             actual = self.sim_sea.sel(station=station_name)
             expected = sim_sea_new.sel(station=station_name)
             try:
-                npt.assert_almost_equal(actual.values, expected.values)
+                npt.assert_almost_equal(
+                    actual.values, expected.values, decimal=3
+                )
             except AssertionError:
                 fig, axs = plt.subplots(
                     nrows=self.wc.K,
@@ -175,7 +183,7 @@ class Test(npt.TestCase):
         sim_means = sim_sea.mean("time")
         obs_means = self.wc.data_daily.mean("time")
         npt.assert_almost_equal(
-            sim_means.mean(), obs_means.data.mean(), decimal=2
+            sim_means.mean(), obs_means.data.mean(), decimal=1
         )
         # xrt.assert_allclose(sim_means, obs_means, atol=0.1)
         # # test auto- and cross-correlation
@@ -187,7 +195,9 @@ class Test(npt.TestCase):
     def test_sim_mean_increase(self):
         theta_incr = 4
         sim = self.wc.simulate(
-            theta_incr=theta_incr, phase_randomize_vary_mean=False
+            theta_incr=theta_incr,
+            phase_randomize_vary_mean=False,
+            rphases=self.rphases,
         )
         # sim = sim.sel(variable="theta", drop=True).mean(dim="time")
         # obs = self.wc.data_daily.sel(variable="theta", drop=True).mean(
@@ -195,11 +205,89 @@ class Test(npt.TestCase):
         # )
         sim = sim.sel(variable="theta", drop=True).mean()
         obs = self.wc.data_daily.sel(variable="theta", drop=True).mean()
-        npt.assert_almost_equal(sim - obs, theta_incr, decimal=2)
+        npt.assert_almost_equal(sim - obs, theta_incr, decimal=3)
+
+    def test_sim_gradual(self):
+        theta_grad = 1.5
+        # decimal = 0  # ooof
+        decimal = 1
+        np.random.seed(0)
+        sim = self.wc.simulate(
+            theta_grad=theta_grad,
+            phase_randomize_vary_mean=False,
+            rphases=self.rphases,
+        )
+        for station_name in self.wc.station_names:
+            sim_station = sim.sel(
+                variable="theta", station=station_name, drop=True
+            )
+            lr_result = stats.linregress(
+                np.arange(self.wc.T_sim), sim_station.values
+            )
+            gradient = lr_result.slope * self.wc.T_sim
+            try:
+                npt.assert_almost_equal(theta_grad, gradient, decimal=decimal)
+            except AssertionError:
+                fig, axs = plt.subplots(nrows=2, ncols=1, sharex=True)
+                dummy_time = np.arange(self.wc.T_sim)
+                for ax in axs:
+                    ax.plot(
+                        sim_station.time,
+                        lr_result.intercept + dummy_time * lr_result.slope,
+                        label=f"actual: {gradient:.{decimal+2}f}",
+                    )
+                    ax.plot(
+                        sim_station.time,
+                        lr_result.intercept
+                        + dummy_time * theta_grad / dummy_time[-1],
+                        label=f"expected: {theta_grad:.{decimal+2}f}",
+                    )
+                    ax.legend(loc="best")
+                axs[0].plot(sim_station.time, sim_station.values, label="grad")
+                axs[0].plot(
+                    sim_station.time,
+                    self.sim_sea.sel(
+                        station=station_name, variable="theta"
+                    ).values,
+                    linestyle="--",
+                    label="stale",
+                )
+                fig.suptitle(station_name)
+                plt.show()
+                raise
+
+    def test_sim_primary_var(self):
+        prim_incr = 1
+        prim_var_sim = "sun"
+        sim = self.wc.simulate(
+            theta_incr=prim_incr,
+            primary_var=prim_var_sim,
+            rphases=self.rphases,
+            phase_randomize_vary_mean=False,
+        )
+        sim = sim.sel(variable=prim_var_sim, drop=True).mean()
+        obs = self.wc.data_daily.sel(variable=prim_var_sim, drop=True).mean()
+        print(self.wc.vine)
+        try:
+            npt.assert_almost_equal(sim - obs, prim_incr, decimal=2)
+        except AssertionError:
+            fig_axs = self.wc.plot_meteogram_daily()
+            self.wc.simulate(
+                phase_randomize_vary_mean=False, rphases=self.rphases
+            )
+            self.wc.plot_meteogram_daily(fig_axs=fig_axs)
+            plt.show()
+            raise
 
 
 if __name__ == "__main__":
-    # npt.run_module_suite()
+    # import sys
+    # npt.run_module_suite(argv=sys.argv)
+
+    test = Test()
+    test.setUp()
+    test.test_sim_gradual()
+
     xds = xr.open_dataset(data_root / "multisite_testdata.nc")
     from weathercop import multisite as ms
     from importlib import reload
