@@ -499,6 +499,7 @@ class MetaCop(ABCMeta):
                 #                            (one, True))
                 conditional_cdf = sympy.diff(good_cop, conditioning)
                 conditional_cdf = sympy.simplify(conditional_cdf)
+                # conditional_cdf = optimize(good_cop, optims_c99)
                 sh[key] = conditional_cdf
             conditional_cdf = sh[key]
             setattr(cls, expr_attr, conditional_cdf)
@@ -589,6 +590,7 @@ class MetaCop(ABCMeta):
                         )
                         mark_failed(key)
                         return
+                    # inv_cdf = optimize(inv_cdf, optims_c99)
                     sh[key] = inv_cdf
                 inv_cdf = sh[key]
                 setattr(cls, attr_name, inv_cdf)
@@ -639,7 +641,9 @@ class MetaCop(ABCMeta):
                 dens_expr = sympy.diff(cls.cop_expr, uu, vv)
                 # dens_expr = sympy.Piecewise((dens_expr, cls.cop_expr > 0),
                 #                             (0, True))
-                sh[key] = sympy.simplify(dens_expr)
+                dens_expr = sympy.simplify(dens_expr)
+                # dens_expr = optimize(dens_expr, optims_c99)
+                sh[key] = dens_expr
             dens_expr = sh[key]
         # for outer pleasure
         cls.dens_expr = dens_expr
@@ -666,7 +670,9 @@ class MetaArch(MetaCop):
                     if "gen_inv" not in cls_dict:
                         gen_inv = sympy.solve(gen - x, t)[0]
                     cop = gen_inv.subs(x, gen.subs(t, uu) + gen.subs(t, vv))
-                    sh[key] = sympy.simplify(cop)
+                    cop = sympy.simplify(cop)
+                    # cop = optimize(cop, optims_c99)
+                    sh[key] = cop
                 cop = sh[key]
                 # # kendall_tau expression
                 # key = f"{name}_kendall_{tools.hash_cop(gen)}"
