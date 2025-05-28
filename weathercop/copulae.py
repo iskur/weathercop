@@ -23,6 +23,8 @@ from scipy.optimize import (
 from scipy.special import erf, erfinv
 from sympy import exp, ln
 from sympy.utilities import autowrap
+
+# from sympy.codegen.rewriting import optimize, optims_c99
 from sympy.printing.theanocode import theano_function
 
 try:
@@ -107,7 +109,13 @@ def ufuncify_cython(cls, name, uargs, expr, *args, verbose=False, **kwds):
         autowrap.CodeWrapper._module_counter = 0
         with tools.chdir(ufunc_dir):
             ufunc = autowrap.ufuncify(
-                uargs, expr, tempdir=ufunc_dir, verbose=verbose, *args, **kwds
+                uargs,
+                expr,
+                tempdir=ufunc_dir,
+                flags=["-D_XOPEN_SOURCE"],  # required after adding optims_c99
+                verbose=verbose,
+                *args,
+                **kwds,
             )
         autowrap.CodeWrapper._module_basename = _module_basename_orig
         autowrap.CodeWrapper._module_counter = _module_counter_orig
