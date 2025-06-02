@@ -241,7 +241,7 @@ def sim_one(args):
         n_digits,
         write_to_disk,
     ) = args
-    np.random.seed(1000 * real_i)
+    vg.seed(1000 * real_i)
     if "phase_randomize_vary_mean" not in sim_kwds:
         sim_kwds["phase_randomize_vary_mean"] = False
     if DEBUG:
@@ -324,7 +324,7 @@ def sim_one(args):
                     current_process().name
                     + " in conditional.sim_one. after daily to_netcdf"
                 )
-        np.random.seed(1000 * real_i)
+        vg.seed(1000 * real_i)
         if DEBUG:
             print(
                 current_process().name
@@ -848,7 +848,7 @@ if __name__ == "__main__":
 
     # seed = 19 * 1000
     seed = 0
-    np.random.seed(seed)
+    vg.seed(seed)
     xds = xr.open_dataset(postdoc_conf.MS.nc_clean_filepath)
     xds = xds.interpolate_na("time")
     xar = xds.drop_vars(("latitude", "longitude")).to_array("station")

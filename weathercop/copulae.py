@@ -282,7 +282,7 @@ def swap_symbols(expr, symbol1, symbol2):
 
 def random_sample(size, bound=1e-9):
     """Sample in the closed interval (bound, 1 - bound)."""
-    return (1 - 2 * bound) * np.random.random_sample(size) + bound
+    return (1 - 2 * bound) * vg.rng.random(size) + bound
 
 
 def positive(func):
