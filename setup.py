@@ -14,12 +14,25 @@ from Cython.Build import cythonize
 
 ext = ".pyx"
 
+include_dirs = [np.get_include()]
+library_dirs = []
 if StrictVersion(np.__version__) < StrictVersion("1.21"):
     lapack_info = np.__config__.lapack_mkl_info
+    include_dirs += [lapack_info["include_dirs"]]
+    library_dirs += [lapack_info["library_dirs"]]
 else:
-    lapack_info = np.__config__.lapack_opt_info
-include_dirs = [np.get_include()] + lapack_info["include_dirs"]
-library_dirs = lapack_info["library_dirs"]
+    # lapack_info = np.__config__.lapack_opt_info
+    build_deps = np.show_config("dicts")["Build Dependencies"]
+    lapack_info = build_deps["lapack"]
+    if (lapack_includes := lapack_info["include directory"]) != "unknown":
+        include_dirs += [lapack_includes]
+    if (lapack_libs := lapack_info["lib directory"]) != "unknown":
+        library_dirs += [lapack_libs]
+    blas_info = build_deps["blas"]
+    if (blas_includes := blas_info["include directory"]) != "unknown":
+        include_dirs += [blas_includes]
+    if (blas_libs := blas_info["lib directory"]) != "unknown":
+        library_dirs += [blas_libs]
 # not all path separators are created equal
 include_dirs = [str(Path(directory)) for directory in include_dirs]
 library_dirs = [str(Path(directory)) for directory in library_dirs]
@@ -39,7 +52,15 @@ if sys.platform == "win32":
     include_dirs += [r'-I"%MKLROOT%"\include']
 else:  # POSIX
     extra_compile_args = ["-std=c99"]
-    extra_link_args = []
+    extra_link_args = [
+        # "-I",
+        # # "(intel's dir)/intel/compilers_and_libraries_2016.3.210/linux/mkl/include",
+        # "/opt/intel/mkl/include",
+        # "-L",
+        # # "(intel's dir)/intel/mkl/lib/intel64/libmkl_mc.so",
+        # "/opt/intel/oneapi/mkl/2023.2.0/lib/intel64/libmkl_mc.so.2",
+        "-mkl",
+    ]
 
     extensions = [
         Extension(
@@ -91,7 +112,7 @@ setup(
     ext_modules=cythonize(extensions),
     include_dirs=include_dirs,
     install_requires=[
-        "numpy",
+        "numpy>=1.26",
         "scipy",
         "matplotlib",
         "sympy",
@@ -104,7 +125,7 @@ setup(
         "cython",
         "pandas",
         "xarray",
-        "netcdf4"
+        "netcdf4",
         "dill",
     ],
     package_data={
