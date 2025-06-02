@@ -211,6 +211,75 @@ def set_edge_copulae(
         edge[f"C_{clabel2}"] = copula.cdf_given_u
 
 
+class MultiStationVine:
+    def __init__(self, vines):
+        self.vines = vines
+        self.station_names = tuple(vines.keys())
+        self.first_vine = vines[self.station_names[0]]
+        for station_name in self.station_names:
+            self[station_name].name = station_name
+
+    def simulate(self, *args, **kwds):
+        return np.concatenate(
+            [
+                station_vine.simulate(*args, **kwds)
+                for station_vine in self.vines.values()
+            ],
+            axis=1,
+        )
+
+    def quantiles(self, *args, **kwds):
+        return np.concatenate(
+            [
+                station_vine.quantiles(*args, **kwds)
+                for station_vine in self.vines.values()
+            ],
+            axis=1,
+        )
+
+    def keys(self):
+        return self.vine.keys()
+
+    def __getitem__(self, key):
+        return self.vines[key]
+
+    def __getattr__(self, name):
+        if name.startswith("plot"):
+
+            def meta_plot(*args, **kwds):
+                returns = {}
+                station_names = kwds.pop("stations", self.vgs.keys())
+                fig_axs = kwds.pop("fig_axs", None)
+                if isinstance(station_names, str):
+                    station_names = (station_names,)
+                stations = {name: self.vines[name] for name in station_names}
+                for station_name, vine in stations.items():
+                    if fig_axs is not None:
+                        fig, axs = fig_axs[station_name]
+                    else:
+                        fig, axs = None, None
+                    fig, axs = getattr(vine, name)(
+                        figs=fig, axss=axs, *args, **kwds
+                    )
+                    for fig_ in np.atleast_1d(fig):
+                        wplt.suptitle_prepend(fig_, station_name)
+                    returns[station_name] = fig, axs
+                return returns
+
+            return meta_plot
+
+        try:
+            return self.__dict__[name]
+        except KeyError:
+            try:
+                # delegate to first vine
+                return self.__dict__["first_vine"].__dict__[name]
+            except KeyError:
+                raise AttributeError(
+                    f"'{type(self).__name__}' object has no attribute '{name}'"
+                )
+
+
 class Vine:
     def __init__(
         self,
