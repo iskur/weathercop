@@ -10,6 +10,15 @@ from weathercop import stats
 from vg import helpers as my
 
 
+def suptitle_prepend(fig, name):
+    if isinstance(fig, mpl.figure.Figure):
+        try:
+            suptitle = fig._suptitle.get_text()
+        except AttributeError:
+            suptitle = ""
+    fig.suptitle(f"{name} {suptitle}")
+
+
 def rel_ranks(data, method="average"):
     if isinstance(data, int):
         N = data
