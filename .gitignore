@@ -1,4 +1,11 @@
-# Byte-compiled / optimized / DLL files 
+# backups (for example: futurize)
+*.py.bak
+
+# numpy array files, I only use for storing intermediate results in
+# testing
+*.npy
+
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
@@ -15,17 +22,18 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-build/*
-develop-eggs/*
-dist/*
-downloads/*
-eggs/*
-.eggs/*
-lib/*
-lib64/*
-parts/*
-sdist/*
-var/*
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
 wheels/
 *.egg-info/
 .installed.cfg
@@ -107,12 +115,21 @@ venv.bak/
 # Rope project settings
 .ropeproject
 
-# mkdocs documentation
-/site
+# shelve-caches
+*.sh
+*.sh.bak
+*.sh.dat
+*.sh.dir
 
 # mypy
 .mypy_cache/
 
+# cython related build files
+*.reload1
 *.html
 
-code/
+# org-babel jupyter image directory
+.ob-jupyter
+
+# profiling output
+profile.json
