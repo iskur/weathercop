@@ -1,5 +1,6 @@
 """Central file to keep the same configuration in all weathercop code.
 """
+
 from pathlib import Path
 import multiprocessing
 
@@ -22,10 +23,11 @@ theano_cache = ufunc_tmp_dir / "theano_cache.she"
 vine_cache = cache_dir / "vine_cache.she"
 vgs_cache_dir = cache_dir / "vgs_cache"
 varnames = ("R", "theta", "Qsw", "ILWR", "rh", "u", "v")
-n_nodes = multiprocessing.cpu_count() - 1
-# n_nodes = multiprocessing.cpu_count() - 10
+n_nodes = multiprocessing.cpu_count() - 2
+# n_nodes = multiprocessing.cpu_count() - 5
+# n_nodes = 32
 # memory_limit = "4GB"
-memory_limit = "100GB"
+# memory_limit = "100GB"
 # client = Client(
 #     n_workers=n_nodes, threads_per_worker=2, memory_limit=memory_limit
 # )
