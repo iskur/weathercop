@@ -12,6 +12,7 @@ cimport numpy as np
 
 
 cdef extern from "mkl.h" nogil:
+# cdef extern from "mkl_vml_functions.h" nogil:
     void vdErf(int n,
                double *a,
                double *y)
