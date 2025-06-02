@@ -37,7 +37,7 @@ def batch(
         ensemble_dir = ensemble_dir.parent / (ensemble_dir.name + "_disag")
     if not ensemble_dir.exists():
         RuntimeError(f"ensemble_dir does not exist\n{ensemble_dir}")
-    pattern = re.compile("real_[0-9]*.nc")
+    pattern = re.compile(".*real_[0-9]*.nc")
     filepaths = [
         path for path in ensemble_dir.glob("*.nc") if pattern.match(path.name)
     ]
