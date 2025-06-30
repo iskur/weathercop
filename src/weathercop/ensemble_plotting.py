@@ -46,12 +46,11 @@ def batch(
     plot_dir = ensemble_dir / "plots"
     plot_dir.mkdir(exist_ok=True)
 
-    n_realizations = len(filepaths)
     ensemble = (
         xr.open_mfdataset(
             filepaths, concat_dim="realization", combine="nested"
         )
-        .assign_coords(realization=range(n_realizations))
+        .assign_coords(realization=range(len(filepaths)))
         .to_array("dummy")
         .squeeze("dummy", drop=True)
     )
@@ -67,9 +66,18 @@ def batch(
         for funcname in funcs:
             figs_axss = getattr(wc, f"plot_{funcname}")(figsize=(20, 10))
             for station_name, (figs, axs) in figs_axss.items():
-                figs[1].savefig(
-                    plot_dir
-                    / f"{funcname}_{real_i:0{cop_conf.n_digits}}_{station_name}.png"
+                if len(figs) > 1:
+                    for fig_i, fig in enumerate(figs):
+                        fig.savefig(
+                            plot_dir
+                            / (
+                                f"{funcname}_{real_i:0{cop_conf.n_digits}}"
+                                + f"_{station_name}_{fig_i}.png"
+                            )
+                        )
+                figs[0].savefig(
+                    plot_dir / f"{funcname}_{real_i:0{cop_conf.n_digits}}"
+                    f"_{station_name}.png"
                 )
                 for fig in figs:
                     plt.close(fig)
@@ -87,16 +95,20 @@ if __name__ == "__main__":
     import kll_vg_conf as vg_conf
 
     ms.set_conf(vg_conf)
-    data_root = home / "data/opendata_dwd"
+    # data_root = home / "data/opendata_dwd"
+    data_root = home / "data"
 
     ms_conf = postdoc_conf.MS
     obs_xds = xr.open_dataset(postdoc_conf.MS.nc_clean_filepath)
 
     batch(
+        # "kll-stale-20230110_disag",
         "kll-stale-20220926_disag",
         obs_xds,
         "meteogram_daily",
+        # "hyd_year_sums",
         n_realizations=10,
+        verbose=True,
     )
 
     # batch(

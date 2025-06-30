@@ -4,4 +4,3 @@ try:
 except ImportError:
     from . import cop_conf
 from . import vine, copulae
-

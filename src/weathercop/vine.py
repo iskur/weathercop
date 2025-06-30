@@ -595,6 +595,10 @@ class Vine:
             row, col = key
         except ValueError:
             raise TypeError("Key must contain a row and column number.")
+        if isinstance(row, str) and isinstance(col, str):
+            row, col = sorted(
+                (self.varnames.index(row), self.varnames.index(col))
+            )
         if row >= col:
             raise IndexError("First index must be >= second index.")
         A = self.A

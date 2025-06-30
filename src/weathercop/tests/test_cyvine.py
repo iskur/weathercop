@@ -3,6 +3,7 @@ import multiprocessing
 from itertools import repeat
 import numpy as np
 import numpy.testing as npt
+import vg
 from vg.time_series_analysis import distributions as dists
 from weathercop.vine import CVine, cquant_py, csim_py
 
@@ -18,7 +19,7 @@ n_nodes = multiprocessing.cpu_count() - 1
 
 class Test(npt.TestCase):
     def setUp(self):
-        np.random.seed(0)
+        vg.reseed(0)
         self.verbose = True
         self.cov = np.array(
             [
@@ -73,14 +74,15 @@ class Test(npt.TestCase):
         Ps = self.csim
         T = Ps.shape[1]
         tt = np.arange(T)
+        stop_at = self.K
         zero = 1e-5
         one = 1 - zero
         time0 = time.time()
         print("python")
-        Us_py = csim_py((Ps, self.cvine, zero, one, tt))
+        Us_py = csim_py((Ps, self.cvine, zero, one, tt, stop_at))
         time_py = time.time()
         print("cython")
-        Us_cy = csim_cy((Ps, self.cvine, zero, one, tt))
+        Us_cy = csim_cy((Ps, self.cvine, zero, one, tt, stop_at))
         time_cy = time.time()
         print("multiprocessing")
         # with multiprocessing.Pool(n_nodes) as pool:

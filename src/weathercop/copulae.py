@@ -1,8 +1,9 @@
 """Bivariate Copulas intended for Vine Copulas."""
+
 import functools
 import importlib
 import os
-import sys
+
 import warnings
 import inspect
 from abc import ABCMeta, abstractproperty
@@ -37,6 +38,7 @@ except ImportError:
 from numexpr import evaluate
 
 from scipy.stats import mvn
+from scipy.stats import multivariate_normal
 from weathercop import cop_conf as conf, stats, tools
 
 try:
@@ -48,15 +50,18 @@ except ImportError:
         open("ufuncs/__init__.py", "w").close()
     from weathercop import ufuncs
 
-if sys.platform == "win32":
-    MKL = False
-else:
-    from weathercop.normal_conditional import (
-        norm_inv_cdf_given_u,
-        norm_cdf_given_u,
-    )
+import vg
 
-    MKL = True
+# if sys.platform == "win32":
+#     MKL = False
+# else:
+#     from weathercop.normal_conditional import (
+#         norm_inv_cdf_given_u,
+#         norm_cdf_given_u,
+#     )
+#     MKL = True
+
+MKL = False
 
 # used wherever theta can be inf in principle
 theta_large = 50
@@ -84,18 +89,19 @@ rederive = (None,)
 # rederive = "alimikailhaq",
 
 
-def ufuncify_cython(cls, name, uargs, expr, *args, verbose=False, **kwds):
+def ufuncify_cython(cls, name, uargs, expr, *args, verbose=True, **kwds):
     expr_hash = tools.hash_cop(expr)
     module_name = f"{cls.name}_{name}_{expr_hash}"
+
     try:
         ufunc_dir = ufuncs.__path__[0]
     except TypeError:
         ufunc_dir = ufuncs.__path__._path[0]
     try:
         with tools.chdir(ufunc_dir):
-            ufunc = (importlib
-                     .import_module(f"{module_name}_0", ufuncs)
-                     .autofunc_c)
+            ufunc = importlib.import_module(
+                f"{module_name}_0", ufuncs
+            ).autofunc_c
     except (ImportError, AttributeError) as exc:
         if verbose:
             print(exc)
@@ -131,7 +137,11 @@ def raveled_func(func):
         shape = args[0].shape
         args = [np.ravel(arg) for arg in args]
         if theta is not None:
-            result = func(*args, theta=np.ravel(theta), **kwds)
+            # result = func(*args, theta=np.ravel(theta), **kwds)
+            result = func(
+                *(args + [np.ravel(theta)]),
+                **kwds,
+            )
         else:
             result = func(*args, **kwds)
         return result.reshape(shape)
@@ -376,21 +386,25 @@ class MetaCop(ABCMeta):
             else:
                 known_fail = (None,)
             new_cls.dens_func = MetaCop.density_from_cop(new_cls)
-            new_cls.cdf_given_u = MetaCop.cdf_given_u(new_cls)
-            new_cls.cdf_given_v = MetaCop.cdf_given_v(new_cls)
-            new_cls.cdf_given_u_prime = MetaCop.cdf_given_u_prime(new_cls)
-            new_cls.cdf_given_v_prime = MetaCop.cdf_given_v_prime(new_cls)
-            new_cls.copula_func = MetaCop.copula_func(new_cls)
+            new_cls.cdf_given_u = staticmethod(MetaCop.cdf_given_u(new_cls))
+            new_cls.cdf_given_v = staticmethod(MetaCop.cdf_given_v(new_cls))
+            new_cls.cdf_given_u_prime = staticmethod(
+                MetaCop.cdf_given_u_prime(new_cls)
+            )
+            new_cls.cdf_given_v_prime = staticmethod(
+                MetaCop.cdf_given_v_prime(new_cls)
+            )
+            new_cls.copula_func = staticmethod(MetaCop.copula_func(new_cls))
             if "inv_cdf_given_u" not in known_fail:
                 ufunc = MetaCop.inv_cdf_given_u(new_cls)
                 if ufunc is not None:
-                    new_cls.inv_cdf_given_u = ufunc
+                    new_cls.inv_cdf_given_u = staticmethod(ufunc)
             if "inv_cdf_given_v" not in known_fail:
                 ufunc = MetaCop.inv_cdf_given_v(new_cls)
                 if ufunc is not None:
-                    new_cls.inv_cdf_given_v = ufunc
+                    new_cls.inv_cdf_given_v = staticmethod(ufunc)
         elif "dens_expr" in cls_dict and "dens_func" not in cls_dict:
-            new_cls.dens_func = MetaCop.density_func(new_cls)
+            new_cls.dens_func = staticmethod(MetaCop.density_func(new_cls))
         # if "kendall_expr" in cls_dict:
         #     new_cls.kendall = MetaCop.kendall_func(new_cls)
         return new_cls
@@ -399,17 +413,17 @@ class MetaCop(ABCMeta):
         theta_start = cls_dict.get("theta_start", None)
         theta_bounds = cls_dict.get("theta_bounds", None)
         if None in (theta_start, theta_bounds):
-            return 
+            return
         if isinstance(theta_start, abstractproperty):
-            return 
+            return
         for start, (lower, upper) in zip(theta_start, theta_bounds):
             assert (lower <= start) & (start <= upper)
 
     def mark_failed(new_cls):
         for method_name in new_cls.known_fail:
-            key = "_".join((new_cls.name,
-                            method_name,
-                            tools.hash_cop(new_cls)))
+            key = "_".join(
+                (new_cls.name, method_name, tools.hash_cop(new_cls))
+            )
             mark_failed(key)
 
     def rotate_expr(expr, degrees=None):
@@ -453,6 +467,7 @@ class MetaCop(ABCMeta):
             "copula",
             [uu, vv] + theta,
             cls.cop_expr,
+            helpers=cls.helpers,
             backend=cls.backend,
             verbose=False,
         )
@@ -466,6 +481,7 @@ class MetaCop(ABCMeta):
             "density",
             [uu, vv] + theta,
             dens_expr,
+            helpers=cls.helpers,
             backend=cls.backend,
             verbose=False,
         )
@@ -508,6 +524,7 @@ class MetaCop(ABCMeta):
             "conditional_cdf",
             [uu, vv] + theta,
             conditional_cdf,
+            helpers=cls.helpers,
             backend=cls.backend,
             verbose=False,
         )
@@ -526,12 +543,18 @@ class MetaCop(ABCMeta):
             cls_hash = tools.hash_cop(cls)
             key = f"{cls.name}_cdf_given_{conditioning}_prime_{cls_hash}"
             if key not in sh or cls.name in rederive:
-                print(f"Generating {conditioning}-"
-                      f"conditional prime {cls.name}")
+                print(
+                    f"Generating {conditioning}-"
+                    f"conditional prime {cls.name}"
+                )
                 good_cop = cls.cop_expr
                 conditional_cdf_prime = sympy.diff(good_cop, conditioning)
-                conditional_cdf_prime = sympy.diff(conditional_cdf_prime,
-                                                   conditioned)
+                conditional_cdf_prime = sympy.diff(
+                    conditional_cdf_prime, conditioned
+                )
+                # conditional_cdf_prime = optimize(
+                #     conditional_cdf_prime, optims_c99
+                # )
                 sh[key] = conditional_cdf_prime
             conditional_cdf_prime = sh[key]
             setattr(cls, expr_attr, conditional_cdf_prime)
@@ -540,6 +563,7 @@ class MetaCop(ABCMeta):
             "conditional_cdf_prime",
             [uu, vv] + theta,
             conditional_cdf_prime,
+            helpers=cls.helpers,
             backend=cls.backend,
             verbose=False,
         )
@@ -572,11 +596,13 @@ class MetaCop(ABCMeta):
                         "Generating inverse "
                         f"{conditioning}-conditional {cls.name}"
                     )
-                    cdf_given_expr = getattr(cls,
-                                             f"cdf_given_{conditioning}_expr")
+                    cdf_given_expr = getattr(
+                        cls, f"cdf_given_{conditioning}_expr"
+                    )
                     try:
-                        inv_cdf = sympy.solve(cdf_given_expr - qq,
-                                              conditioned)[0]
+                        inv_cdf = sympy.solve(
+                            cdf_given_expr - qq, conditioned
+                        )[0]
                     except (
                         NotImplementedError,
                         ValueError,
@@ -602,6 +628,7 @@ class MetaCop(ABCMeta):
                 f"inv_cdf_given_{conditioning}",
                 [conditioning, qq, theta],
                 inv_cdf,
+                helpers=cls.helpers,
                 backend=cls.backend,
                 verbose=False,
             )
@@ -652,6 +679,7 @@ class MetaCop(ABCMeta):
             "density",
             [uu, vv] + theta,
             dens_expr,
+            helpers=cls.helpers,
             backend=cls.backend,
             verbose=False,
         )
@@ -704,7 +732,6 @@ class MetaArch(MetaCop):
 
 
 class Copulae(metaclass=MetaCop):
-
     """Base of all copula implementations, defining what a copula
     must implement to be a copula."""
 
@@ -713,6 +740,8 @@ class Copulae(metaclass=MetaCop):
     zero, one = 1e-19, 1 - 1e-19
     # needed in inverse conditionals
     _ranks2_calc = np.linspace(zero, one, 5000)
+    # helping cython do its thing
+    helpers = None
 
     @abstractproperty
     def theta_start(self):
@@ -738,8 +767,12 @@ class Copulae(metaclass=MetaCop):
         self.__init__()
 
     def density(self, uu, vv, *theta):
-        theta = tuple(np.full_like(uu, np.atleast_1d(the)) for the in theta)
-        return self.dens_func(uu, vv, *theta)
+        # return self.dens_func(uu, vv, *theta)
+        if np.asarray(theta).shape != uu.shape:
+            theta = tuple(
+                np.full_like(uu, np.atleast_1d(the)) for the in theta
+            )
+        return self.dens_func(uu, vv, theta=np.array(theta))
 
     def cdf(self, uu, vv, *theta):
         theta = tuple(np.full_like(uu, np.atleast_1d(the)) for the in theta)
@@ -943,7 +976,7 @@ class Copulae(metaclass=MetaCop):
             n_per_dim = 100
         uu = vv = stats.rel_ranks(np.arange(n_per_dim))
         # theta_dens = tuple(np.repeat(the, n_per_dim ** 2) for the in theta[0])
-        theta_dens = tuple(np.repeat(the, n_per_dim ** 2) for the in theta)
+        theta_dens = tuple(np.repeat(the, n_per_dim**2) for the in theta)
         density = self.density(
             uu.repeat(n_per_dim), np.tile(vv, n_per_dim), *theta_dens
         ).reshape(n_per_dim, n_per_dim)
@@ -966,7 +999,9 @@ class Copulae(metaclass=MetaCop):
                 )
         if scatter:
             sample_size = 1000
-            theta_sample = tuple(np.repeat(the, sample_size) for the in theta[0])
+            theta_sample = tuple(
+                np.repeat(the, sample_size) for the in theta[0]
+            )
             u_sample, v_sample = self.sample(sample_size, *theta_sample)
             ax.scatter(
                 u_sample,
@@ -982,9 +1017,10 @@ class Copulae(metaclass=MetaCop):
         ax.set_yticklabels([])
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
-        fig.suptitle(
+        # fig.suptitle(
+        ax.set_title(
             self.name
-            + ("" if theta[0][0] is None else fr"$\theta$ = {theta[0][0]:.3f}")
+            + ("" if theta[0][0] is None else rf"$\theta$ = {theta[0][0]:.3f}")
         )
         return fig, ax
 
@@ -998,7 +1034,7 @@ class Copulae(metaclass=MetaCop):
                     raise AttributeError
             except AttributeError:
                 theta = tuple(
-                    np.repeat(the, n_per_dim ** 2) for the in self.theta_start
+                    np.repeat(the, n_per_dim**2) for the in self.theta_start
                 )
         uu = vv = stats.rel_ranks(np.arange(n_per_dim))
         cc = self.cdf(uu.repeat(n_per_dim), np.tile(vv, n_per_dim), *theta)
@@ -1043,35 +1079,46 @@ class Frozen:
                             attr, theano.compile.function_module.Function
                         ):
                             pars = [par.name for par in attr.maker.inputs]
-                            pars_kind = {
-                                par.name: 2 if par.implicit else 1
-                                for par in attr.maker.inputs
-                            }
+                            # pars_kind = {
+                            #     par.name: 2 if par.implicit else 1
+                            #     for par in attr.maker.inputs
+                            # }
                         else:
-                            pars = inspect.signature(attr).parameters
-                            pars_kind = {
-                                name: par.kind.value for name, par in pars.items()
+                            pars = {
+                                name.split("_")[0]: par
+                                for name, par in inspect.signature(
+                                    attr
+                                ).parameters.items()
                             }
+                            # pars_kind = {
+                            #     name: par.kind.value
+                            #     for name, par in pars.items()
+                            # }
                     except ValueError:
                         # might be an autofunc_c
                         return attr(
                             *(
                                 args
                                 + tuple(
-                                    np.atleast_2d(np.full_like(args[0], self.theta))
+                                    np.atleast_2d(
+                                        np.full_like(args[0], self.theta)
+                                    )
                                 )
                             )
                         )
                     if "theta" in pars:
                         try:
-                            theta = np.full_like(args[0], self.theta[0], dtype=float)
+                            theta = np.full_like(
+                                args[0], self.theta[0], dtype=float
+                            )
                         except IndexError:
                             theta = self.theta
-                        theta_kind = pars_kind["theta"]
-                        if theta_kind in (1, 3):
-                            return attr(*args, theta=theta, **kwds)
-                        elif theta_kind == 2:
-                            return attr(*(args + (theta,)), **kwds)
+                        # theta_kind = pars_kind["theta"]
+                        # if theta_kind in (1, 3):
+                        #     return attr(*args, theta=theta, **kwds)
+                        # elif theta_kind == 2:
+                        #     return attr(*(args + (theta,)), **kwds)
+                        return attr(*(args + (theta,)), **kwds)
                     return attr(*args)
 
                 return proxied
@@ -1127,7 +1174,9 @@ class Fitted:
             )
 
         empirical = bipit(self.ranks_u, self.ranks_v)
-        theoretical = self.copula.copula_func(self.ranks_u, self.ranks_v, *self.theta)
+        theoretical = self.copula.copula_func(
+            self.ranks_u, self.ranks_v, *self.theta
+        )
         if ax is None:
             fig, ax = plt.subplots(
                 # subplot_kw=dict(aspect="equal")
@@ -1254,7 +1303,7 @@ class Clayton(Copulae):
     theta_bounds = [(1e-8, 0.1)]
     # uu, vv, t, theta = sympy.symbols("uu vv t theta")
     uu, vv, t, theta, qq = sympy.symbols("uu vv t theta qq")
-    cop_expr = (uu ** -theta + vv ** -theta - 1) ** (-1 / theta)
+    cop_expr = (uu**-theta + vv**-theta - 1) ** (-1 / theta)
     # dens_expr = ((1 + theta) * (uu * vv) ** (-theta - 1) *
     #              (uu ** -theta + vv ** -theta - 1) ** (-2 - 1 / theta))
     gen_expr = (1 / theta) * (t ** (-theta) - 1)
@@ -1262,12 +1311,12 @@ class Clayton(Copulae):
     # cdf_given_uu_expr = (uu ** (1 - theta) *
     #                      (1 + uu ** theta *
     #                       (vv ** -theta)) ** ((theta + 1) / theta))
-    cdf_given_uu_expr = 1 + uu ** theta * (vv ** -theta - 1) ** (-1 - 1 / theta)
-    inv_cdf_given_uu_expr = ((qq ** (-theta / (1 + theta)) - 1) * uu ** -theta + 1) ** (
-        -1 / theta
-    )
+    cdf_given_uu_expr = 1 + uu**theta * (vv**-theta - 1) ** (-1 - 1 / theta)
+    # inv_cdf_given_uu_expr = (
+    #     (qq ** (-theta / (1 + theta)) - 1) * uu**-theta + 1
+    # ) ** (-1 / theta)
     cdf_given_vv_expr = cdf_given_uu_expr.subs(dict(uu=vv))
-    inv_cdf_given_vv_expr = inv_cdf_given_uu_expr.subs(dict(uu=vv))
+    # inv_cdf_given_vv_expr = inv_cdf_given_uu_expr.subs(dict(uu=vv))
     # known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
 
 
@@ -1308,8 +1357,9 @@ clayton = Clayton()
 
 
 # inverse conditionals causing pain
-class GumbelBarnett(Archimedean, No90, No270):
+class GumbelBarnett(Archimedean, No90, No270, No180):
     """Also Nelsen09"""
+
     theta_start = (0.9,)
     theta_bounds = [(1e-9, 1.0 - 1e-9)]
     t, theta = sympy.symbols("t theta")
@@ -1323,6 +1373,13 @@ class GumbelBarnett(Archimedean, No90, No270):
     #               (1 - theta * ln(1 - uu)) *
     #               (1 - theta * ln(1 - vv))) *
     #              exp(-theta * ln(1 - uu) * ln(1 - vv)))
+    x = sympy.symbols("x")
+    from sympy.functions.elementary.exponential import LambertW
+
+    helpers = ("LambertW", LambertW(x), [x])
+    known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
+
+
 gumbelbarnett = GumbelBarnett()
 
 
@@ -1577,12 +1634,15 @@ class Joe(Copulae, NoRotations):
             "rank0",
             [uu, p, delta],
             rank0_expr,
+            helpers=super().helpers,
             backend=MetaArch.backend,
         )
         self.rank0_func = rank0_func
 
     def rank0(self, rank, quantile, theta):
-        proposed_rank = self.rank0_func(np.array([rank]), np.array([quantile]), theta)
+        proposed_rank = self.rank0_func(
+            np.array([rank]), np.array([quantile]), theta
+        )
         proposed_rank[np.isnan(proposed_rank)] = quantile
         eps = 1e-4
         return max(eps, min(proposed_rank, 1 - eps))
@@ -1758,7 +1818,7 @@ gumbel = Gumbel()
 
 
 class AliMikailHaq(Archimedean):
-    theta_start = (0.99,)
+    theta_start = (0.9,)
     # theta_bounds = [(1e-9, 1.)]
     theta_bounds = [(-1 + 1e-6, 1.0 - 1e-6)]
     t, theta = sympy.symbols("t theta")
@@ -1803,12 +1863,11 @@ class Gaussian(Copulae, NoRotations):
                 .reshape((len(uu_normal), len(vv_normal)))
                 .T.ravel()
             )
-        lower = np.full(2, -20.0)
-        infin = np.full(2, 2, dtype=int)
         for i, (u_normal, v_normal) in enumerate(zip(uu_normal, vv_normal)):
-            quantiles[i] = mvn.mvndst(
-                lower, np.array([u_normal, v_normal]), infin, theta[i]
-            )[1]
+            quantiles[i] = multivariate_normal.cdf(
+                np.array([u_normal, v_normal]),
+                cov=np.array([[1, theta[i]], [theta[i], 1]]),
+            )
         if broadcast:
             quantiles = quantiles.reshape(uu.size, vv.size)
         return quantiles
@@ -1821,6 +1880,7 @@ class Gaussian(Copulae, NoRotations):
                        erfinv(2 * vv - 1)) /
                       np.sqrt(-theta ** 2 + 1))
            + 0.5)
+
     # fmt: on
 
     def inv_cdf_given_u_nomkl(self, uu, qq, theta):
@@ -1830,6 +1890,7 @@ class Gaussian(Copulae, NoRotations):
                      erfinv(2 * uu - 1) -
                      erfinv(-2 * (qq - .5)) *
                      np.sqrt(-theta ** 2 + 1))))
+
     # fmt: on
 
     def cdf_given_u(self, uu, vv, theta):
@@ -1875,7 +1936,9 @@ class Plackett(Copulae):
         * (
             1
             + eta * (uu + vv)
-            - sympy.sqrt((1 + eta * (uu + vv)) ** 2 - 4 * theta * eta * uu * vv)
+            - sympy.sqrt(
+                (1 + eta * (uu + vv)) ** 2 - 4 * theta * eta * uu * vv
+            )
         )
     )
     cop_expr = cop_expr.subs(eta, theta - 1)
@@ -2217,7 +2280,8 @@ all_cops.update(turned_cops)
 all_cops = OrderedDict((name, obj) for name, obj in sorted(all_cops.items()))
 
 frozen_cops = OrderedDict(
-    (name, copulas(copulas.theta_start)) for name, copulas in sorted(all_cops.items())
+    (name, copulas(copulas.theta_start))
+    for name, copulas in sorted(all_cops.items())
 )
 
 # all_cops = {k: v for k, v in all_cops.items()

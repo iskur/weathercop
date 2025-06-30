@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize_scalar, minimize
 from weathercop import multisite as ms
 from weathercop import tools, cop_conf
+import vg
 from vg.time_series_analysis import rain_stats
 
 DEBUG = cop_conf.DEBUG
@@ -70,7 +71,7 @@ def error_1d(
     phases_rfft = np.array(phases_rfft)
     phases_rfft[:, :, phase_i] = phase
     rphases = rfft2fft(phases_rfft, even)
-    sim_sea = simulate_unconditional(
+    sim_result = simulate_unconditional(
         rphases=rphases,
         # write_to_disk=False,
         stop_at=conditions.vine_var_i,
@@ -85,7 +86,7 @@ def error_1d(
     #     ax.set_title(str(station_name.data))
     # plt.show()
     # __import__("pdb").set_trace()
-    return conditions(sim_sea, debug=debug, real_i=real_i)
+    return conditions(sim_result.sim_sea, debug=debug, real_i=real_i)
 
 
 def error_nd(
@@ -96,13 +97,13 @@ def error_nd(
     phases_rfft = np.array(phases_rfft)
     phases_rfft[:, :, phases_ii] = phases
     rphases = rfft2fft(phases_rfft, even)
-    sim_sea = simulate_unconditional(
+    sim_result = simulate_unconditional(
         rphases=rphases,
         # write_to_disk=False,
         stop_at=conditions.vine_var_i,
         phase_randomize_vary_mean=False,
     )
-    return conditions(sim_sea)
+    return conditions(sim_result.sim_sea)
 
 
 def _phase_1d_opt(
@@ -230,6 +231,7 @@ def sim_one(args):
         wcop,
         filepath,
         filepath_daily,
+        filepath_trans,
         filepath_rphases,
         filepath_rphases_src,
         sim_args,
@@ -240,6 +242,7 @@ def sim_one(args):
         ensemble_dir,
         n_digits,
         write_to_disk,
+        verbose,
     ) = args
     vg.seed(1000 * real_i)
     if "phase_randomize_vary_mean" not in sim_kwds:
@@ -267,13 +270,14 @@ def sim_one(args):
         with ms.lock:
             conditions = wcop.conditions
             variable_phases_ii = conditions.variable_phases_ii
-        sim_sea, rphases = simulate_unconditional(return_rphases=True)
+        sim_result = simulate_unconditional(return_rphases=True)
         rphases = _phase_1d_opt(
-            rphases,
+            sim_result.rphases,
             variable_phases_ii,
             simulate_unconditional,
             conditions,
             real_i,
+            verbose,
         )
     while rphases is None:
         print(f"reshuffling {real_i=}")
@@ -289,6 +293,7 @@ def sim_one(args):
             simulate_unconditional,
             conditions,
             real_i,
+            verbose,
             # verbose=2,
         )
     # sim_sea, sim_trans = simulate_unconditional(rphases=rphases)
@@ -297,14 +302,14 @@ def sim_one(args):
             current_process().name
             + " in conditional.sim_one. before second unconditional sim"
         )
-    sim_sea = simulate_unconditional(rphases=rphases)
+    sim_result = simulate_unconditional(rphases=rphases)
     if DEBUG:
         print(
             current_process().name
             + " in conditional.sim_one. after second unconditional sim"
         )
     if (filepath_rphases_src is None) and (
-        error := conditions(sim_sea, debug=True)
+        error := conditions(sim_result.sim_sea, debug=True)
     ):
         print(f"Condition violated for {real_i=} with {error:.3f=}")
     if dis_kwds is not None:
@@ -315,7 +320,7 @@ def sim_one(args):
                     + " in conditional.sim_one. before daily to_netcdf"
                 )
                 print(filepath_daily)
-            sim_sea.to_netcdf(filepath_daily)
+            sim_result.sim_sea.to_netcdf(filepath_daily)
             # sim_sea.to_dataset("variable").to_zarr(
             #     filepath_daily.with_suffix(".zarr")
             # )
@@ -336,7 +341,9 @@ def sim_one(args):
                 current_process().name
                 + " in conditional.sim_one. after disaggregate"
             )
-        sim_sea, sim_sea_dis = xr.align(sim_sea, sim_sea_dis, join="outer")
+        sim_sea, sim_sea_dis = xr.align(
+            sim_result.sim_sea, sim_sea_dis, join="outer"
+        )
         sim_sea.loc[dict(variable=wcop.varnames)] = sim_sea_dis.sel(
             variable=wcop.varnames
         )
@@ -378,17 +385,19 @@ class MultisiteConditional(ms.Multisite):
     def simulate(self, *args, rphases=None, return_rphases=False, **kwds):
         if "phase_randomize_vary_mean" not in kwds:
             kwds["phase_randomize_vary_mean"] = False
+        kwds = {key: val for key, val in kwds.items()}
+        kwds["return_trans"] = False
         simulate_unconditional = partial(super().simulate, *args, **kwds)
-        verbose_before = self.verbose
+        verbose_before = self.verbose_old or False
         self.verbose = False
         if "phase_randomize_vary_mean" in kwds:
             del kwds["phase_randomize_vary_mean"]
         if rphases is None:
-            sim_sea, rphases = simulate_unconditional(return_rphases=True)
+            sim_result = simulate_unconditional(return_rphases=True)
             # update conditions with information about T and the power spectrum!
-            self.conditions.update(rphases, self.As, self.vine)
+            self.conditions.update(sim_result.rphases, self.As, self.vine)
             rphases = _phase_1d_opt(
-                rphases,
+                sim_result.rphases,
                 self.conditions.variable_phases_ii,
                 simulate_unconditional,
                 self.conditions,
@@ -398,7 +407,7 @@ class MultisiteConditional(ms.Multisite):
             while rphases is None:
                 print("reshuffling (single_thread)")
                 rphases = ms._random_phases(
-                    self.phases, sim_sea.time.size, self[0].T_summed
+                    self.phases, sim_result.sim_sea.time.size, self[0].T_summed
                 )
                 rphases = _phase_1d_opt(
                     rphases,
@@ -410,17 +419,18 @@ class MultisiteConditional(ms.Multisite):
                 )
         self.verbose = verbose_before
         # final pass for writing out data
-        sim_sea = simulate_unconditional(
+        sim_result = simulate_unconditional(
             # write_to_disk=True,
             rphases=rphases,
             phase_randomize_vary_mean=False,
         )
-        if error := self.conditions(sim_sea, debug=verbose_before):
+        if error := self.conditions(sim_result.sim_sea, debug=verbose_before):
             warnings.warn(f"Condition violated with {error=:.3f}")
             # raise RuntimeError(f"Condition violated with {error=:.3f}")
-        if return_rphases:
-            return sim_sea, rphases
-        return sim_sea
+        return sim_result
+        # if return_rphases:
+        #     return sim_sea, rphases
+        # return sim_sea
 
 
 class Conditions:
@@ -437,7 +447,8 @@ class Conditions:
         self._calculate_yearly_rain_sums = False
         self.As = self.vine = self.phases = None
         for condition in self:
-            if type(condition).__name__.startswith("YearlyRain"):
+            # if type(condition).__name__.startswith("YearlyRain"):
+            if isinstance(condition, YearlyRain):
                 self._calculate_yearly_rain_sums = True
                 break
 
@@ -485,10 +496,15 @@ class Conditions:
 
     def __call__(self, data, real_i=None, debug=False):
         rain_sums_dict = dict().fromkeys(self.station_names)
+        if "hyd_years_mask" not in self.hyd_kwds:
+            self.hyd_kwds["hyd_years_mask"] = rain_stats.get_hyd_years_mask(
+                data.time.dt
+            )
         if self._calculate_yearly_rain_sums:
             rain = data.sel(variable="R").load()
             for station_name, condition in zip(self.station_names, self):
-                if type(condition).__name__.startswith("YearlyRain"):
+                # if type(condition).__name__.startswith("YearlyRain"):
+                if isinstance(condition, YearlyRain):
                     rain_sums_dict[station_name] = dict(
                         rain_sums=rain_stats.hyd_year_sums(
                             rain.sel(station=station_name), **self.hyd_kwds
@@ -597,7 +613,11 @@ class Condition:
         )
 
 
-class YearlyRainBounds(Condition):
+class YearlyRain:
+    pass
+
+
+class YearlyRainBounds(Condition, YearlyRain):
     varname = "R"
 
     def __init__(
@@ -693,7 +713,7 @@ class YearlyRainBounds(Condition):
         return fig, ax
 
 
-class YearlyRainStd(Condition):
+class YearlyRainStd(Condition, YearlyRain):
     varname = "R"
 
     def __init__(
@@ -726,7 +746,7 @@ class YearlyRainStd(Condition):
             return 0
 
 
-class YearlyRainMean(Condition):
+class YearlyRainMean(Condition, YearlyRain):
     varname = "R"
 
     def __init__(
@@ -867,7 +887,8 @@ if __name__ == "__main__":
     recalc = False
     dis_kwds = dict(var_names_dis=[name for name in varnames if name != "R"])
     # dis_kwds = None
-    n_realizations = 1200
+    # n_realizations = 1200
+    n_realizations = 32
 
     b_kwds = dict(
         lower_period=int(0.5 * 365),
@@ -949,9 +970,10 @@ if __name__ == "__main__":
         refit_vine=refit_vine,
         primary_var="R",
         refit=refit,
-        rain_method="distance",
+        # rain_method="distance",
+        rain_method="simulation",
         cop_candidates=cop_candidates,
-        verbose=True,
+        # verbose=True,
         # verbose=2,
         **ms_conf.init,
     )
@@ -1016,8 +1038,9 @@ if __name__ == "__main__":
     # )
     # # wc_dist.conditions.plot(sim_sea)
 
-    # # wc_dist.plot_meteogram_daily_stat()
-    # # wc_dist.plot_meteogram_daily_decorr()
+    wc_dist.plot_meteogram_daily_stat()
+    wc_dist.plot_meteogram_daily_decorr()
+
     # sim_dis = wc_dist.simulate_ensemble(
     #     n_realizations,
     #     name="kll-stale-distance-more-drought700",

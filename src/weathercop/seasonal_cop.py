@@ -247,6 +247,10 @@ class SeasonalCop:
                 # I don't trust fittings that are very close to the
                 # parameter bounds!
                 theta_lower, theta_upper = self.copula.theta_bounds[0]
+                if isinstance(theta, tuple):
+                    theta = theta[0]
+                if theta < theta_lower or theta > theta_upper:
+                    theta = np.nan
                 if np.isclose(theta, theta_lower) or np.isclose(
                     theta, theta_upper
                 ):
@@ -283,6 +287,8 @@ class SeasonalCop:
                 # interp = my.interp_nan(theta_pad, max_interp=5)[half:-half]
                 interp = my.interp_nan(theta_pad)[half:-half]
                 theta_filled[:, theta_i] = interp
+            else:
+                theta_filled[:, theta_i] = thetas[:, theta_i]
         # assert np.all(np.isfinite(theta_filled))
         return theta_filled
 

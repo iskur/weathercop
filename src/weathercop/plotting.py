@@ -90,7 +90,7 @@ def ccplom(
     display_asy=True,
     vmax_fct=1.0,
     fontsize=None,
-    fontcolor="yellow",
+    fontcolor="black",
     scatter=True,
     axs=None,
     fig=None,

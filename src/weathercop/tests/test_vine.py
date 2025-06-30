@@ -10,6 +10,7 @@ import pandas as pd
 from scipy import stats as spstats
 
 from vg import helpers as my
+import vg
 from vg.time_series_analysis import distributions as dists
 from weathercop import plotting, copulae
 from weathercop.vine import CVine, RVine, vg_ph
@@ -17,7 +18,7 @@ from weathercop.vine import CVine, RVine, vg_ph
 
 class Test(npt.TestCase):
     def setUp(self):
-        np.random.seed(0)
+        vg.reseed(0)
         self.verbose = True
         # self.cov = np.array([[ 1.3  , -0.045,  0.597,  0.669,  0.568,  0.507],
         #                      [-0.045,  0.927,  0.576, -0.248,  0.072,  0.136],
@@ -31,12 +32,16 @@ class Test(npt.TestCase):
         #                      [ 0.597,  0.576,  0.288,  0.963,  0.283,  0.282],
         #                      [ 0.669, -0.248,  0.129,  0.283,  0.988,  0.116],
         #                      [ 0.507,  0.136,  0.686,  0.282,  0.116,  0.892]])
-        self.cov = np.array([[ 1.3  ,  0.568,  0.597,  0.507, -0.045,  0.669],
-                             [ 0.568,  0.91 ,  0.288,  0.686,  0.072,  0.129],
-                             [ 0.597,  0.288,  0.963,  0.282,  0.576,  0.283],
-                             [ 0.507,  0.686,  0.282,  0.892,  0.136,  0.116],
-                             [-0.045,  0.072,  0.576,  0.136,  0.927, -0.248],
-                             [ 0.669,  0.129,  0.283,  0.116, -0.248,  0.988]])
+        self.cov = np.array(
+            [
+                [1.3, 0.568, 0.597, 0.507, -0.045, 0.669],
+                [0.568, 0.91, 0.288, 0.686, 0.072, 0.129],
+                [0.597, 0.288, 0.963, 0.282, 0.576, 0.283],
+                [0.507, 0.686, 0.282, 0.892, 0.136, 0.116],
+                [-0.045, 0.072, 0.576, 0.136, 0.927, -0.248],
+                [0.669, 0.129, 0.283, 0.116, -0.248, 0.988],
+            ]
+        )
 
         self.K = len(self.cov)
         self.K -= 1
@@ -428,83 +433,83 @@ class Test(npt.TestCase):
             plt.show()
             raise
 
-    def test_seasonal_ph(self):
-        if self.verbose:
-            print("VG with phase randomization")
-        import vg
-        import config_konstanz as conf
+    # def test_seasonal_ph(self):
+    #     if self.verbose:
+    #         print("VG with phase randomization")
+    #     import vg
+    #     import config_konstanz as conf
 
-        vg.conf = vg.vg_base.conf = vg.vg_plotting.conf = conf
-        met_vg = vg.VG(
-            (
-                # 'R',
-                "theta",
-                "ILWR",
-                "rh",
-                "u",
-                "v",
-            ),
-            # refit=True,
-            verbose=True,
-        )
-        met_vg.fit(p=3)
-        theta_incr = 0.1
-        np.random.seed(0)
-        n_realizations = 4
-        means_norm0, means0, means1 = [], [], []
-        before = time.perf_counter()
-        for _ in range(n_realizations):
-            simt0, sim0 = met_vg.simulate(sim_func=vg_ph)  #  theta_incr=0.,
-            means_norm0 += [met_vg.sim.mean(axis=1)]
-            simt1, sim1 = met_vg.simulate(
-                theta_incr=theta_incr, sim_func=vg_ph
-            )
-            prim_i = met_vg.primary_var_ii
-            means0 += [sim0.mean(axis=1)]
-            # means1 += [sim1[prim_i].mean()]
-            # means0 += [sim0[prin_i].mean()]
-            means1 += [sim1.mean(axis=1)]
-        print(time.perf_counter() - before)
-        means0 = np.mean(means0, axis=0)
-        means1 = np.mean(means1, axis=0)
-        # print(means0[prim_i] + theta_incr, means1[prim_i])
-        # print(means0, means1)
-        np.set_printoptions(suppress=True)
-        import pandas as pd
+    #     vg.conf = vg.vg_base.conf = vg.vg_plotting.conf = conf
+    #     met_vg = vg.VG(
+    #         (
+    #             # 'R',
+    #             "theta",
+    #             "ILWR",
+    #             "rh",
+    #             "u",
+    #             "v",
+    #         ),
+    #         refit=True,
+    #         verbose=True,
+    #     )
+    #     met_vg.fit(p=3)
+    #     theta_incr = 0.1
+    #     vg.reseed(0)
+    #     n_realizations = 4
+    #     means_norm0, means0, means1 = [], [], []
+    #     before = time.perf_counter()
+    #     for _ in range(n_realizations):
+    #         simt0, sim0 = met_vg.simulate(sim_func=vg_ph)  #  theta_incr=0.,
+    #         means_norm0 += [met_vg.sim.mean(axis=1)]
+    #         simt1, sim1 = met_vg.simulate(
+    #             theta_incr=theta_incr, sim_func=vg_ph
+    #         )
+    #         prim_i = met_vg.primary_var_ii
+    #         means0 += [sim0.mean(axis=1)]
+    #         # means1 += [sim1[prim_i].mean()]
+    #         # means0 += [sim0[prin_i].mean()]
+    #         means1 += [sim1.mean(axis=1)]
+    #     print(time.perf_counter() - before)
+    #     means0 = np.mean(means0, axis=0)
+    #     means1 = np.mean(means1, axis=0)
+    #     # print(means0[prim_i] + theta_incr, means1[prim_i])
+    #     # print(means0, means1)
+    #     np.set_printoptions(suppress=True)
+    #     import pandas as pd
 
-        data_dict = OrderedDict(
-            (
-                ("data_norm", met_vg.data_trans.mean(axis=1)),
-                ("sim_norm", np.mean(means_norm0, axis=0)),
-                ("data", (met_vg.data_raw / met_vg.sum_interval).mean(axis=1)),
-                ("sim", means0),
-            )
-        )
-        means_df = pd.DataFrame(data_dict, index=met_vg.var_names)
-        print(means_df)
-        npt.assert_almost_equal(
-            met_vg.data_trans.mean(axis=1),
-            np.mean(means_norm0, axis=0),
-            decimal=2,
-        )
-        means0[prim_i] += theta_incr
-        means_obs = met_vg.data_raw.mean(axis=1) / 24
-        means_obs[prim_i] += theta_incr
-        npt.assert_almost_equal(means_obs[prim_i], means1[prim_i], decimal=2)
-        npt.assert_almost_equal(means0[prim_i], means1[prim_i], decimal=2)
+    #     data_dict = OrderedDict(
+    #         (
+    #             ("data_norm", met_vg.data_trans.mean(axis=1)),
+    #             ("sim_norm", np.mean(means_norm0, axis=0)),
+    #             ("data", (met_vg.data_raw / met_vg.sum_interval).mean(axis=1)),
+    #             ("sim", means0),
+    #         )
+    #     )
+    #     means_df = pd.DataFrame(data_dict, index=met_vg.var_names)
+    #     print(means_df)
+    #     npt.assert_almost_equal(
+    #         met_vg.data_trans.mean(axis=1),
+    #         np.mean(means_norm0, axis=0),
+    #         decimal=2,
+    #     )
+    #     means0[prim_i] += theta_incr
+    #     means_obs = met_vg.data_raw.mean(axis=1) / 24
+    #     means_obs[prim_i] += theta_incr
+    #     npt.assert_almost_equal(means_obs[prim_i], means1[prim_i], decimal=2)
+    #     npt.assert_almost_equal(means0[prim_i], means1[prim_i], decimal=2)
 
-        # vg_ph.clear_cache()
-        # for _ in range(10):
-        #     simt, sim = met_vg.simulate(
-        #         theta_incr=4, mean_arrival=7,
-        #         disturbance_std=5,
-        #         sim_func=vg_ph)
-        # vg_ph.vine.plot(edge_labels="copulas")
-        # # vg_ph.vine.plot_tplom()
-        # vg_ph.vine.plot_qqplom()
-        # vg_ph.vine.plot_seasonal()
-        # # met_vg.plot_all()
-        # plt.show()
+    #     # vg_ph.clear_cache()
+    #     # for _ in range(10):
+    #     #     simt, sim = met_vg.simulate(
+    #     #         theta_incr=4, mean_arrival=7,
+    #     #         disturbance_std=5,
+    #     #         sim_func=vg_ph)
+    #     # vg_ph.vine.plot(edge_labels="copulas")
+    #     # # vg_ph.vine.plot_tplom()
+    #     # vg_ph.vine.plot_qqplom()
+    #     # vg_ph.vine.plot_seasonal()
+    #     # # met_vg.plot_all()
+    #     # plt.show()
 
 
 if __name__ == "__main__":

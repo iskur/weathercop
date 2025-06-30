@@ -8,6 +8,7 @@ import xarray.testing as xrt
 from matplotlib import pyplot as plt
 
 # from lhglib.contrib.meteo import dwd_opendata as dwd
+import vg
 from vg.time_series_analysis import time_series as ts
 from weathercop.multisite import Multisite, set_conf, nan_corrcoef
 import opendata_vg_conf as vg_conf
@@ -18,10 +19,11 @@ data_root = Path().home() / "data/opendata_dwd"
 
 class Test(npt.TestCase):
     def setUp(self):
-        np.random.seed(0)
         self.verbose = True
         self.refit = False
+        # self.refit = "theta"
         self.refit_vine = False
+        self.reinitialize_vgs = True
         # self.xar = xr.open_dataarray(str(data_root /
         #                                  "multisite_testdata.nc"))
         # self.xds = self.xar.to_dataset("station")
@@ -31,8 +33,10 @@ class Test(npt.TestCase):
             verbose=self.verbose,
             refit=self.refit,
             refit_vine=self.refit_vine,
+            reinitialize_vgs=self.reinitialize_vgs,
+            fit_kwds=dict(seasonal=True),
         )
-        self.sim_sea, self.rphases = self.wc.simulate(
+        self.sim_result = self.wc.simulate(
             phase_randomize_vary_mean=False, return_rphases=True
         )
 
@@ -84,16 +88,16 @@ class Test(npt.TestCase):
         rphases = rphases_before = self.wc._rphases
         sim_sea_new = self.wc.simulate(
             rphases=rphases, phase_randomize_vary_mean=False
-        )
+        ).sim_sea
         rphases_after = self.wc._rphases
         npt.assert_almost_equal(rphases_after, rphases_before)
         sim_sea_new2 = self.wc.simulate(
             rphases=rphases, phase_randomize_vary_mean=False
-        )
+        ).sim_sea
         npt.assert_almost_equal(sim_sea_new2.values, sim_sea_new.values)
         for station_i, station_name in enumerate(self.wc.station_names):
             print(f"{station_name=}")
-            actual = self.sim_sea.sel(station=station_name)
+            actual = self.sim_result.sim_sea.sel(station=station_name)
             expected = sim_sea_new.sel(station=station_name)
             try:
                 npt.assert_almost_equal(
@@ -153,7 +157,7 @@ class Test(npt.TestCase):
                 raise
 
     def test_sim(self):
-        sim_sea = self.sim_sea
+        sim_sea = self.sim_result.sim_sea
         # for station_name, svg in self.wc.vgs.items():
         #     fig, axs = svg.plot_meteogramm()
         # plt.show()
@@ -182,9 +186,7 @@ class Test(npt.TestCase):
 
         sim_means = sim_sea.mean("time")
         obs_means = self.wc.data_daily.mean("time")
-        npt.assert_almost_equal(
-            sim_means.mean(), obs_means.data.mean(), decimal=1
-        )
+        npt.assert_almost_equal(sim_means.data, obs_means.data, decimal=1)
         # xrt.assert_allclose(sim_means, obs_means, atol=0.1)
         # # test auto- and cross-correlation
         # import ipdb; ipdb.set_trace()
@@ -194,31 +196,124 @@ class Test(npt.TestCase):
 
     def test_sim_mean_increase(self):
         theta_incr = 4
-        sim = self.wc.simulate(
+
+        if self.verbose:
+            fig_axs = self.wc.plot_meteogram_daily()
+
+        vg.reseed(0)
+        self.wc.reset_sim()
+        sim_result = self.wc.simulate(
+            # n_realizations=1,
             theta_incr=theta_incr,
             phase_randomize_vary_mean=False,
-            rphases=self.rphases,
+            phase_randomize=False,
+            # rphases=self.sim_result.rphases,
         )
         # sim = sim.sel(variable="theta", drop=True).mean(dim="time")
         # obs = self.wc.data_daily.sel(variable="theta", drop=True).mean(
         #     dim="time"
         # )
-        sim = sim.sel(variable="theta", drop=True).mean()
+        sim = sim_result.sim_sea.sel(variable="theta", drop=True).mean()
         obs = self.wc.data_daily.sel(variable="theta", drop=True).mean()
-        npt.assert_almost_equal(sim - obs, theta_incr, decimal=3)
+        try:
+            npt.assert_almost_equal(sim - obs, theta_incr, decimal=2)
+        except AssertionError:
+            if self.verbose:
+                self.wc.plot_meteogram_daily(fig_axs=fig_axs)
+                plt.show()
+            raise
+        else:
+            if self.verbose:
+                for fig, axs in fig_axs.values():
+                    plt.close(fig)
+
+        theta_incr = None
+
+        # if self.verbose:
+        #     fig_axs = self.wc.plot_meteogram_daily()
+
+        vg.reseed(0)
+        self.wc.reset_sim()
+        self.wc.verbose = True
+        sim_result = self.wc.simulate(
+            theta_incr=theta_incr,
+            phase_randomize_vary_mean=False,
+            usevg=True,
+        )
+        sim = sim_result.sim_sea.sel(variable="theta", drop=True).mean()
+        obs = self.wc.data_daily.sel(variable="theta", drop=True).mean()
+        # sim = sim_result.sim_trans.sel(variable="theta", drop=True).mean()
+        # obs = self.wc.data_trans.sel(variable="theta", drop=True).mean()
+        try:
+            npt.assert_almost_equal(
+                sim - obs, theta_incr if theta_incr else 0, decimal=2
+            )
+        except AssertionError:
+            if self.verbose:
+                # self.wc.plot_meteogram_daily(fig_axs=fig_axs)
+                fig_axs = self.wc.plot_candidates()
+                # fig_axs = self.wc.plot_qq(trans=True)
+                plt.show()
+            raise
+        else:
+            if self.verbose:
+                for fig, axs in fig_axs.values():
+                    plt.close(fig)
+
+    def test_sim_resample(self):
+        theta_incr = None
+
+        # if self.verbose:
+        #     fig_axs = self.wc.plot_meteogram_daily()
+
+        vg.reseed(0)
+        self.wc.reset_sim()
+        self.wc.verbose = True
+        sim_result = self.wc.simulate(
+            theta_incr=theta_incr,
+            phase_randomize_vary_mean=False,
+            usevg=True,
+            res_kwds=dict(
+                n_candidates=None,
+                recalibrate=True,
+                doy_tolerance=20,
+                verbse=True,
+                # cy=True
+                resample_raw=True,
+            ),
+        )
+        sim = sim_result.sim_sea.sel(variable="theta", drop=True).mean()
+        obs = self.wc.data_daily.sel(variable="theta", drop=True).mean()
+        # sim = sim_result.sim_trans.sel(variable="theta", drop=True).mean()
+        # obs = self.wc.data_trans.sel(variable="theta", drop=True).mean()
+        try:
+            npt.assert_almost_equal(
+                sim - obs, theta_incr if theta_incr else 0, decimal=2
+            )
+        except AssertionError:
+            if self.verbose:
+                # self.wc.plot_meteogram_daily(fig_axs=fig_axs)
+                fig_axs = self.wc.plot_candidates()
+                # fig_axs = self.wc.plot_qq(trans=True)
+                plt.show()
+            raise
+        else:
+            if self.verbose:
+                for fig, axs in fig_axs.values():
+                    plt.close(fig)
 
     def test_sim_gradual(self):
         theta_grad = 1.5
         # decimal = 0  # ooof
         decimal = 1
-        np.random.seed(0)
-        sim = self.wc.simulate(
+        self.wc.reset_sim()
+        sim_result = self.wc.simulate(
             theta_grad=theta_grad,
             phase_randomize_vary_mean=False,
-            rphases=self.rphases,
+            rphases=self.sim_result.rphases,
         )
         for station_name in self.wc.station_names:
-            sim_station = sim.sel(
+            sim_station = sim_result.sim_sea.sel(
                 variable="theta", station=station_name, drop=True
             )
             lr_result = stats.linregress(
@@ -246,7 +341,7 @@ class Test(npt.TestCase):
                 axs[0].plot(sim_station.time, sim_station.values, label="grad")
                 axs[0].plot(
                     sim_station.time,
-                    self.sim_sea.sel(
+                    self.sim_result.sim_sea.sel(
                         station=station_name, variable="theta"
                     ).values,
                     linestyle="--",
@@ -259,24 +354,24 @@ class Test(npt.TestCase):
     def test_sim_primary_var(self):
         prim_incr = 1
         prim_var_sim = "sun"
-        sim = self.wc.simulate(
+        sim_result = self.wc.simulate(
             theta_incr=prim_incr,
             primary_var=prim_var_sim,
-            rphases=self.rphases,
+            rphases=self.sim_result.rphases,
             phase_randomize_vary_mean=False,
         )
-        sim = sim.sel(variable=prim_var_sim, drop=True).mean()
+        sim = sim_result.sim.sel(variable=prim_var_sim, drop=True).mean()
         obs = self.wc.data_daily.sel(variable=prim_var_sim, drop=True).mean()
         print(self.wc.vine)
         try:
             npt.assert_almost_equal(sim - obs, prim_incr, decimal=2)
         except AssertionError:
-            fig_axs = self.wc.plot_meteogram_daily()
-            self.wc.simulate(
-                phase_randomize_vary_mean=False, rphases=self.rphases
-            )
-            self.wc.plot_meteogram_daily(fig_axs=fig_axs)
-            plt.show()
+            # fig_axs = self.wc.plot_meteogram_daily()
+            # self.wc.simulate(
+            #     phase_randomize_vary_mean=False, rphases=self.sim_result.rphases
+            # )
+            # self.wc.plot_meteogram_daily(fig_axs=fig_axs)
+            # plt.show()
             raise
 
 
@@ -305,7 +400,6 @@ if __name__ == "__main__":
     )
 
     wc.simulate()
-    np.random.seed(0)
     wc.simulate_ensemble(
         20,
         clear_cache=True,
