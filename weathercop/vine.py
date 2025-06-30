@@ -13,6 +13,7 @@ import scipy.stats as spstats
 from tqdm import tqdm
 
 from vg import helpers as my
+import vg
 from vg.time_series_analysis import distributions as dists
 from weathercop import (
     cop_conf,
@@ -20,6 +21,7 @@ from weathercop import (
     find_copula,
     seasonal_cop,
     tools,
+    plotting as wplt,
 )
 
 
@@ -203,6 +205,7 @@ def set_edge_copulae(
             clabel2 = clabel2[: clabel2.index(";")]
         if tau_min is not None:
             edge[cop_key] = copula
+            edge["copula"] = copula
         # we depend on these keys to start with a capital "C" when
         # relabeling later on
         edge[f"C^_{clabel1}"] = copula.inv_cdf_given_v
@@ -297,6 +300,7 @@ class Vine:
         cop_candidates=None,
         debias=False,
         scop_kwds=None,
+        name=None,
         **kwds,
     ):
         """Vine copula.
@@ -351,6 +355,7 @@ class Vine:
         self.cop_candidates = cop_candidates
         self.debias = debias
         self.scop_kwds = None
+        self.name = name
         if build_trees:
             self.trees = self._gen_trees(ranks)
             # property cache
@@ -433,6 +438,8 @@ class Vine:
                         )
                         weight = -copula.likelihood
                         edge_dict[cop_key] = copula
+                        # for easier access
+                        edge_dict["copula"] = copula
                     full_graph.add_edge(
                         node1, node2, weight=weight, tau=tau, **edge_dict
                     )
@@ -509,6 +516,8 @@ class Vine:
                         clabel2 = get_clabel(node1, node2)[0]  # v|u
                         cop_key = f"Copula_{clabel1}_{clabel2}"
                         edge_dict[cop_key] = copula
+                        # for easier access
+                        edge_dict["copula"] = copula
                         weight = -copula.likelihood
                     full_graph.add_edge(
                         node1, node2, weight=weight, tau=tau, **edge_dict
@@ -579,6 +588,9 @@ class Vine:
 
     def __getitem__(self, key):
         """Access the vine tree nodes by row and column index of Vine.A."""
+        # this is for api compatibility with MultiStationVine
+        if isinstance(key, str):
+            return self
         try:
             row, col = key
         except ValueError:
@@ -884,6 +896,7 @@ class Vine:
 
         for ax in axs:
             ax.set_axis_off()
+        fig.suptitle(self.name)
         return fig, axs
 
     def plot_tplom(self, opacity=0.1, s_kwds=None, c_kwds=None):
@@ -970,7 +983,7 @@ class Vine:
         fig, axs = plt.subplots(
             len(self.trees),
             self.d - 1,
-            sharey=True
+            sharey=True,
             # subplot_kw=dict(aspect="equal")
         )
         # first tree, showing actual observations
