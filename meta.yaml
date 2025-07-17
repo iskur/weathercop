@@ -43,7 +43,6 @@ requirements:
     - cython
     - networkx
     - tqdm
-    - future
     - pandas
     # lhglib requirements, delete this, once vg is properly packaged
     - timezonefinder
