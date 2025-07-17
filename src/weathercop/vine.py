@@ -1503,7 +1503,7 @@ def vg_ph(vg_obj, sc_pars, refit=False):
     if vg_ph.phases is None:
         qq_std = dists.norm.ppf(vg_ph.cop_quantiles)
         qq_std[(~np.isfinite(qq_std)) | (np.abs(qq_std) > 6)] = np.nan
-        vg_ph.qq_std = my.interp_nan(qq_std)
+        vg_ph.qq_std = my.interp_nonfin(qq_std)
         vg_ph.As = np.fft.fft(vg_ph.qq_std)
         vg_ph.phases = np.angle(vg_ph.As)
     T = vg_obj.T_sim
@@ -1554,7 +1554,7 @@ def vg_ph(vg_obj, sc_pars, refit=False):
     # print(np.mean(ranks_sim, axis=1))
     data_sim = dists.norm.ppf(ranks_sim)
     data_sim[~np.isfinite(data_sim)] = np.nan
-    data_sim = my.interp_nan(data_sim)
+    data_sim = my.interp_nonfin(data_sim)
     data_sim += vg_ph.data_means
 
     # from lhglib.contrib.time_series_analysis import time_series as ts

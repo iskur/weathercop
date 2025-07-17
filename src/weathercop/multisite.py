@@ -2071,7 +2071,7 @@ class Multisite:
                 assert np.all(finite_mask)
             except AssertionError:
                 qq[~finite_mask] = np.nan
-                qq = np.array([my.interp_nan(values) for values in qq])
+                qq = np.array([my.interp_nonfin(values) for values in qq])
             stacked.data = qq
             self.cop_quantiles = (
                 stacked.unstack(dim="stacked")

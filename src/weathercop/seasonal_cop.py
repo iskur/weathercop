@@ -285,7 +285,7 @@ class SeasonalCop:
                     (theta[-half:], theta, theta[:half])
                 )
                 # interp = my.interp_nan(theta_pad, max_interp=5)[half:-half]
-                interp = my.interp_nan(theta_pad)[half:-half]
+                interp = my.interp_nonfin(theta_pad)[half:-half]
                 theta_filled[:, theta_i] = interp
             else:
                 theta_filled[:, theta_i] = thetas[:, theta_i]
