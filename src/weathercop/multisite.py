@@ -21,6 +21,7 @@ import cartopy.feature as cfeature
 
 import vg
 from vg import helpers as my
+from vg.core.vg_core import seasonal_back
 from vg.time_series_analysis import (
     distributions as dists,
     time_series as ts,
@@ -553,7 +554,17 @@ def _vg_ph(
             )
             ranks_sim = _debias_ranks_sim(ranks_sim, sim_dist)
         # sim = dists.norm.ppf(ranks_sim)
-        sim = _retransform_sim(ranks_sim, data_trans_dist)
+        sim_trans = _retransform_sim(ranks_sim, data_trans_dist)
+        # Transform from transformed space to seasonal space
+        # This is necessary because VG's simulate() expects sim_func to return
+        # seasonal space data when a custom sim_func is provided
+        sim = seasonal_back(
+            vg_obj.dist_sol,
+            sim_trans,
+            varnames_wcop,
+            doys=vg_obj.sim_doys
+        )
+        sim /= vg_obj.sum_interval
         if stop_at is None:
             assert np.all(np.isfinite(sim))
         else:
@@ -2240,7 +2251,7 @@ class Multisite:
                 # )
 
                 # qq[primary_var_sim_i] = U_i
-                prim_dist = self.sim_dists[self.primary_var]
+                prim_dist = self.sim_dists[station_name][self.primary_var[0]]
                 qq[primary_var_sim_i] = prim_dist.cdf(
                     prim_dist.ppf(qq[primary_var_sim_i])
                     + (sc_pars.m_t + sc_pars.m)[primary_var_sim_i]
@@ -3699,9 +3710,7 @@ if __name__ == "__main__":
     import opendata_vg_conf as vg_conf
 
     set_conf(vg_conf)
-    xds = xr.open_dataset(
-        "/home/dirk/data/opendata_dwd/" "multisite_testdata.nc"
-    )
+    xds = xr.open_dataset("/home/dirk/data/opendata_dwd/multisite_testdata.nc")
     # station_names = list(xar.station.values)
     # station_names.remove("Sigmarszell-Zeisertsweiler")
     # xar = xar.sel(station=station_names)

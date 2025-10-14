@@ -811,19 +811,29 @@ class Copulae(metaclass=MetaCop):
 
         """
         theta = np.squeeze(np.array(self.theta if theta is None else theta))
-        ranks1, quantiles = np.atleast_1d(ranks, quantiles)
-        quantiles = np.squeeze(quantiles)
+        ranks1 = np.atleast_1d(ranks)
+        quantiles_input = np.atleast_1d(quantiles)
+
+        # Handle theta dimensionality
         thetas = np.atleast_2d(theta)
         if thetas.size == 1:
             thetas = np.full((1, len(ranks1)), theta)
-        if quantiles.size == 1:
-            quantiles = np.full_like(ranks1, quantiles)
+
+        # Ensure quantiles matches ranks1 length
+        if quantiles_input.size == 1:
+            quantiles_array = np.full_like(ranks1, quantiles_input[0])
+        else:
+            quantiles_array = quantiles_input
+
+        # Ensure both are 1-D float arrays (no squeezing to 0-D)
+        ranks1 = np.asarray(ranks1, dtype=float).ravel()
+        quantiles_array = np.asarray(quantiles_array, dtype=float).ravel()
 
         ranks2 = newton(
             conditional_func,
             conditional_func_prime,
-            np.squeeze(ranks1),
-            np.squeeze(quantiles),
+            ranks1,
+            quantiles_array,
             thetas,
             given_v,
         )
