@@ -1,10 +1,7 @@
-import numpy as np
 import numpy.testing as npt
-from scipy import stats as spstats
 import matplotlib.pyplot as plt
 
 import vg
-from lhglib.contrib import dirks_globals as my
 from weathercop import copulae as cops, seasonal_cop as scops, stats
 
 

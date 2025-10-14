@@ -1,5 +1,4 @@
-"""Central file to keep the same configuration in all weathercop code.
-"""
+"""Central file to keep the same configuration in all weathercop code."""
 
 from pathlib import Path
 import multiprocessing
