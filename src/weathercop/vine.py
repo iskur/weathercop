@@ -1,3 +1,87 @@
+"""
+Vine Copula Implementation for Weather Data Modeling
+
+This module provides a comprehensive implementation of vine copulas for modeling
+multivariate dependencies in weather and climate data. Vine copulas are flexible
+statistical models that decompose multivariate distributions into a cascade of
+bivariate copulas, making them particularly suitable for capturing complex
+dependencies in meteorological variables.
+
+Classes
+-------
+Vine
+    Base class for vine copula models with common functionality for tree
+    construction, copula fitting, simulation, and visualization.
+
+CVine
+    Canonical vine (C-vine) copula implementation where one variable acts as
+    the central node connected to all others in the first tree.
+
+DVine
+    D-vine copula implementation (placeholder class).
+
+RVine
+    Regular vine (R-vine) copula implementation using minimum spanning trees
+    for optimal tree structure selection.
+
+MultiStationVine
+    Container class for managing multiple vine copula models across different
+    weather stations.
+
+Key Features
+------------
+- Automatic tree structure optimization using Kendall's tau or likelihood weights
+- Support for seasonal copulas that vary throughout the year
+- Parallel simulation capabilities for large datasets
+- Comprehensive visualization tools including tree plots, density plots, and QQ plots
+- Conditional simulation for weather generation scenarios
+- Bias correction for improved simulation accuracy
+
+Functions
+---------
+csim_py, cquant_py
+    Core simulation and quantile transformation functions for vine copulas.
+
+set_edge_copulae
+    Fits appropriate copula models to each edge in the vine tree structure.
+
+vg_ph
+    Phase randomization method for generating weather scenarios while preserving
+    copula dependencies and temporal structure.
+
+Usage Example
+-------------
+>>> import numpy as np
+>>> from scipy import stats
+>>>
+>>> # Generate sample weather data (temperature, humidity, precipitation)
+>>> data = np.random.multivariate_normal([0, 0, 0], [[1, 0.5, 0.3],
+...                                                   [0.5, 1, 0.2],
+...                                                   [0.3, 0.2, 1]], 1000).T
+>>> ranks = np.array([stats.rankdata(row)/(len(row)+1) for row in data])
+>>>
+>>> # Fit a C-vine copula model
+>>> cvine = CVine(ranks, varnames=['temp', 'humidity', 'precip'], verbose=True)
+>>>
+>>> # Generate synthetic weather data
+>>> simulated_ranks = cvine.simulate(T=500)
+>>>
+>>> # Visualize the vine structure
+>>> fig, axs = cvine.plot(edge_labels='copulas')
+
+Notes
+-----
+This implementation is optimized for weather and climate applications, with
+special support for:
+- Handling missing data and extreme values
+- Seasonal variation in dependencies
+- Integration with weather generator frameworks
+- Multi-station spatial modeling
+
+The module requires the following dependencies: numpy, scipy, matplotlib,
+networkx, and tqdm for progress tracking.
+"""
+
 import itertools
 import multiprocessing
 import re
