@@ -1394,7 +1394,7 @@ class GumbelBarnett(Archimedean, No90, No270, No180):
     x = sympy.symbols("x")
     from sympy.functions.elementary.exponential import LambertW
 
-    helpers = ("LambertW", LambertW(x), [x])
+    helpers = (("LambertW", LambertW(x), [x]),)
     known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
 
 
