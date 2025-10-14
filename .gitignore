@@ -133,3 +133,31 @@ venv.bak/
 
 # profiling output
 profile.json
+
+# AI coding assistants
+.aider.*
+.cursor/
+.continue/
+
+# direnv
+.envrc
+
+# Syncthing
+.stfolder/
+.stignore
+.snapshot.lock
+.snapshot_last_run
+
+# UV package manager
+.uv/
+
+# IDE specific files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS specific
+.DS_Store
+Thumbs.db
