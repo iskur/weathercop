@@ -1,146 +1,83 @@
-# cython: nonecheck=False
 # cython: boundscheck=False
 # cython: wraparound=False
+# cython: nonecheck=False
 # cython: cdivision=True
 # cython: language_level=3
 
 import numpy as np
-from libc.stdlib cimport malloc, free
-from cython.parallel import prange, parallel
-
+from libc.math cimport sqrt, erf as erf_scalar
 cimport numpy as np
 
+from scipy.special import erfinv as erfinv_scalar
 
-cdef extern from "mkl.h" nogil:
-# cdef extern from "mkl_vml_functions.h" nogil:
-    void vdErf(int n,
-               double *a,
-               double *y)
+cpdef norm_inv_cdf_given_u_(
+        np.ndarray[double, ndim=1] uu,
+        np.ndarray[double, ndim=1] qq,
+        np.ndarray[double, ndim=1] rho,
+        np.ndarray[double, ndim=1] result):
 
-    void vdErfInv(int n,
-                  double *a,
-                  double *y)
-
-    void vdSqrt(int n,
-                double *a,
-                double *y)
-
-    void vdCdfNorm(int n,
-                   double *a,
-                   double *y)
-
-    void vdCdfNormInv(int n,
-                      double *a,
-                      double *y)
-
-
-cpdef norm_inv_cdf_given_u_(double[:] uu,
-                            double[:] qq,
-                            double[:] rho,
-                            double[:] result):
     cdef int n = len(uu)
     cdef int i
-    q_inv = <double *> malloc(sizeof(double) * n)
-    u_inv = <double *> malloc(sizeof(double) * n)
-    sqrt = <double *> malloc(sizeof(double) * n)
-    tmp_in = <double *> malloc(sizeof(double) * n)
-    
-    vdCdfNormInv(<int> n, &qq[0], &q_inv[0])
-    vdCdfNormInv(<int> n, &uu[0], &u_inv[0])
-    
-    for i in xrange(n):
-        tmp_in[i] = 1 - rho[i] ** 2
-    vdSqrt(<int> n, &tmp_in[0], &sqrt[0])
 
-    for i in xrange(n):
-        tmp_in[i] = (q_inv[i] * sqrt[i] + rho[i] * u_inv[i])
-    vdCdfNorm(<int> n, &tmp_in[0], &result[0])
+    cdef double q_inv, u_inv, sqrt_term, tmp
 
-    free(q_inv)
-    free(u_inv)
-    free(sqrt)
-    free(tmp_in)
+    for i in range(n):
+        u_inv = sqrt(2) * erfinv_scalar(2 * uu[i] - 1)
+        q_inv = sqrt(2) * erfinv_scalar(2 * qq[i] - 1)
+        sqrt_term = sqrt(1 - rho[i] ** 2)
+        tmp = q_inv * sqrt_term + rho[i] * u_inv
+        result[i] = 0.5 * (1 + erf_scalar(tmp / sqrt(2)))
 
 
-cpdef norm_cdf_given_u(double[:] uu,
-                       double[:] vv,
-                       double[:] rho,
-                       double[:] result):
+cpdef norm_cdf_given_u(
+        np.ndarray[double, ndim=1] uu,
+        np.ndarray[double, ndim=1] vv,
+        np.ndarray[double, ndim=1] rho,
+        np.ndarray[double, ndim=1] result):
+
     cdef int n = len(uu)
     cdef int i
-    erfinv_u = <double *> malloc(sizeof(double) * n)
-    erfinv_v = <double *> malloc(sizeof(double) * n)
-    sqrt = <double *> malloc(sizeof(double) * n)
-    tmp_in = <double *> malloc(sizeof(double) * n)
-    tmp_out = <double *> malloc(sizeof(double) * n)
-    
-    for i in xrange(n):
-        tmp_in[i] = 2.0 * uu[i] - 1
-    vdErfInv(<int> n, &tmp_in[0], &erfinv_u[0])
-    for i in xrange(n):
-        tmp_in[i] = 2.0 * vv[i] - 1
-    vdErfInv(<int> n, &tmp_in[0], &erfinv_v[0])
-    for i in xrange(n):
-        tmp_in[i] = -rho[i] * rho[i] + 1
-    vdSqrt(<int> n, &tmp_in[0], &sqrt[0])
 
-    for i in prange(n, nogil=True):
-        # this gives a nice picture in test_normal.test_conditional!
-        # tmp_in[i] = rho[i] * erfinv_u[i] - erfinv_v[i] * sqrt[i]
-        tmp_in[i] = (rho[i] * erfinv_u[i] - erfinv_v[i]) / sqrt[i]
-    vdErf(<int> n, &tmp_in[0], &tmp_out[0])
-    for i in xrange(n):
-        result[i] = -.5 * tmp_out[i] + .5
+    cdef double e_u, e_v, sqrt_term, tmp
 
-    free(erfinv_u)
-    free(erfinv_v)
-    free(tmp_in)
-    free(tmp_out)
+    for i in range(n):
+        e_u = erfinv_scalar(2 * uu[i] - 1)
+        e_v = erfinv_scalar(2 * vv[i] - 1)
+        sqrt_term = sqrt(1 - rho[i] ** 2)
+        tmp = (rho[i] * e_u - e_v) / sqrt_term
+        result[i] = 0.5 * (1 + erf_scalar(tmp))
 
 
-cpdef norm_inv_cdf_given_u(double[:] uu,
-                           double[:] qq,
-                           double[:] rho,
-                           double[:] result):
+cpdef norm_inv_cdf_given_u(
+        np.ndarray[double, ndim=1] uu,
+        np.ndarray[double, ndim=1] qq,
+        np.ndarray[double, ndim=1] rho,
+        np.ndarray[double, ndim=1] result):
+
     cdef int n = len(uu)
     cdef int i
-    erfinv_u = <double *> malloc(sizeof(double) * n)
-    erfinv_v = <double *> malloc(sizeof(double) * n)
-    sqrt = <double *> malloc(sizeof(double) * n)
-    tmp_in = <double *> malloc(sizeof(double) * n)
-    tmp_out = <double *> malloc(sizeof(double) * n)
 
-    for i in xrange(n):
-        tmp_in[i] = 2.0 * uu[i] - 1.0
-    vdErfInv(<int> n, &tmp_in[0], &erfinv_u[0])
-    for i in xrange(n):
-        tmp_in[i] = -2.0 * (qq[i] - 0.5)
-    vdErfInv(<int> n, &tmp_in[0], &erfinv_v[0])
-    for i in xrange(n):
-        tmp_in[i] = -rho[i] * rho[i] + 1
-    vdSqrt(<int> n, &tmp_in[0], &sqrt[0])
+    cdef double e_u, e_v, sqrt_term, tmp
 
-    for i in prange(n, nogil=True):
-        tmp_in[i] = rho[i] * erfinv_u[i] - erfinv_v[i] * sqrt[i]
-    vdErf(<int> n, &tmp_in[0], &tmp_out[0])
-    for i in xrange(n):
-       result[i] = .5 * (1 + tmp_out[i])
-
-    free(erfinv_u)
-    free(erfinv_v)
-    free(tmp_in)
-    free(tmp_out)
+    for i in range(n):
+        e_u = erfinv_scalar(2 * uu[i] - 1)
+        e_v = erfinv_scalar(1 - 2 * qq[i])
+        sqrt_term = sqrt(1 - rho[i] ** 2)
+        tmp = rho[i] * e_u - e_v * sqrt_term
+        result[i] = 0.5 * (1 + erf_scalar(tmp))
 
 
-cpdef erf(double[:] x,
-          double[:] result):
+cpdef erf(np.ndarray[double, ndim=1] x,
+          np.ndarray[double, ndim=1] result):
     cdef int n = len(x)
-    vdErf(<int> n, &x[0], &result[0])
+    cdef int i
+    for i in range(n):
+        result[i] = erf_scalar(x[i])
 
 
-cpdef erfinv(double[:] x,
-             double[:] result):
+cpdef erfinv(np.ndarray[double, ndim=1] x,
+             np.ndarray[double, ndim=1] result):
     cdef int n = len(x)
-    vdErfInv(<int> n, &x[0], &result[0])
-
-
+    cdef int i
+    for i in range(n):
+        result[i] = erfinv_scalar(x[i])
