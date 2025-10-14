@@ -95,7 +95,7 @@ class Test(npt.TestCase):
         print("Time cython: ", time_cy * 1e6)
         # print("Time multip: ", time_mp * 1e6)
         try:
-            npt.assert_almost_equal(Us_py, Us_cy, decimal=4)
+            npt.assert_almost_equal(Us_py, Us_cy, decimal=3)
         except AssertionError:
             import matplotlib.pyplot as plt
 

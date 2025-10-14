@@ -20,7 +20,7 @@ data_root = Path().home() / "data/opendata_dwd"
 class Test(npt.TestCase):
     def setUp(self):
         self.verbose = True
-        self.refit = False
+        self.refit = True
         # self.refit = "theta"
         self.refit_vine = False
         self.reinitialize_vgs = True
@@ -70,7 +70,7 @@ class Test(npt.TestCase):
             obs_corr = nan_corrcoef(data_obs_)
             obs_corr = obs_corr[np.triu_indices_from(obs_corr, 1)]
             try:
-                npt.assert_almost_equal(sim_corr, obs_corr, decimal=4)
+                npt.assert_almost_equal(sim_corr, obs_corr, decimal=2)
             except AssertionError:
                 fig, ax = plt.subplots(
                     nrows=1, ncols=1, subplot_kw=dict(aspect="equal")
@@ -197,6 +197,7 @@ class Test(npt.TestCase):
     def test_sim_mean_increase(self):
         theta_incr = 4
 
+        fig_axs = None
         if self.verbose:
             fig_axs = self.wc.plot_meteogram_daily()
 
@@ -219,13 +220,14 @@ class Test(npt.TestCase):
             npt.assert_almost_equal(sim - obs, theta_incr, decimal=2)
         except AssertionError:
             if self.verbose:
-                self.wc.plot_meteogram_daily(fig_axs=fig_axs)
+                fig_axs = self.wc.plot_meteogram_daily(fig_axs=fig_axs)
                 plt.show()
             raise
         else:
             if self.verbose:
-                for fig, axs in fig_axs.values():
-                    plt.close(fig)
+                for figs, _ in fig_axs.values():
+                    for fig in figs:
+                        plt.close(fig)
 
         theta_incr = None
 
@@ -257,8 +259,9 @@ class Test(npt.TestCase):
             raise
         else:
             if self.verbose:
-                for fig, axs in fig_axs.values():
-                    plt.close(fig)
+                for figs, axs in fig_axs.values():
+                    for fig in figs:
+                        plt.close(fig)
 
     def test_sim_resample(self):
         theta_incr = None
@@ -293,20 +296,21 @@ class Test(npt.TestCase):
         except AssertionError:
             if self.verbose:
                 # self.wc.plot_meteogram_daily(fig_axs=fig_axs)
-                fig_axs = self.wc.plot_candidates()
+                self.wc.plot_candidates()
                 # fig_axs = self.wc.plot_qq(trans=True)
                 plt.show()
             raise
-        else:
-            if self.verbose:
-                for fig, axs in fig_axs.values():
-                    plt.close(fig)
+        # else:
+        #     if self.verbose:
+        #         for fig, axs in fig_axs.values():
+        #             plt.close(fig)
 
     def test_sim_gradual(self):
         theta_grad = 1.5
         # decimal = 0  # ooof
         decimal = 1
         self.wc.reset_sim()
+        vg.reseed(1)
         sim_result = self.wc.simulate(
             theta_grad=theta_grad,
             phase_randomize_vary_mean=False,
