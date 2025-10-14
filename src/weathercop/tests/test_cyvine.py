@@ -6,12 +6,6 @@ import numpy.testing as npt
 import vg
 from vg.time_series_analysis import distributions as dists
 from weathercop.vine import CVine, cquant_py, csim_py
-
-# import pyximport
-# pyximport.install(setup_args={'include_dirs': np.get_include(),
-#                               # 'gdb_debug': True
-#                               },
-#                   reload_support=True)
 from weathercop.cvine import csim as csim_cy, cquant as cquant_cy
 
 n_nodes = multiprocessing.cpu_count() - 1
