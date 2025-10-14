@@ -3,6 +3,7 @@
 import functools
 import importlib
 import os
+import sys
 
 import warnings
 import inspect
@@ -37,7 +38,6 @@ except ImportError:
     THEANO = False
 from numexpr import evaluate
 
-from scipy.stats import mvn
 from scipy.stats import multivariate_normal
 from weathercop import cop_conf as conf, stats, tools
 
@@ -52,16 +52,17 @@ except ImportError:
 
 import vg
 
-# if sys.platform == "win32":
-#     MKL = False
-# else:
-#     from weathercop.normal_conditional import (
-#         norm_inv_cdf_given_u,
-#         norm_cdf_given_u,
-#     )
-#     MKL = True
-
-MKL = False
+# Check if we're running tests
+SKIP_CYTHON_BUILD = os.environ.get("SKIP_CYTHON_BUILD", "").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+RUNNING_TESTS = (
+    "pytest" in sys.modules
+    or "PYTEST_CURRENT_TEST" in os.environ
+    or SKIP_CYTHON_BUILD
+)
 
 # used wherever theta can be inf in principle
 theta_large = 50
@@ -89,19 +90,22 @@ rederive = (None,)
 # rederive = "alimikailhaq",
 
 
+def get_ufunc_dir():
+    try:
+        ufunc_dir = ufuncs.__path__[0]
+    except TypeError:
+        ufunc_dir = ufuncs.__path__._path[0]
+    return ufunc_dir
+
+
 def ufuncify_cython(cls, name, uargs, expr, *args, verbose=True, **kwds):
     expr_hash = tools.hash_cop(expr)
     module_name = f"{cls.name}_{name}_{expr_hash}"
 
     try:
-        ufunc_dir = ufuncs.__path__[0]
-    except TypeError:
-        ufunc_dir = ufuncs.__path__._path[0]
-    try:
-        with tools.chdir(ufunc_dir):
-            ufunc = importlib.import_module(
-                f"{module_name}_0", ufuncs
-            ).autofunc_c
+        ufunc = importlib.import_module(
+            f"weathercop.ufuncs.{module_name}_0"
+        ).autofunc_c
     except (ImportError, AttributeError) as exc:
         if verbose:
             print(exc)
@@ -113,16 +117,30 @@ def ufuncify_cython(cls, name, uargs, expr, *args, verbose=True, **kwds):
         autowrap.CodeWrapper._filename = f"{module_name}_code"
         autowrap.CodeWrapper._module_basename = module_name
         autowrap.CodeWrapper._module_counter = 0
+        ufunc_dir = get_ufunc_dir()
         with tools.chdir(ufunc_dir):
-            ufunc = autowrap.ufuncify(
-                uargs,
-                expr,
-                tempdir=ufunc_dir,
-                flags=["-D_XOPEN_SOURCE"],  # required after adding optims_c99
-                verbose=verbose,
-                *args,
-                **kwds,
-            )
+            try:
+                ufunc = autowrap.ufuncify(
+                    uargs,
+                    expr,
+                    tempdir=ufunc_dir,
+                    # flags=["-D_XOPEN_SOURCE"],  # required after adding optims_c99
+                    verbose=verbose,
+                    *args,
+                    **kwds,
+                )
+            except AttributeError:
+                # seems like ufuncify is too fast in trying to import
+                # the newly generated module
+                ufunc = autowrap.ufuncify(
+                    uargs,
+                    expr,
+                    tempdir=ufunc_dir,
+                    # flags=["-D_XOPEN_SOURCE"],  # required after adding optims_c99
+                    verbose=verbose,
+                    *args,
+                    **kwds,
+                )
         autowrap.CodeWrapper._module_basename = _module_basename_orig
         autowrap.CodeWrapper._module_counter = _module_counter_orig
         autowrap.CodeWrapper._filename = _filename_orig
@@ -178,7 +196,7 @@ def ufuncify_numpy(cls, name, uargs, expr, *args, verbose=False, **kwds):
     return autowrap.ufuncify(
         uargs,
         expr,
-        tempdir=conf.ufunc_tmp_dir,
+        tempdir=get_ufunc_dir(),
         verbose=verbose,
         backend="numpy",
         *args,
@@ -359,8 +377,10 @@ class NoConvergence(Exception):
 
 
 class MetaCop(ABCMeta):
+    # backend = "numpy"
     backend = "cython"
     # backend = "theano"
+    verbose = False
 
     def __new__(cls, name, bases, cls_dict):
         new_cls = super().__new__(cls, name, bases, cls_dict)
@@ -465,11 +485,11 @@ class MetaCop(ABCMeta):
         ufunc = ufuncify(
             cls,
             "copula",
-            [uu, vv] + theta,
+            tuple([uu, vv] + theta),
             cls.cop_expr,
             helpers=cls.helpers,
             backend=cls.backend,
-            verbose=False,
+            verbose=cls.verbose,
         )
         return ufunc
 
@@ -479,11 +499,11 @@ class MetaCop(ABCMeta):
         ufunc = ufuncify(
             cls,
             "density",
-            [uu, vv] + theta,
+            tuple([uu, vv] + theta),
             dens_expr,
             helpers=cls.helpers,
             backend=cls.backend,
-            verbose=False,
+            verbose=cls.verbose,
         )
         return ufunc
 
@@ -522,11 +542,11 @@ class MetaCop(ABCMeta):
         ufunc = ufuncify(
             cls,
             "conditional_cdf",
-            [uu, vv] + theta,
+            tuple([uu, vv] + theta),
             conditional_cdf,
             helpers=cls.helpers,
             backend=cls.backend,
-            verbose=False,
+            verbose=cls.verbose,
         )
         return ufunc
 
@@ -544,8 +564,7 @@ class MetaCop(ABCMeta):
             key = f"{cls.name}_cdf_given_{conditioning}_prime_{cls_hash}"
             if key not in sh or cls.name in rederive:
                 print(
-                    f"Generating {conditioning}-"
-                    f"conditional prime {cls.name}"
+                    f"Generating {conditioning}-conditional prime {cls.name}"
                 )
                 good_cop = cls.cop_expr
                 conditional_cdf_prime = sympy.diff(good_cop, conditioning)
@@ -561,11 +580,11 @@ class MetaCop(ABCMeta):
         ufunc = ufuncify(
             cls,
             "conditional_cdf_prime",
-            [uu, vv] + theta,
+            tuple([uu, vv] + theta),
             conditional_cdf_prime,
             helpers=cls.helpers,
             backend=cls.backend,
-            verbose=False,
+            verbose=cls.verbose,
         )
         return ufunc
 
@@ -593,8 +612,7 @@ class MetaCop(ABCMeta):
             with tools.shelve_open(conf.sympy_cache) as sh:
                 if key not in sh or cls.name in rederive:
                     print(
-                        "Generating inverse "
-                        f"{conditioning}-conditional {cls.name}"
+                        f"Generating inverse {conditioning}-conditional {cls.name}"
                     )
                     cdf_given_expr = getattr(
                         cls, f"cdf_given_{conditioning}_expr"
@@ -630,7 +648,7 @@ class MetaCop(ABCMeta):
                 inv_cdf,
                 helpers=cls.helpers,
                 backend=cls.backend,
-                verbose=False,
+                verbose=cls.verbose,
             )
         except (autowrap.CodeWrapError, TypeError):
             warnings.warn(f"Could not compile inv.-conditional for {cls.name}")
@@ -677,11 +695,11 @@ class MetaCop(ABCMeta):
         ufunc = ufuncify(
             cls,
             "density",
-            [uu, vv] + theta,
+            tuple([uu, vv] + theta),
             dens_expr,
             helpers=cls.helpers,
             backend=cls.backend,
-            verbose=False,
+            verbose=cls.verbose,
         )
         return raveled_func(ufunc)
 
@@ -1872,42 +1890,25 @@ class Gaussian(Copulae, NoRotations):
             quantiles = quantiles.reshape(uu.size, vv.size)
         return quantiles
 
-    def cdf_given_u_nomkl(self, uu, vv, theta):
-        theta = np.squeeze(theta)
-        # fmt: off
-        return (-0.5 * erf((theta *
-                       erfinv(2 * uu - 1) -
-                       erfinv(2 * vv - 1)) /
-                      np.sqrt(-theta ** 2 + 1))
-           + 0.5)
-
-    # fmt: on
-
-    def inv_cdf_given_u_nomkl(self, uu, qq, theta):
-        # fmt: off
-        return (.5 * (1 +
-                 erf(theta *
-                     erfinv(2 * uu - 1) -
-                     erfinv(-2 * (qq - .5)) *
-                     np.sqrt(-theta ** 2 + 1))))
-
-    # fmt: on
-
     def cdf_given_u(self, uu, vv, theta):
-        if MKL:
-            qq = np.empty_like(uu)
-            norm_cdf_given_u(uu, vv, theta, qq)
-            return qq
-        return self.cdf_given_u_nomkl(uu, vv, theta)
+        theta = np.squeeze(theta)
+        return (
+            -0.5
+            * erf(
+                (theta * erfinv(2 * uu - 1) - erfinv(2 * vv - 1))
+                / np.sqrt(-(theta**2) + 1)
+            )
+            + 0.5
+        )
 
     def inv_cdf_given_u(self, uu, qq, theta):
-        if MKL:
-            vv = np.empty_like(uu)
-            if theta.ndim > 1:
-                theta = np.squeeze(theta)
-            norm_inv_cdf_given_u(uu, qq, theta, vv)
-            return vv
-        return self.inv_cdf_given_u_nomkl(uu, qq, theta)
+        return 0.5 * (
+            1
+            + erf(
+                theta * erfinv(2 * uu - 1)
+                - erfinv(-2 * (qq - 0.5)) * np.sqrt(-(theta**2) + 1)
+            )
+        )
 
     def cdf_given_v(self, uu, vv, theta):
         return self.cdf_given_u(vv, uu, theta)
@@ -2215,6 +2216,7 @@ plackett = Plackett()
 
 class Independence(Copulae, NoRotations):
     backend = "cython"
+    # backend = "numpy"
     # having the theta here prevents trouble down the road...
     par_names = "uu", "vv", "theta"
     theta_start = (0.0,)
