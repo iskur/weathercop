@@ -1,0 +1,70 @@
+[tool.black]
+line-length = 79
+
+[tool.uv.sources]
+vg = { git = "https://github.com/iskur/vg" }
+
+[project]
+name = "weathercop"
+version = "0.1.0"
+description = "A Copula-based Weather Generator"
+readme = "README.md"
+authors = [
+  { name = "iskur", email = "32363199+iskur@users.noreply.github.com" }
+]
+license = "MIT"
+requires-python = ">=3.13"
+dependencies = [
+    "cartopy>=0.24.1",
+    "dill>=0.4.0",
+    "matplotlib>=3.10.3",
+    "netcdf4>=1.7.2",
+    "networkx>=3.5",
+    "numexpr>=2.11.0",
+    "numpy>=2.3.1",
+    "pandas>=2.3.0",
+    "scipy>=1.16.0",
+    "sympy>=1.14.0",
+    "timezonefinder>=6.5.9",
+    "tqdm>=4.67.1",
+    "vg",
+    "xarray>=2025.6.1",
+]
+
+[build-system]
+requires = ["setuptools>=61", "cython", "numpy"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[dependency-groups]
+dev = [
+    "cython>=3.1.2",
+    "flake8>=7.3.0",
+    "ipython>=9.5.0",
+    "mkl>=2025.2.0",
+    "pre-commit>=4.0.0",
+    "pyflakes>=3.4.0",
+    "pytest>=8.4.1",
+    "setuptools>=80.9.0",
+]
+optional = [
+    "pyfftw>=0.15.0",
+]
+test = [
+    "cython>=3.1.2",
+    "pytest>=8.4.1",
+    "setuptools>=80.9.0",
+    "tox>=4.24.2",
+    "tox-uv>=1.20.0",
+]
+
+[tool.pytest.ini_options]
+addopts = "--pdb"
+
+[tool.mypy]
+disable_error_code = ["import-untyped"]
