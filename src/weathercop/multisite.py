@@ -559,10 +559,7 @@ def _vg_ph(
         # This is necessary because VG's simulate() expects sim_func to return
         # seasonal space data when a custom sim_func is provided
         sim = seasonal_back(
-            vg_obj.dist_sol,
-            sim_trans,
-            varnames_wcop,
-            doys=vg_obj.sim_doys
+            vg_obj.dist_sol, sim_trans, varnames_wcop, doys=vg_obj.sim_doys
         )
         sim /= vg_obj.sum_interval
         if stop_at is None:
