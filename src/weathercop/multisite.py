@@ -3707,6 +3707,8 @@ if __name__ == "__main__":
     import opendata_vg_conf as vg_conf
 
     set_conf(vg_conf)
+    # Example usage - replace with your own data path:
+    # xds = xr.open_dataset("path/to/your/multisite_testdata.nc")
     xds = xr.open_dataset("/home/dirk/data/opendata_dwd/multisite_testdata.nc")
     # station_names = list(xar.station.values)
     # station_names.remove("Sigmarszell-Zeisertsweiler")
