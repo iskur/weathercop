@@ -124,7 +124,7 @@ def ufuncify_cython(cls, name, uargs, expr, *args, verbose=True, **kwds):
                     uargs,
                     expr,
                     tempdir=ufunc_dir,
-                    # flags=["-D_XOPEN_SOURCE"],  # required after adding optims_c99
+                    # flags=["-D_XOPEN_SOURCE"],  # for optims_c99
                     verbose=verbose,
                     *args,
                     **kwds,
@@ -136,7 +136,7 @@ def ufuncify_cython(cls, name, uargs, expr, *args, verbose=True, **kwds):
                     uargs,
                     expr,
                     tempdir=ufunc_dir,
-                    # flags=["-D_XOPEN_SOURCE"],  # required after adding optims_c99
+                    # flags=["-D_XOPEN_SOURCE"],  # for optims_c99
                     verbose=verbose,
                     *args,
                     **kwds,
@@ -612,7 +612,8 @@ class MetaCop(ABCMeta):
             with tools.shelve_open(conf.sympy_cache) as sh:
                 if key not in sh or cls.name in rederive:
                     print(
-                        f"Generating inverse {conditioning}-conditional {cls.name}"
+                        f"Generating inverse {conditioning}-conditional "
+                        f"{cls.name}"
                     )
                     cdf_given_expr = getattr(
                         cls, f"cdf_given_{conditioning}_expr"
@@ -1003,8 +1004,9 @@ class Copulae(metaclass=MetaCop):
         else:
             n_per_dim = 100
         uu = vv = stats.rel_ranks(np.arange(n_per_dim))
-        # theta_dens = tuple(np.repeat(the, n_per_dim ** 2) for the in theta[0])
-        theta_dens = tuple(np.repeat(the, n_per_dim**2) for the in theta)
+        theta_dens = tuple(
+            np.repeat(the, n_per_dim**2) for the in theta
+        )
         density = self.density(
             uu.repeat(n_per_dim), np.tile(vv, n_per_dim), *theta_dens
         ).reshape(n_per_dim, n_per_dim)
@@ -1178,7 +1180,7 @@ class Fitted:
             if verbose:
                 print(
                     4 * " ",
-                    self.name[len("fitted ") :],
+                    self.name[len("fitted "):],
                     self.likelihood,
                     end="",
                 )
@@ -1213,7 +1215,7 @@ class Fitted:
             fig = plt.gcf()
         ax.scatter(empirical, theoretical - empirical, **s_kwds)
         if title is None:
-            title = "qq " + self.name[len("fitted ") :]
+            title = "qq " + self.name[len("fitted "):]
         ax.set_title(title)
         fig.tight_layout()
         return fig, ax
@@ -1871,10 +1873,12 @@ class Gaussian(Copulae, NoRotations):
     @classmethod
     def dens_func(cls, uu, vv, theta):
         uu, vv = np.atleast_1d(uu, vv)
-        xx = spstats.norm.ppf(uu).reshape(uu.shape)
-        yy = spstats.norm.ppf(vv).reshape(vv.shape)
+        xx = spstats.norm.ppf(uu).reshape(uu.shape)  # noqa: F841
+        yy = spstats.norm.ppf(vv).reshape(vv.shape)  # noqa: F841
         return evaluate(
-            """1 / sqrt(1 - theta ** 2) * exp((2 * theta * xx * yy  - theta ** 2 * (xx ** 2 + yy ** 2)) / (2 * (1 - theta ** 2)))"""
+            """1 / sqrt(1 - theta ** 2) * exp((2 * theta * xx * yy """
+            """- theta ** 2 * (xx ** 2 + yy ** 2)) """
+            """/ (2 * (1 - theta ** 2)))"""
         )
 
     @classmethod
