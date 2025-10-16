@@ -4,9 +4,6 @@ from pathlib import Path
 import multiprocessing
 import os
 
-# from dask.distributed import Client
-from weathercop.tools import ADict
-
 # setting PROFILE to True disables parallel computation, allowing for
 # profiling and debugging
 PROFILE = False
