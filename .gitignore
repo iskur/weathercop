@@ -161,3 +161,29 @@ profile.json
 # OS specific
 .DS_Store
 Thumbs.db
+
+# Large binary libraries
+src/weathercop/libs/
+
+# Data files and caches (user-specific)
+cache/
+*.pkl
+ranks.npy
+
+# Personal config files
+code/vg_conf.py
+src/weathercop/kll_vg_conf.py
+src/weathercop/postdoc_conf.py
+
+# Documentation - third-party PDFs
+docs/*.pdf
+docs/*.jpg
+docs/*.png
+
+# Auto-generated Cython code (should be regenerated on install)
+# NOTE: Keeping these for now, but consider if they should be generated
+# src/weathercop/ufuncs/*.pyx
+
+# Build artifacts
+*.egg-info/
+.eggs/
