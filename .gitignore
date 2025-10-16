@@ -187,3 +187,17 @@ docs/*.png
 # Build artifacts
 *.egg-info/
 .eggs/
+
+# Code directory - research/experimental code
+code/
+
+# Temporary files
+tmp/
+
+# Binary data files
+*.npz
+*.dat
+
+# Auto-generated Cython code (regenerated on install)
+src/weathercop/ufuncs/*.pyx
+src/weathercop/ufuncs/*.she
