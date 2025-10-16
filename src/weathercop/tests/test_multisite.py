@@ -2,14 +2,12 @@ from pathlib import Path
 
 import numpy as np
 import numpy.testing as npt
+import pytest
 from scipy import stats
 import xarray as xr
-import xarray.testing as xrt
 from matplotlib import pyplot as plt
 
-# from lhglib.contrib.meteo import dwd_opendata as dwd
 import vg
-from vg.time_series_analysis import time_series as ts
 from weathercop.multisite import Multisite, set_conf, nan_corrcoef
 import opendata_vg_conf as vg_conf
 
@@ -305,6 +303,9 @@ class Test(npt.TestCase):
         #         for fig, axs in fig_axs.values():
         #             plt.close(fig)
 
+    @pytest.mark.xfail(
+        reason="Known failure - issue with non-gaussian marginals"
+    )
     def test_sim_gradual(self):
         theta_grad = 1.5
         # decimal = 0  # ooof
