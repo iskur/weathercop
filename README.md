@@ -46,6 +46,10 @@ python setup.py build_ext --inplace
 **Note**: The first import may take 5-10 minutes as Cython extensions
 compile. Pre-build them to avoid this delay.
 
+**Important**: WeatherCop depends on the VG library, currently installed
+from GitHub. For general availability, VG will be published to PyPI
+first.
+
 # Quick Start
 
 After installation, you can use WeatherCop to generate multisite
@@ -80,6 +84,33 @@ wc.simulate_ensemble(20)
 wc.plot_ensemble_stats()
 wc.plot_ensemble_meteogram_daily()
 wc.plot_ensemble_qq()
+```
+
+# Troubleshooting
+
+## First Import Takes 5-10 Minutes
+
+The first time you import weathercop, Cython extensions compile
+automatically. This is normal. To avoid the wait:
+
+``` bash
+python setup.py build_ext --inplace
+```
+
+## Environment Variables
+
+WeatherCop respects these environment variables:
+
+- `WEATHERCOP_DIR`: Base directory for cache and data (default:
+  `~/.weathercop`)
+- `WEATHERCOP_ENSEMBLE_ROOT`: Directory for ensemble outputs (default:
+  `$WEATHERCOP_DIR/ensembles`)
+
+Example:
+
+``` bash
+export WEATHERCOP_DIR=/path/to/your/weathercop/data
+python your_script.py
 ```
 
 # Running Tests
