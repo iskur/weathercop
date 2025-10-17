@@ -63,7 +63,8 @@ test = [
 ]
 
 [tool.pytest.ini_options]
-addopts = "--pdb"
+# Use --pdb flag manually when debugging: pytest --pdb
+# addopts = "--pdb"
 
 [tool.mypy]
 disable_error_code = ["import-untyped"]
