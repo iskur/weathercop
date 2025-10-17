@@ -48,16 +48,16 @@ Initial development release prepared for GitHub publication.
 - Automatic copula selection via maximum likelihood
 - Seasonal copula support with time-varying parameters
 - Multisite weather generation with spatial dependence
-- Phase randomization methods for scenario generation
+- Phase randomization methods for temporal dependence
 - Automatic Cython code generation from symbolic expressions
-- Integration with VG library for temporal structure
+- Integration with VG library for marginals and missing values
 - Geospatial visualization support via Cartopy
 - Comprehensive test suite
 
 ### Known Issues
 - VG dependency currently installed from GitHub (PyPI publication pending)
 - First import takes 5-10 minutes for Cython compilation
-- Some test failures marked as known issues (non-Gaussian marginals)
+- Some test failures marked as known issues (temp gradient with non-Gaussian marginals)
 
 ---
 
