@@ -2282,7 +2282,7 @@ for cop_name, obj in all_cops.items():
     for norot_cls in (No90, No180, No270):
         if isinstance(obj, norot_cls):
             continue
-        rot_str = norot_cls.__name__[len("No") :]
+        rot_str = norot_cls.__name__[len("No"):]
         old_type = type(obj)
         new_name = f"{old_type.__name__}_{rot_str}"
         # make the rotated copulas importable

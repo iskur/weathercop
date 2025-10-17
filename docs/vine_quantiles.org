@@ -1,0 +1,313 @@
+#+TITLE: How do the vine quantiles look like?
+* Settings
+
+#+BEGIN_SRC jupyter-python :session py :kernel python3 :results output verbatim drawer :exports both :tangle yes 
+import matplotlib.pyplot as plt
+import xarray as xr
+from weathercop import multisite
+import opendata_vg_conf as vg_conf
+multisite.set_conf(vg_conf)
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+/home/dirk/anaconda/envs/python3/lib/python3.6/site-packages/matplotlib/cbook/deprecation.py:106: MatplotlibDeprecationWarning: The mpl_toolkits.axes_grid module was deprecated in version 2.1. Use mpl_toolkits.axes_grid1 and mpl_toolkits.axisartist provies the same functionality instead.
+  warnings.warn(message, mplDeprecation, stacklevel=1)
+/home/dirk/workspace/python/vg/vg/time_series_analysis/spectral.py:17: UserWarning: Could not import pyfftw. Using the slower numpy functions.
+  warnings.warn("Could not import pyfftw. Using the slower numpy functions.")
+/home/dirk/workspace/python/vg/vg/core/vg_base.py:34: UserWarning: Could not import "config.py".
+Edit "/home/dirk/workspace/python/vg/vg/config_template.py" and rename it to "config.py"
+  'Edit "%s" and rename it to "config.py"' % conf_filepath)
+:END:
+
+#+BEGIN_SRC jupyter-python :session py :kernel python3 :results output verbatim drawer :exports both 
+%matplotlib
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+Using matplotlib backend: Qt5Agg
+:END:
+
+* Load Data 
+
+#+BEGIN_SRC jupyter-python :session py :kernel python3 :results output verbatim drawer :exports both :tangle yes
+xar = xr.open_dataarray("/home/dirk/data/opendata_dwd/"
+                        "multisite_testdata.nc")
+wc = multisite.Multisite(xar, verbose=False,
+                         refit="R")
+wc.simulate()
+obs = wc.ranks.unstack("rank")
+decorr = wc.cop_quantiles
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+/home/dirk/anaconda/envs/python3/lib/python3.6/site-packages/xarray/core/common.py:594: FutureWarning: pd.TimeGrouper is deprecated and will be removed; Please use pd.Grouper(freq=...)
+  label=label, base=base)
+Loading input data.
+Fitting seasonal distributions.
+	Recover previous fit from shelve for:  theta
+	p-value of chi2 goodness-of-fit 0.0286
+	Recover previous fit from shelve for:  sun
+  0%|          | 0/366 [00:00<?, ?it/s]	p-value of chi2 goodness-of-fit 0.0000
+	Fitting a distribution to  R
+ 10%|▉         | 36/366 [00:00<00:00, 358.49it/s] 20%|█▉        | 73/366 [00:00<00:00, 360.23it/s] 32%|███▏      | 116/366 [00:00<00:00, 378.15it/s] 43%|████▎     | 158/366 [00:00<00:00, 386.88it/s] 53%|█████▎    | 194/366 [00:00<00:00, 376.35it/s] 64%|██████▍   | 235/366 [00:00<00:00, 384.82it/s] 74%|███████▍  | 272/366 [00:00<00:00, 377.83it/s] 86%|████████▌ | 313/366 [00:00<00:00, 385.13it/s] 98%|█████████▊| 358/366 [00:00<00:00, 400.35it/s]100%|██████████| 366/366 [00:00<00:00, 390.38it/s]
+
+	p-value of chi2 goodness-of-fit 0.0000
+	Recover previous fit from shelve for:  rh
+	p-value of chi2 goodness-of-fit 0.0006
+Transforming 'negative rain'
+Loading input data.
+Fitting seasonal distributions.
+	Recover previous fit from shelve for:  theta
+	p-value of chi2 goodness-of-fit 0.1062
+	Recover previous fit from shelve for:  sun
+  0%|          | 0/366 [00:00<?, ?it/s]	p-value of chi2 goodness-of-fit 0.0000
+	Fitting a distribution to  R
+  9%|▊         | 32/366 [00:00<00:01, 319.83it/s] 21%|██▏       | 78/366 [00:00<00:00, 351.39it/s] 31%|███       | 113/366 [00:00<00:00, 350.07it/s] 41%|████      | 149/366 [00:00<00:00, 352.46it/s] 49%|████▉     | 181/366 [00:00<00:00, 339.65it/s] 60%|█████▉    | 218/366 [00:00<00:00, 346.32it/s] 70%|██████▉   | 256/366 [00:00<00:00, 354.86it/s] 84%|████████▍ | 307/366 [00:00<00:00, 389.98it/s] 96%|█████████▌| 350/366 [00:00<00:00, 400.31it/s]100%|██████████| 366/366 [00:00<00:00, 386.95it/s]
+
+	p-value of chi2 goodness-of-fit 0.0000
+	Recover previous fit from shelve for:  rh
+	p-value of chi2 goodness-of-fit 0.0104
+Transforming 'negative rain'
+Loading input data.
+Fitting seasonal distributions.
+	Recover previous fit from shelve for:  theta
+	p-value of chi2 goodness-of-fit 0.4130
+	Recover previous fit from shelve for:  sun
+  0%|          | 0/366 [00:00<?, ?it/s]	p-value of chi2 goodness-of-fit 0.0000
+	Fitting a distribution to  R
+ 11%|█▏        | 42/366 [00:00<00:00, 413.04it/s] 23%|██▎       | 83/366 [00:00<00:00, 411.26it/s] 36%|███▌      | 130/366 [00:00<00:00, 426.59it/s]/home/dirk/workspace/python/vg/vg/time_series_analysis/_kde.py:124: UserWarning: Recursing in optimal_kernel_width
+  warnings.warn("Recursing in optimal_kernel_width")
+ 45%|████▌     | 166/366 [00:00<00:00, 401.08it/s] 58%|█████▊    | 214/366 [00:00<00:00, 421.53it/s] 71%|███████   | 259/366 [00:00<00:00, 427.54it/s] 84%|████████▍ | 307/366 [00:00<00:00, 440.99it/s] 96%|█████████▌| 350/366 [00:00<00:00, 436.34it/s]100%|██████████| 366/366 [00:00<00:00, 430.22it/s]
+
+	p-value of chi2 goodness-of-fit 0.0000
+	Recover previous fit from shelve for:  rh
+	p-value of chi2 goodness-of-fit 0.0001
+Transforming 'negative rain'
+Loading input data.
+Fitting seasonal distributions.
+	Recover previous fit from shelve for:  theta
+	p-value of chi2 goodness-of-fit 0.0085
+	Recover previous fit from shelve for:  sun
+  0%|          | 0/366 [00:00<?, ?it/s]	p-value of chi2 goodness-of-fit 0.0000
+	Fitting a distribution to  R
+ 11%|█         | 41/366 [00:00<00:00, 407.66it/s] 21%|██        | 77/366 [00:00<00:00, 391.80it/s] 33%|███▎      | 119/366 [00:00<00:00, 399.03it/s] 44%|████▎     | 160/366 [00:00<00:00, 401.53it/s] 55%|█████▌    | 202/366 [00:00<00:00, 406.72it/s] 68%|██████▊   | 248/366 [00:00<00:00, 420.83it/s] 80%|███████▉  | 292/366 [00:00<00:00, 424.33it/s] 92%|█████████▏| 337/366 [00:00<00:00, 431.09it/s]100%|██████████| 366/366 [00:00<00:00, 421.93it/s]
+
+	p-value of chi2 goodness-of-fit 0.0000
+	Recover previous fit from shelve for:  rh
+	p-value of chi2 goodness-of-fit 0.0062
+Transforming 'negative rain'
+/home/dirk/anaconda/envs/python3/lib/python3.6/site-packages/xarray/core/common.py:594: FutureWarning: pd.TimeGrouper is deprecated and will be removed; Please use pd.Grouper(freq=...)
+  label=label, base=base)
+Simulating a time-series.
+theta - sun
+	alimikailhaq: 562.500 (asymm)
+	frank: 597.881 (asymm)
+	alimikailhaq_180: 564.461 (asymm)
+	frank_90: 597.881 (asymm)
+	gaussian: 2507.356 (asymm)
+	frank_270: 597.881 (asymm)
+	gumbel: 470.885 (asymm)
+	galambos: 0.000 (asymm)
+	gumbelbarnett_90: 273.959 (asymm)
+	independence: 0.000 (asymm)
+/home/dirk/workspace/python/weathercop/weathercop/seasonal_cop.py:209: RuntimeWarning: invalid value encountered in less
+  approx[approx < lower_bound] = lower_bound
+/home/dirk/workspace/python/weathercop/weathercop/seasonal_cop.py:210: RuntimeWarning: invalid value encountered in greater
+  approx[approx > upper_bound] = upper_bound
+	gumbelbarnett: -0.000 (asymm)
+	joe: 344.210 (asymm)
+	nelsen13: 520.293 (asymm)
+	nelsen12: -1134.748 (asymm)
+	nelsen14: -1134.791 (asymm)
+	plackett: 596.840 (asymm)
+seasonal gaussian (L=2507.36)
+theta - R
+	alimikailhaq: 153.692 (asymm)
+	alimikailhaq_180: 132.217 (asymm)
+	frank_90: 152.670 (asymm)
+	frank_270: 152.670 (asymm)
+/home/dirk/workspace/python/weathercop/weathercop/seasonal_cop.py:209: RuntimeWarning: invalid value encountered in less
+  approx[approx < lower_bound] = lower_bound
+/home/dirk/workspace/python/weathercop/weathercop/seasonal_cop.py:210: RuntimeWarning: invalid value encountered in greater
+  approx[approx > upper_bound] = upper_bound
+/home/dirk/workspace/python/weathercop/weathercop/seasonal_cop.py:305: RuntimeWarning: invalid value encountered in less_equal
+  density[(~mask) | (density <= 0)] = 1e-15
+	frank: -555107.214 (asymm)
+	gumbel: -0.495 (asymm)
+	galambos: 0.000 (asymm)
+	gaussian: 637.141 (asymm)
+	gumbelbarnett: 26.979 (asymm)
+	gumbelbarnett_90: -0.692 (asymm)
+	joe: -0.263 (asymm)
+	nelsen13: 77.715 (asymm)
+	nelsen12: -4265.558 (asymm)
+	independence: 0.000 (asymm)
+/home/dirk/workspace/python/weathercop/weathercop/seasonal_cop.py:209: RuntimeWarning: invalid value encountered in less
+  approx[approx < lower_bound] = lower_bound
+/home/dirk/workspace/python/weathercop/weathercop/seasonal_cop.py:210: RuntimeWarning: invalid value encountered in greater
+  approx[approx > upper_bound] = upper_bound
+	nelsen14: -4265.558 (asymm)
+	plackett: 160.728 (asymm)
+seasonal gaussian (L=637.14)
+theta - rh
+	alimikailhaq: 1085.195 (asymm)
+	alimikailhaq_180: 783.705 (asymm)
+	frank: 1090.974 (asymm)
+	frank_90: 1090.974 (asymm)
+	frank_270: 1090.974 (asymm)
+	gaussian: 4636.491 (asymm)
+	gumbel: -0.000 (asymm)
+	galambos: 0.000 (asymm)
+	gumbelbarnett: 517.716 (asymm)
+	gumbelbarnett_90: -0.000 (asymm)
+	independence: 0.000 (asymm)
+/home/dirk/workspace/python/weathercop/weathercop/seasonal_cop.py:209: RuntimeWarning: invalid value encountered in less
+  approx[approx < lower_bound] = lower_bound
+/home/dirk/workspace/python/weathercop/weathercop/seasonal_cop.py:210: RuntimeWarning: invalid value encountered in greater
+  approx[approx > upper_bound] = upper_bound
+	joe: -0.000 (asymm)
+	nelsen12: -6534.229 (asymm)
+	nelsen13: 768.182 (asymm)
+	nelsen14: -6534.229 (asymm)
+	plackett: 1104.984 (asymm)
+seasonal gaussian (L=4636.49)
+	alimikailhaq: 2016.760 (asymm)
+	alimikailhaq_180: 2091.261 (asymm)
+	frank: 3897.748 (asymm)
+	frank_90: 3897.748 (asymm)
+	frank_270: 3897.748 (asymm)
+	gaussian: 13168.883 (asymm)
+	gumbel: -0.000 (asymm)
+	galambos: 0.000 (asymm)
+	gumbelbarnett: 3477.813 (asymm)
+	gumbelbarnett_90: -0.000 (asymm)
+	independence: 0.000 (asymm)
+/home/dirk/workspace/python/weathercop/weathercop/seasonal_cop.py:209: RuntimeWarning: invalid value encountered in less
+  approx[approx < lower_bound] = lower_bound
+/home/dirk/workspace/python/weathercop/weathercop/seasonal_cop.py:210: RuntimeWarning: invalid value encountered in greater
+  approx[approx > upper_bound] = upper_bound
+	joe: -0.000 (asymm)
+	nelsen12: -8709.481 (asymm)
+	nelsen13: 3477.809 (asymm)
+	nelsen14: -8709.481 (asymm)
+	plackett: 3913.270 (asymm)
+seasonal gaussian (L=13168.88)
+	frank_270: 5645.106 (asymm)
+	frank_90: 5645.106 (asymm)
+	alimikailhaq: 5652.323 (asymm)
+/home/dirk/workspace/python/weathercop/weathercop/seasonal_cop.py:209: RuntimeWarning: invalid value encountered in less
+  approx[approx < lower_bound] = lower_bound
+/home/dirk/workspace/python/weathercop/weathercop/seasonal_cop.py:210: RuntimeWarning: invalid value encountered in greater
+  approx[approx > upper_bound] = upper_bound
+/home/dirk/workspace/python/weathercop/weathercop/seasonal_cop.py:305: RuntimeWarning: invalid value encountered in less_equal
+  density[(~mask) | (density <= 0)] = 1e-15
+	frank: -555107.214 (asymm)
+	galambos: 4828.277 (asymm)
+	gaussian: 17261.798 (asymm)
+	alimikailhaq_180: 3349.233 (asymm)
+	gumbel: 4886.606 (asymm)
+	gumbelbarnett: -0.000 (asymm)
+	gumbelbarnett_90: 4813.927 (asymm)
+	nelsen13: 7001.759 (asymm)
+/home/dirk/workspace/python/weathercop/weathercop/seasonal_cop.py:209: RuntimeWarning: invalid value encountered in less
+  approx[approx < lower_bound] = lower_bound
+/home/dirk/workspace/python/weathercop/weathercop/seasonal_cop.py:210: RuntimeWarning: invalid value encountered in greater
+  approx[approx > upper_bound] = upper_bound
+/home/dirk/workspace/python/weathercop/weathercop/seasonal_cop.py:305: RuntimeWarning: invalid value encountered in less_equal
+  density[(~mask) | (density <= 0)] = 1e-15
+	plackett: -555107.214 (asymm)
+	nelsen14: 6617.185 (asymm)
+	nelsen12: 6969.414 (asymm)
+	independence: 0.000 (asymm)
+/home/dirk/workspace/python/weathercop/weathercop/seasonal_cop.py:209: RuntimeWarning: invalid value encountered in less
+  approx[approx < lower_bound] = lower_bound
+/home/dirk/workspace/python/weathercop/weathercop/seasonal_cop.py:210: RuntimeWarning: invalid value encountered in greater
+  approx[approx > upper_bound] = upper_bound
+	joe: 2961.490 (asymm)
+seasonal gaussian (L=17261.80)
+	alimikailhaq: 65.832 (asymm)
+	frank: 48.451 (asymm)
+	alimikailhaq_180: 33.808 (asymm)
+	frank_270: 48.451 (asymm)
+	frank_90: 48.451 (asymm)
+	gaussian: 152.058 (asymm)
+	gumbel: -1.604 (asymm)
+	galambos: 0.000 (asymm)
+	gumbelbarnett: -0.637 (asymm)
+	gumbelbarnett_90: 443.161 (asymm)
+	independence: 0.000 (asymm)
+/home/dirk/workspace/python/weathercop/weathercop/seasonal_cop.py:209: RuntimeWarning: invalid value encountered in less
+  approx[approx < lower_bound] = lower_bound
+/home/dirk/workspace/python/weathercop/weathercop/seasonal_cop.py:210: RuntimeWarning: invalid value encountered in greater
+  approx[approx > upper_bound] = upper_bound
+	nelsen12: -2002.117 (asymm)
+	joe: -0.000 (asymm)
+	nelsen14: -2002.117 (asymm)
+	plackett: 57.167 (asymm)
+  0%|          | 0/16072 [00:00<?, ?it/s]	nelsen13: 93.722 (asymm)
+seasonal gumbelbarnett_90 (L=443.16)
+  3%|▎         | 527/16072 [00:00<00:02, 5264.19it/s]  7%|▋         | 1049/16072 [00:00<00:02, 5250.56it/s] 10%|▉         | 1566/16072 [00:00<00:02, 5224.57it/s] 13%|█▎        | 2100/16072 [00:00<00:02, 5258.28it/s] 16%|█▋        | 2636/16072 [00:00<00:02, 5288.27it/s] 20%|█▉        | 3174/16072 [00:00<00:02, 5314.32it/s] 23%|██▎       | 3715/16072 [00:00<00:02, 5340.84it/s] 26%|██▋       | 4245/16072 [00:00<00:02, 5328.19it/s] 30%|██▉       | 4784/16072 [00:00<00:02, 5345.30it/s] 33%|███▎      | 5325/16072 [00:01<00:02, 5363.42it/s] 36%|███▋      | 5852/16072 [00:01<00:01, 5334.22it/s] 40%|███▉      | 6394/16072 [00:01<00:01, 5356.85it/s] 43%|████▎     | 6923/16072 [00:01<00:01, 5334.92it/s] 46%|████▋     | 7460/16072 [00:01<00:01, 5344.25it/s] 50%|████▉     | 7998/16072 [00:01<00:01, 5352.63it/s] 53%|█████▎    | 8540/16072 [00:01<00:01, 5370.60it/s] 57%|█████▋    | 9082/16072 [00:01<00:01, 5382.89it/s] 60%|█████▉    | 9626/16072 [00:01<00:01, 5398.97it/s] 63%|██████▎   | 10168/16072 [00:01<00:01, 5402.27it/s] 67%|██████▋   | 10713/16072 [00:02<00:00, 5415.49it/s] 70%|███████   | 11255/16072 [00:02<00:00, 5337.68it/s] 73%|███████▎  | 11789/16072 [00:02<00:00, 5313.70it/s] 77%|███████▋  | 12321/16072 [00:02<00:00, 5248.97it/s] 80%|███████▉  | 12856/16072 [00:02<00:00, 5276.43it/s] 83%|████████▎ | 13392/16072 [00:02<00:00, 5300.86it/s] 87%|████████▋ | 13923/16072 [00:02<00:00, 5295.87it/s] 90%|████████▉ | 14459/16072 [00:02<00:00, 5314.31it/s] 93%|█████████▎| 14999/16072 [00:02<00:00, 5338.88it/s] 97%|█████████▋| 15533/16072 [00:02<00:00, 5281.45it/s]100%|█████████▉| 16062/16072 [00:03<00:00, 5227.49it/s]100%|██████████| 16072/16072 [00:03<00:00, 5316.62it/s]
+	theta mean (data): 9.570, theta mean (sim): 9.559, diff: -0.011
+Simulating a time-series.
+	theta mean (data): 9.998, theta mean (sim): 9.999, diff: 0.001
+Simulating a time-series.
+	theta mean (data): 9.503, theta mean (sim): 9.512, diff: 0.009
+Simulating a time-series.
+	theta mean (data): 10.464, theta mean (sim): 10.465, diff: 0.001
+:END:
+
+#+BEGIN_SRC jupyter-python :session py :kernel python3 :results output verbatim drawer :exports both :tangle yes 
+print("corr coefs observed")
+print(list(wc.varnames))
+# print(np.corrcoef(obs.sel(station="Konstanz")))
+print(np.corrcoef(obs.stack(stacked=("station", "time"))).round(3))
+print("corr coefs decorr")
+print(np.corrcoef(decorr.stack(stacked=("station", "time"))).round(3))
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+corr coefs observed
+['theta', 'sun', 'R', 'rh']
+[[ 1.     0.26  -0.12  -0.348]
+ [ 0.26   1.    -0.629 -0.519]
+ [-0.12  -0.629  1.     0.696]
+ [-0.348 -0.519  0.696  1.   ]]
+corr coefs decorr
+[[ 1.    -0.002 -0.01  -0.03 ]
+ [-0.002  1.    -0.005 -0.214]
+ [-0.01  -0.005  1.     0.09 ]
+ [-0.03  -0.214  0.09   1.   ]]
+:END:
+
+* Plots
+
+#+BEGIN_SRC jupyter-python :session py :kernel python3 :results output verbatim drawer :exports both :tangle yes 
+for station_name in wc.station_names:
+    fig, axs = plt.subplots(nrows=wc.K, ncols=2)
+    for var_i, varname in enumerate(wc.varnames):
+        ax = axs[var_i]
+        obs_data = obs.sel(variable=varname, station=station_name)
+        decorr_data = decorr.sel(variable=varname, station=station_name)
+        ax[0].plot(obs_data.time, obs_data.data, label="obs")
+        ax[0].plot(decorr_data.time, decorr_data.data,
+                           label="decorr")
+        ax[1].set(aspect="equal")
+        ax[1].scatter(obs_data, decorr_data, marker="o",
+                              facecolor=(0, 0, 0, 0),
+                              edgecolor=(0, 0, 0, 1))
+        ax[0].set_title(varname)
+        if var_i > 0:
+            ax[0].get_shared_x_axes().join(ax[0],
+                                           axs[var_i - 1, 0])
+    axs[0, 0].legend(loc="best")
+    fig.suptitle(station_name)
+    plt.show()
+#+END_SRC
+
+#+RESULTS:
+:RESULTS:
+:END:

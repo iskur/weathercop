@@ -1,0 +1,57 @@
+import numpy as np
+
+include_dirs = [np.get_include()]
+try:
+    info = np.__config__.mkl_info
+except (KeyError, AttributeError):
+    info = np.__config__.lapack_opt_info
+include_dirs += info["include_dirs"]
+library_dirs = info["library_dirs"]
+libraries = [
+    # "mkl_blas95_ilp64",
+    # "mkl_blas95_lp64",
+    "mkl_core",
+    # "mkl_core_dll",
+    "mkl_intel_ilp64",
+    "mkl_intel_lp64",
+    "mkl_intel_thread",
+    "mkl_tbb_thread",
+    # "mkl_lapack95_ilp64",
+    # "mkl_lapack95_lp64",
+    "mkl_rt",
+    "mkl_sequential",
+    "mkl_tbb_thread",
+    # "tbb"
+] + info["libraries"]
+
+
+def make_ext(modname, pyxfilename):
+    from distutils.extension import Extension
+
+    # c_source = modname.split(".")[-1] + ".c"
+    return Extension(
+        name=modname,
+        sources=[pyxfilename],
+        # extra_link_args=[
+        #     "-I", include_dirs[0],
+        #     "-L", library_dirs[0],
+        #     # "-mkl",
+        #     ],
+        include_dirs=include_dirs,
+        library_dirs=library_dirs,
+        libraries=libraries,
+    )
+
+
+def make_setup_args():
+    # return dict(libraries=libraries)
+    return dict(
+        libraries=[
+            ("mkl_intel_lp64", {}),
+            ("mkl_core", {}),
+            ("mkl_tbb_thread", {}),
+            ("tbb", {}),
+            ("mkl_blas95_lp64", {}),
+        ]
+    )
+    # return dict(script_args=["--compiler=mingw32"])

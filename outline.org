@@ -1,0 +1,19 @@
+#+TITLE: WeatherCop Notes
+#+AUTHOR: Dirk Schlabing
+
+* Copula
+** TODO Find a copula family
+Chef says vine-copula might help, Benedikt Gräler Uni Münster
+** Product of Copulae
+cite:Liebscher2008 introduced the concept, cite:Mazo2015 used parts of
+it for a Product of Bivariate Copula (PBC) framework.
+*** Problems with PBC
+Non-edge pairs of variables are independent! And with increasing
+number of connections, the strength of correlation are rather limited!
+
+From cite:Mazo2015:
+
+[[~/WeatherCop/docs/table1_liebscher2008.png]]
+
+
+* Multisite

@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: export-readme
+        name: Export README.org → README.md (pandoc)
+        entry: bash -c 'pandoc -f org -t gfm README.org -o README.md && git add README.md'
+        language: system
+        pass_filenames: false
+        files: ^README\.org$

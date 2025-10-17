@@ -1,0 +1,73 @@
+#+TITLE: How can I seasonalize Vine?
+
+* Initialize
+
+#+BEGIN_SRC ipython :session :exports both
+%matplotlib inline
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC ipython :session :exports both :results silent
+import os
+import matplotlib.pyplot as plt
+import scipy.stats as spstats
+import pandas as pd
+from pandas.tools.plotting import autocorrelation_plot
+from weathercop import vine
+from weathercop import smoothing
+from weathercop import ar_models as ar
+from weathercop import cop_conf
+from weathercop import stats
+from weathercop import plotting
+from weathercop.vintage import Vintage
+#+END_SRC
+
+#+BEGIN_SRC ipython :session :exports :results silent
+data_filepath = os.path.join(cop_conf.weathercop_dir, "code",
+                             "vg_data.npz")
+varnames = "R theta ILWR Qsw rh v u".split()
+data_varnames = "R theta Qsw ILWR rh u v".split()
+# varnames = cop_conf.varnames
+with np.load(data_filepath, fix_imports=True, encoding="bytes") as saved:
+    data_all = saved["all"]
+    dtimes = saved["dtimes"]
+#+END_SRC
+
+* Analysis of Vine quantiles
+
+#+BEGIN_SRC ipython :session :exports both
+data = np.array([data_all[data_varnames.index(varname)]
+                 for varname in varnames])
+data_ranks = np.array([stats.rel_ranks(row) for row in data])
+data_df = pd.DataFrame(data_ranks.T, index=dtimes, columns=varnames)
+data_stdn = data_df.apply(spstats.distributions.norm.ppf)
+vint = Vintage(data_ranks, dtimes, varnames=varnames, window_len=30)
+vint.run()
+quantiles = vint.quantiles()
+quantiles_stdn = quantiles.apply(spstats.distributions.norm.ppf)
+#+END_SRC
+
+#+RESULTS:
+
+#+BEGIN_SRC ipython :session :file /home/dirk/workspace/python/weathercop/docs/img/py6090Lfb.png :exports both
+fig, axs = plt.subplots(vint.K)
+for i, ax in enumerate(axs):
+    autocorrelation_plot(quantiles_stdn.ix[:, i], ax=ax)
+    ax.set_xlim(0, 14)
+    ax.set_title(varnames[i])
+#+END_SRC
+
+#+BEGIN_SRC ipython :session :file /home/dirk/workspace/python/weathercop/docs/img/py60900UY.png :exports both
+fig, axs = plt.subplots(4, 2)
+axs = np.ravel(axs)
+fig, axs = plotting.plot_cross_corr(data_stdn.as_matrix().T,
+                                    varnames=varnames, max_lags=14,
+                                    fig=fig, axs=axs)
+plotting.plot_cross_corr(quantiles_stdn.as_matrix().T,
+                         varnames=varnames, max_lags=14, fig=fig,
+                         axs=axs, linestyle="--")
+plt.show()
+#+END_SRC
+
+

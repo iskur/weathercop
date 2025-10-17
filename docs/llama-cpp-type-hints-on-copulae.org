@@ -1,0 +1,1884 @@
+:PROPERTIES:
+:GPTEL_MODEL: test
+:GPTEL_BACKEND: llama-cpp
+:GPTEL_SYSTEM: You are a large language model and a careful programmer. Provide code and only code as output without any additional text, prompt or note.
+:GPTEL_BOUNDS: ((response (319 361) (394 56305) (56350 58370) (58454 75513)))
+:END:
+Hi! Are you working?
+
+Yes, I'm here. How can I assist you today?
+
+Please add type declarations.
+
+Sure, I can help you add type declarations to the =copulae.py= file. However, it's important to note that Python is a dynamically typed language, so type hints are optional but can help with code readability and maintenance. I'll add type hints to the functions and variables where it makes sense.
+
+Here's the modified code with type declarations:
+
+#+begin_src python
+"""Bivariate Copulas intended for Vine Copulas."""
+
+import functools
+import importlib
+import os
+import sys
+
+import warnings
+import inspect
+from abc import ABCMeta, abstractproperty
+from collections import OrderedDict
+from contextlib import suppress
+from pathlib import Path
+
+import numpy as np
+import matplotlib.pyplot as plt
+import sympy
+from scipy import stats as spstats
+from scipy.optimize import minimize
+from scipy.special import erf, erfinv
+from sympy import exp, ln
+from sympy.utilities import autowrap
+
+# from sympy.codegen.rewriting import optimize, optims_c99
+from sympy.printing.theanocode import theano_function
+
+try:
+    import theano
+
+    THEANO = True
+except ImportError:
+    warnings.warn("Could not import theano.")
+    THEANO = False
+from numexpr import evaluate
+
+from scipy.stats import multivariate_normal
+from weathercop import cop_conf as conf, stats, tools
+
+try:
+    from weathercop import ufuncs
+except ImportError:
+    libdir = Path(__file__).parent
+    with tools.chdir(libdir):
+        os.mkdir("ufuncs")
+        open("ufuncs/__init__.py", "w").close()
+    from weathercop import ufuncs
+
+import vg
+
+# if sys.platform == "win32":
+#     MKL = False
+# else:
+#     # from weathercop.normal_conditional_sleef import (
+#     #     norm_inv_cdf_given_u,
+#     #     norm_cdf_given_u,
+#     # )
+#     from weathercop.normal_conditional_mkl import (
+#         norm_inv_cdf_given_u,
+#         norm_cdf_given_u,
+#     )
+#     MKL = True
+
+MKL = False
+
+# Check if we're running tests
+SKIP_CYTHON_BUILD = os.environ.get("SKIP_CYTHON_BUILD", "").lower() in (
+    "1",
+    "true",
+    "yes",
+)
+RUNNING_TESTS = (
+    "pytest" in sys.modules
+    or "PYTEST_CURRENT_TEST" in os.environ
+    or SKIP_CYTHON_BUILD
+)
+
+# used wherever theta can be inf in principle
+theta_large: float = 50
+zero: float = 1e-19
+one: float = 1 - 1e-19
+zeroish: float = 1e-9
+oneish: float = 1 - 1e-9
+
+# here expressions are kept that sympy has problems with
+faillog_file: Path = conf.ufunc_tmp_dir / "known_fail"
+conf.ufunc_tmp_dir.mkdir(parents=True, exist_ok=True)
+
+# allow printing of more complex equations
+# from matplotlib import rc
+# rc("text", usetex=True)
+
+# rederive = (None,)
+rederive: tuple = ("gumbelbarnett",)
+# rederive = "bb1"
+# rederive = "bb2"
+# rederive = "plackett"
+# rederive = "nelsen08",
+# rederive = "clayton",
+# rederive = "gumbel"
+# rederive = "galambos",
+# rederive = "frank",
+# rederive = "alimikailhaq",
+
+
+def get_ufunc_dir() -> Path:
+    try:
+        ufunc_dir: Path = ufuncs.__path__[0]
+    except TypeError:
+        ufunc_dir: Path = ufuncs.__path__._path[0]
+    return ufunc_dir
+
+
+def ufuncify_cython(cls: type, name: str, uargs: tuple, expr: sympy.Expr, *args: Any, verbose: bool = True, **kwds) -> Any:
+    expr_hash: str = tools.hash_cop(expr)
+    module_name: str = f"{cls.name}_{name}_{expr_hash}"
+
+    try:
+        ufunc: Any = importlib.import_module(f"weathercop.ufuncs.{module_name}_0").autofunc_c
+    except (ImportError, AttributeError) as exc:
+        if verbose:
+            print(exc)
+            print(f"Compiling {expr}")
+        _filename_orig: str = autowrap.CodeWrapper._filename
+        _module_basename_orig: str = autowrap.CodeWrapper._module_basename
+        _module_counter_orig: int = autowrap.CodeWrapper._module_counter
+        # these attributes determine the file name of the generated code
+        autowrap.CodeWrapper._filename = f"{module_name}_code"
+        autowrap.CodeWrapper._module_basename = module_name
+        autowrap.CodeWrapper._module_counter = 0
+        ufunc_dir: Path = get_ufunc_dir()
+        with tools.chdir(ufunc_dir):
+            try:
+                ufunc: Any = autowrap.ufuncify(
+                    uargs,
+                    expr,
+                    tempdir=ufunc_dir,
+                    verbose=verbose,
+                    *args,
+                    **kwds,
+                )
+            except AttributeError:
+                # seems like ufuncify is too fast in trying to import
+                # the newly generated module
+                ufunc: Any = autowrap.ufuncify(
+                    uargs,
+                    expr,
+                    tempdir=ufunc_dir,
+                    verbose=verbose,
+                    *args,
+                    **kwds,
+                )
+        autowrap.CodeWrapper._module_basename = _module_basename_orig
+        autowrap.CodeWrapper._module_counter = _module_counter_orig
+        autowrap.CodeWrapper._filename = _filename_orig
+    return ufunc
+
+
+def raveled_func(func: Callable) -> Callable:
+    @functools.wraps(func)
+    def inner(self: Any, *args: Any, theta: Optional[Union[float, np.ndarray]] = None, **kwds: Any) -> np.ndarray:
+        # assume the same shape for each argument (no broadcasting for
+        # now)
+        shape: Tuple[int, ...] = args[0].shape
+        args: Tuple[np.ndarray, ...] = tuple(np.ravel(arg) for arg in args)
+        if theta is not None:
+            # result = func(*args, theta=np.ravel(theta), **kwds)
+            result: np.ndarray = func(
+                *(args + [np.ravel(theta)]),
+                **kwds,
+            )
+        else:
+            result: np.ndarray = func(*args, **kwds)
+        return result.reshape(shape)
+
+    return inner
+
+
+def ufuncify_theano(cls: type, name: str, uargs: tuple, expr: sympy.Expr, *args: Any, verbose: bool = False, **kwds) -> Any:
+    with tools.shelve_open(conf.theano_cache) as sh:
+        expr_hash: str = tools.hash_cop(expr)
+        key: str = "%s_%s_%s" % (cls.name, name, expr_hash)
+        try:
+            func: Any = sh[key]
+        except (KeyError, EOFError, theano.gpuarray.type.ContextNotDefined):
+            if verbose:
+                print("Building theano function for %s" % repr(expr))
+            dims: Dict[str, int] = {key: 1 for key in uargs}
+            dtypes: Dict[str, str] = {key: "float64" for key in uargs}
+            sh[key] = theano_function(
+                uargs,
+                [expr],
+                dims=dims,
+                dtypes=dtypes,
+                on_unused_input="ignore",
+                name=f"{cls.name}.{name}",
+            )
+            func: Any = sh[key]
+        # raveled_func works as a method, so call it with None as self
+        # return lambda *args, **kwds: raveled_func(func)(None, *args, **kwds)
+        return func
+
+
+def ufuncify_numpy(cls: type, name: str, uargs: tuple, expr: sympy.Expr, *args: Any, verbose: bool = False, **kwds) -> Any:
+    return autowrap.ufuncify(
+        uargs,
+        expr,
+        tempdir=get_ufunc_dir(),
+        verbose=verbose,
+        backend="numpy",
+        *args,
+        **kwds,
+    )
+
+
+def ufuncify(*args: Any, backend: str = "cython", **kwds) -> Any:
+    if backend in ("cython", "f2py"):
+        return ufuncify_cython(*args, backend=backend, **kwds)
+    elif backend == "numpy":
+        return ufuncify_numpy(*args, **kwds)
+    elif backend == "theano":
+        return ufuncify_theano(*args, **kwds)
+    else:
+        raise RuntimeError(
+            f"backend {backend} not understood.\n"
+            "Choose one of: cython, f2py, numpy, theano"
+        )
+
+
+def newton_py(
+    conditional_func: Callable,
+    conditional_func_prime: Callable,
+    ranks1: np.ndarray,
+    quantiles: np.ndarray,
+    thetas: np.ndarray,
+    given_v: bool,
+) -> np.ndarray:
+    ranks2: np.ndarray = np.empty_like(ranks1)
+    rank_u_ar: np.ndarray = np.empty((1, 1))
+    rank_v_ar: np.ndarray = np.empty((1, 1))
+    theta_ar: np.ndarray = np.empty((thetas.shape[0], 1))
+    for i, rank1 in enumerate(ranks1):
+        quantile: float = quantiles[i]
+        theta: float = thetas[..., i]
+        theta_ar[:, 0] = theta
+        eps: float = 1e-4
+        rank0: float = max(eps, min(quantile, 1 - eps))
+        zk: float = np.inf
+        zkp1: float = rank0
+        it: int = 0
+        max_it: int = 100
+        while abs(zk - zkp1) > 1e-6:
+            zk: float = zkp1
+            if given_v:
+                rank_u_ar[0, 0], rank_v_ar[0, 0] = zk, rank1
+            else:
+                rank_u_ar[0, 0], rank_v_ar[0, 0] = rank1, zk
+            gz: float = conditional_func(rank_u_ar, rank_v_ar, *theta_ar)
+            gz_prime: float = conditional_func_prime(rank_u_ar, rank_v_ar, *theta_ar)
+            try:
+                step: float = (gz - quantile) / gz_prime
+            except ZeroDivisionError:
+                step: float = 0  # this will end the loop
+            zkp1_prelim: float = zk - step
+            if zkp1_prelim > 1:
+                step: float = -0.5 * (max_it - it) / max_it * (1 - zk)
+            elif zkp1_prelim < 0:
+                step: float = 0.5 * (max_it - it) / max_it * zk
+            zkp1: float = zk - step
+            it: int = it + 1
+            if it == max_it:
+                break
+        ranks2[i] = zkp1
+    return ranks2
+
+
+if conf.PROFILE:
+    newton: Callable = newton_py
+else:
+    from weathercop.cinv_cdf import newton
+
+
+def mark_failed(key: str) -> None:
+    mode: str = "r+" if faillog_file.exists() else "w+"
+    with faillog_file.open(mode) as faillog:
+        keys: List[str] = faillog.readlines()
+        if (key + os.linesep) not in keys:
+            faillog.write(key + os.linesep)
+
+
+def has_failed(key: str) -> bool:
+    keys: List[str] = [line.strip() for line in faillog_file.open()]
+    return key in keys
+
+
+def clear_sympy_cache() -> None:
+    for suffix in "bak dat dir".split():
+        conf.sympy_cache.with_suffix(f".she.{suffix}").unlink()
+
+
+def swap_symbols(expr: sympy.Expr, symbol1: sympy.Symbol, symbol2: sympy.Symbol) -> sympy.Expr:
+    """Substitute symbol1 and symbol2 in the given sympy expression.
+
+    >>> import sympy
+    >>> x, y = sympy.symbols("x y")
+    >>> swap_symbols(x - y, x, y)
+    -x + y
+    """
+    try:
+        # in case symbols are strings
+        symbol1, symbol2 = sympy.symbols((symbol1, symbol2))
+    except TypeError:
+        # assume symbols are already sympy symbols
+        pass
+    xxx: sympy.Symbol = sympy.symbols("xxx")
+    expr = expr.subs({symbol1: xxx})
+    expr = expr.subs({symbol2: symbol1})
+    expr = expr.subs({xxx: symbol2})
+    return expr
+
+
+def random_sample(size: int, bound: float = 1e-9) -> np.ndarray:
+    """Sample in the closed interval (bound, 1 - bound)."""
+    return (1 - 2 * bound) * vg.rng.random(size) + bound
+
+
+def positive(func: Callable) -> Callable:
+    @functools.wraps(func)
+    def inner(*args: Any, **kwds: Any) -> np.ndarray:
+        if isinstance(args[0], Copulae):
+            args = args[1:]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            result: np.ndarray = func(*args, **kwds)
+            result: np.ndarray = np.squeeze(result)
+            result[result < zero] = zero
+            result[result > one] = one
+        return result
+
+    return inner
+
+
+def broadcast_2d(func: Callable) -> Callable:
+    @functools.wraps(func)
+    def inner(*args: Any, **kwds: Any) -> np.ndarray:
+        if isinstance(args[0], Copulae):
+            args = args[1:]
+        try:
+            args: List[np.ndarray] = list(np.nditer(
+                args,
+                flags=["multi_index", "zerosize_ok", "refs_ok"],
+                order="C",
+            ).itviews)
+            shape: Tuple[int, ...] = args[0].shape
+            result: np.ndarray = func(*[arg.ravel() for arg in args], **kwds)
+            return result.reshape(shape)
+        except ValueError:
+            args: List[np.ndarray] = list(np.atleast_2d(*args))
+            shape_broad: Tuple[int, ...] = np.array([arg.shape for arg in args]).max(axis=0)
+            args_broad_raveled: List[np.ndarray] = []
+            for array in args:
+                array_broad: np.ndarray = np.empty(shape_broad)
+                array_broad[:] = array
+                args_broad_raveled += [array_broad.ravel()]
+            result: np.ndarray = func(*args_broad_raveled, **kwds)
+            return result.reshape(shape_broad)
+
+    return inner
+
+
+def gen_arr_fun(func: Callable) -> Callable:
+    return lambda x: func(np.atleast_1d(x))
+
+
+def bipit(ranks_u: np.ndarray, ranks_v: np.ndarray) -> np.ndarray:
+    """Bivariate probability integral transform."""
+    ranks_u, ranks_v = map(np.squeeze, (ranks_u, ranks_v))
+    n: int = len(ranks_u)
+    ranks: np.ndarray = np.empty(n)
+    for i, (rank_u, rank_v) in enumerate(zip(ranks_u, ranks_v)):
+        ranks[i] = np.sum((ranks_u < rank_u) & (ranks_v < rank_v))
+    return (ranks + 0.5) / n
+
+
+class NoConvergence(Exception):
+    pass
+
+
+class MetaCop(ABCMeta):
+    backend: str = "cython"
+    verbose: bool = True
+
+    def __new__(cls, name: str, bases: tuple, cls_dict: dict) -> type:
+        new_cls: type = super().__new__(cls, name, bases, cls_dict)
+        new_cls.name: str = name.lower()
+        new_cls.name_camel: str = name
+        MetaCop.check_defaults(cls_dict)
+        with suppress(TypeError):
+            new_cls.n_par: int = len(new_cls.par_names) - 2
+        if "backend" not in cls_dict:
+            new_cls.backend = MetaCop.backend
+        if "cop_expr" in cls_dict:
+            new_cls = MetaCop.symmetries(new_cls)
+            # auto-rotate the copula expression
+            if name.endswith(("90", "180", "270")):
+                new_cls.cop_expr = MetaCop.rotate_expr(new_cls)
+                new_cls.rotated: bool = True
+            else:
+                new_cls.rotated = False
+
+            if "known_fail" in cls_dict:
+                MetaCop.mark_failed(new_cls)
+                known_fail: tuple = cls_dict["known_fail"]
+            else:
+                known_fail: tuple = (None,)
+            print(new_cls)
+            new_cls.dens_func: Callable = MetaCop.density_from_cop(new_cls)
+            new_cls.cdf_given_u: Callable = staticmethod(MetaCop.cdf_given_u(new_cls))
+            new_cls.cdf_given_v: Callable = staticmethod(MetaCop.cdf_given_v(new_cls))
+            new_cls.cdf_given_u_prime: Callable = staticmethod(
+                MetaCop.cdf_given_u_prime(new_cls)
+            )
+            new_cls.cdf_given_v_prime: Callable = staticmethod(
+                MetaCop.cdf_given_v_prime(new_cls)
+            )
+            new_cls.copula_func: Callable = staticmethod(MetaCop.copula_func(new_cls))
+            if "inv_cdf_given_u" not in known_fail:
+                ufunc: Any = MetaCop.inv_cdf_given_u(new_cls)
+                if ufunc is not None:
+                    new_cls.inv_cdf_given_u: Callable = staticmethod(ufunc)
+            if "inv_cdf_given_v" not in known_fail:
+                ufunc: Any = MetaCop.inv_cdf_given_v(new_cls)
+                if ufunc is not None:
+                    new_cls.inv_cdf_given_v: Callable = staticmethod(ufunc)
+        elif "dens_expr" in cls_dict and "dens_func" not in cls_dict:
+            new_cls.dens_func: Callable = staticmethod(MetaCop.density_func(new_cls))
+        return new_cls
+
+    def check_defaults(cls_dict: dict) -> None:
+        theta_start: Optional[np.ndarray] = cls_dict.get("theta_start", None)
+        theta_bounds: Optional[List[Tuple[float, float]]] = cls_dict.get("theta_bounds", None)
+        if None in (theta_start, theta_bounds):
+            return
+        if isinstance(theta_start, abstractproperty):
+            return
+        for start, (lower, upper) in zip(theta_start, theta_bounds):
+            assert (lower <= start) & (start <= upper)
+
+    def mark_failed(new_cls: type) -> None:
+        for method_name in new_cls.known_fail:
+            key: str = "_".join(
+                (new_cls.name, method_name, tools.hash_cop(new_cls))
+            )
+            mark_failed(key)
+
+    def rotate_expr(expr: sympy.Expr, degrees: Optional[int] = None) -> sympy.Expr:
+        """Rotate copula expression.
+
+        Notes
+        -----
+        see p. 271
+        """
+        if degrees is None:
+            degrees: int = int(expr.name.rsplit("_")[1])
+            expr: sympy.Expr = expr.cop_expr
+        uu, vv = sympy.symbols("uu vv")
+        if degrees == 90:
+            expr: sympy.Expr = uu - expr.subs({vv: 1 - vv})
+        elif degrees == 180:
+            expr: sympy.Expr = uu + vv - 1 + expr.subs({uu: 1 - uu, vv: 1 - vv})
+        elif degrees == 270:
+            expr: sympy.Expr = vv - expr.subs({uu: 1 - uu})
+        else:
+            raise ValueError("degrees must be one of (None, 90, 180, 270)")
+        return expr
+
+    def symmetries(cls: type) -> type:
+        """Determine if copula is symmetric and set boolean attributes."""
+        # if copula and its 180-degree rotated version are the same
+        # there is symmetry 1
+        copula: sympy.Expr = cls.cop_expr
+        copula180: sympy.Expr = MetaCop.rotate_expr(copula, 180)
+        cls.symmetry1: bool = sympy.simplify(copula - copula180) == 0
+        # uu, vv = sympy.symbols("uu vv")
+        # copula_swapped = swap_symbols(copula, uu, vv)
+        # cls.symmetry2 = sympy.simplify(copula - copula_swapped) == 0
+        cls.symmetry2: bool = True
+        return cls
+
+    def copula_func(cls: type) -> Callable:
+        uu, vv, *theta = sympy.symbols(cls.par_names)
+        ufunc: Any = ufuncify(
+            cls,
+            "copula",
+            tuple([uu, vv] + theta),
+            cls.cop_expr,
+            helpers=cls.helpers,
+            backend=cls.backend,
+            verbose=cls.verbose,
+        )
+        return ufunc
+
+    def density_func(cls: type) -> Callable:
+        uu, vv, *theta = sympy.symbols(cls.par_names)
+        dens_expr: sympy.Expr = cls.dens_expr
+        ufunc: Any = ufuncify(
+            cls,
+            "density",
+            tuple([uu, vv] + theta),
+            dens_expr,
+            helpers=cls.helpers,
+            backend=cls.backend,
+            verbose=cls.verbose,
+        )
+        return ufunc
+
+    def conditional_cdf(cls: type, conditioning: str) -> Callable:
+        uu, vv, *theta = sympy.symbols(cls.par_names)
+        expr_attr: str = rf"cdf_given_{conditioning}_expr"
+        with tools.shelve_open(conf.sympy_cache) as sh:
+            cls_hash: str = tools.hash_cop(cls)
+            key: str = f"{cls.name}_cdf_given_{conditioning}_{cls_hash}"
+            if key not in sh or cls.name in rederive:
+                print(f"Generating {conditioning}-conditional {cls.name}")
+                # a good cop always stays positive!
+                # good_cop = sympy.Piecewise((cls.cop_expr,
+                #                             cls.cop_expr > 0),
+                #                            (0, True))
+                good_cop: sympy.Expr = cls.cop_expr
+                # good_cop = sympy.Min(cls.cop_expr, one)
+                # good_cop = sympy.Piecewise((cls.cop_expr,
+                #                             cls.cop_expr <= one),
+                #                            (one, True))
+                conditional_cdf: sympy.Expr = sympy.diff(good_cop, conditioning)
+                conditional_cdf: sympy.Expr = sympy.simplify(conditional_cdf)
+                # conditional_cdf = optimize(conditional_cdf, optims_c99)
+                sh[key] = conditional_cdf
+            conditional_cdf: sympy.Expr = sh[key]
+            setattr(cls, expr_attr, conditional_cdf)
+        ufunc: Any = ufuncify(
+            cls,
+            "conditional_cdf",
+            tuple([uu, vv] + theta),
+            conditional_cdf,
+            helpers=cls.helpers,
+            backend=cls.backend,
+            verbose=cls.verbose,
+        )
+        return ufunc
+
+    def cdf_given_u(cls: type) -> Callable:
+        return cls.conditional_cdf(sympy.symbols("uu"))
+
+    def cdf_given_v(cls: type) -> Callable:
+        return cls.conditional_cdf(sympy.symbols("vv"))
+
+    def conditional_cdf_prime(cls: type, conditioning: str, conditioned: str) -> Callable:
+        uu, vv, *theta = sympy.symbols(cls.par_names)
+        expr_attr: str = rf"cdf_given_{conditioning}_expr"
+        with tools.shelve_open(conf.sympy_cache) as sh:
+            cls_hash: str = tools.hash_cop(cls)
+            key: str = f"{cls.name}_cdf_given_{conditioning}_prime_{cls_hash}"
+            if key not in sh or cls.name in rederive:
+                print(
+                    f"Generating {conditioning}-conditional prime {cls.name}"
+                )
+                good_cop: sympy.Expr = cls.cop_expr
+                conditional_cdf_prime: sympy.Expr = sympy.diff(good_cop, conditioning)
+                conditional_cdf_prime: sympy.Expr = sympy.diff(
+                    conditional_cdf_prime, conditioned
+                )
+                # conditional_cdf_prime = optimize(
+                #     conditional_cdf_prime, optims_c99
+                # )
+                sh[key] = conditional_cdf_prime
+            conditional_cdf_prime: sympy.Expr = sh[key]
+            setattr(cls, expr_attr, conditional_cdf_prime)
+        ufunc: Any = ufuncify(
+            cls,
+            "conditional_cdf_prime",
+            tuple([uu, vv] + theta),
+            conditional_cdf_prime,
+            helpers=cls.helpers,
+            backend=cls.backend,
+            verbose=cls.verbose,
+        )
+        return ufunc
+
+    def cdf_given_u_prime(cls: type) -> Callable:
+        return cls.conditional_cdf_prime(*sympy.symbols("vv uu"))
+
+    def cdf_given_v_prime(cls: type) -> Callable:
+        return cls.conditional_cdf_prime(*sympy.symbols("uu vv"))
+
+    def inverse_conditional_cdf(cls: type, conditioning: str) -> Callable:
+        uu, vv, qq, theta = sympy.symbols("uu vv qq theta")
+        conditioned: str = list(set((uu, vv)) - set([conditioning]))[0]
+        cls_hash: str = tools.hash_cop(cls)
+        key: str = f"{cls.name}_inv_cdf_given_{conditioning}_{cls_hash}"
+        # keep a log of what does not work in order to not repeat ad
+        # nauseum
+        try:
+            if has_failed(key):
+                return
+        except FileNotFoundError:
+            open(faillog_file, "a").close()
+        attr_name: str = f"inv_cdf_given_{conditioning}_expr"
+        if not hasattr(cls, attr_name) or cls.rotated:
+            # cached sympy derivation
+            with tools.shelve_open(conf.sympy_cache) as sh:
+                if key not in sh or cls.name in rederive:
+                    print(
+                        f"Generating inverse {conditioning}-conditional {cls.name}"
+                    )
+                    cdf_given_expr: sympy.Expr = getattr(
+                        cls, f"cdf_given_{conditioning}_expr"
+                    )
+                    try:
+                        inv_cdf: sympy.Expr = sympy.solve(
+                            cdf_given_expr - qq, conditioned
+                        )[0]
+                    except (
+                        NotImplementedError,
+                        ValueError,
+                        TypeError,
+                        IndexError,
+                    ):
+                        warnings.warn(
+                            "Derivation of inv.-conditional "
+                            + "failed for"
+                            + f" {cls.name}"
+                        )
+                        mark_failed(key)
+                        return
+                    # inv_cdf = optimize(inv_cdf, optims_c99)
+                    sh[key] = inv_cdf
+                inv_cdf: sympy.Expr = sh[key]
+                setattr(cls, attr_name, inv_cdf)
+        inv_cdf: sympy.Expr = getattr(cls, attr_name)
+        # compile sympy expression
+        try:
+            ufunc: Any = ufuncify(
+                cls,
+                f"inv_cdf_given_{conditioning}",
+                [conditioning, qq, theta],
+                inv_cdf,
+                helpers=cls.helpers,
+                backend=cls.backend,
+                verbose=cls.verbose,
+            )
+        except (autowrap.CodeWrapError, TypeError):
+            warnings.warn(f"Could not compile inv.-conditional for {cls.name}")
+            mark_failed(key)
+            return
+        return ufunc
+
+    def inv_cdf_given_u(cls: type) -> Callable:
+        return cls.inverse_conditional_cdf(sympy.symbols("uu"))
+
+    def inv_cdf_given_v(cls: type) -> Callable:
+        # if not hasattr(cls, "inv_cdf_given_vv_expr"):
+        #     # if we are given an expression for the u-conditional, we can
+        #     # substitute v for u to get the corresponding v-conditional
+        #     try:
+        #         inv_cdf = getattr(cls, "inv_cdf_given_uu_expr")
+        #         uu, vv = sympy.symbols("uu vv")
+        #         inv_cdf = inv_cdf.subs({uu: vv})
+        #         setattr(cls, "inv_cdf_given_vv_expr", inv_cdf)
+        #     except AttributeError:
+        #         pass
+        return cls.inverse_conditional_cdf(sympy.symbols("vv"))
+
+    def density_from_cop(cls: type) -> Callable:
+        """Copula density obtained by sympy differentiation compiled with
+        configured backend.
+
+        """
+        uu, vv, *theta = sympy.symbols(cls.par_names)
+        with tools.shelve_open(conf.sympy_cache) as sh:
+            cls_hash: str = tools.hash_cop(cls)
+            key: str = f"{cls.name}_density_{cls_hash}"
+            if key not in sh or cls.name in rederive:
+                print(f"Generating density for {cls.name}")
+                dens_expr: sympy.Expr = sympy.diff(cls.cop_expr, uu, vv)
+                # dens_expr = sympy.Piecewise((dens_expr, cls.cop_expr > 0),
+                #                             (0, True))
+                dens_expr: sympy.Expr = sympy.simplify(dens_expr)
+                # dens_expr = optimize(dens_expr, optims_c99)
+                sh[key] = dens_expr
+            dens_expr: sympy.Expr = sh[key]
+        # for outer pleasure
+        cls.dens_expr: sympy.Expr = dens_expr
+        ufunc: Any = ufuncify(
+            cls,
+            "density",
+            tuple([uu, vv] + theta),
+            dens_expr,
+            helpers=cls.helpers,
+            backend=cls.backend,
+            verbose=cls.verbose,
+        )
+        return raveled_func(ufunc)
+
+
+class MetaArch(MetaCop):
+    def __new__(cls, name: str, bases: tuple, cls_dict: dict) -> type:
+        if ("gen_expr" in cls_dict) and ("cop_expr" not in cls_dict):
+            gen: sympy.Expr = cls_dict["gen_expr"]
+            uu, vv, x, t = sympy.symbols("uu vv x t")
+            with tools.shelve_open(conf.sympy_cache) as sh:
+                key: str = f"{name}_cop_{tools.hash_cop(gen)}"
+                if key not in sh or name in rederive:
+                    print(f"Generating inv. gen for {name}")
+                    if "gen_inv" not in cls_dict:
+                        gen_inv: sympy.Expr = sympy.solve(gen - x, t)[0]
+                    cop: sympy.Expr = gen_inv.subs(x, gen.subs(t, uu) + gen.subs(t, vv))
+                    cop: sympy.Expr = sympy.simplify(cop)
+                    # cop = optimize(cop, optims_c99)
+                    sh[key] = cop
+                cop: sympy.Expr = sh[key]
+                # # kendall_tau expression
+                # key = f"{name}_kendall_{tools.hash_cop(gen)}"
+                # theta = sympy.symbols("theta")
+                # if key not in sh or name in rederive:
+                #     gen_inv = sympy.simplify(sympy.solve(gen - x, t)[0])
+                #     kendall = (
+                #         4 * sympy.integrate(
+                #             # sympy.simplify
+                #             (gen_inv /
+                #              sympy.diff(
+                #                  sympy.diff(gen_inv, x),
+                #                  theta))
+                #             # .subs(sympy.symbols("theta"),
+                #             #        sympy.symbols("theta", nonzero=True))
+                #             ,
+                #             (x, (0, 1)))
+                #         + 1)
+                #     # kendall = (1 - 4 *
+                #     #            sympy.integrate(t * sympy.diff(gen, t) ** 2,
+                #     #                            (t, (0, sympy.oo))))
+                #     sh[key] = kendall
+                # else:
+                #     kendall = sh[key]
+                # cls_dict["kendall_expr"] = kendall
+            cls_dict["cop_expr"] = cop
+        new_cls: type = super().__new__(cls, name, bases, cls_dict)
+        return new_cls
+
+
+class Copulae(metaclass=MetaCop):
+    """Base of all copula implementations, defining what a copula
+    must implement to be a copula."""
+
+    theta_bounds: List[Tuple[float, float]] = [(-np.inf, np.inf)]
+    # zero, one = 1e-6, 1 - 1e-6
+    zero, one = 1e-19, 1 - 19
+    # needed in inverse conditionals
+    _ranks2_calc: np.ndarray = np.linspace(zero, one, 5000)
+    # helping cython do its thing
+    helpers: Optional[Tuple[Tuple[str, Callable, List[str]], ...]] = None
+
+    @abstractproperty
+    def theta_start(self) -> np.ndarray:
+        """Starting solution for parameter estimation."""
+        pass
+
+    @abstractproperty
+    def par_names(self) -> Tuple[str, ...]:
+        pass
+
+    def __call__(self, *theta: float) -> 'Frozen':
+        return Frozen(self, *theta)
+
+    def __getstate__(self) -> dict:
+        dict_: dict = dict(self.__dict__)
+        if hasattr(self, "bad_attrs"):
+            for attr in self.bad_attrs:
+                del dict_[attr]
+        return dict_
+
+    def __setstate__(self, dict_: dict) -> None:
+        self.__dict__ = dict_
+        self.__init__()
+
+    def density(self, uu: np.ndarray, vv: np.ndarray, *theta: float) -> np.ndarray:
+        if np.asarray(theta).shape != uu.shape:
+            theta = tuple(
+                np.full_like(uu, np.atleast_1d(the)) for the in theta
+            )
+        return self.dens_func(uu, vv, theta=np.array(theta))
+
+    def cdf(self, uu: np.ndarray, vv: np.ndarray, *theta: float) -> np.ndarray:
+        theta = tuple(np.full_like(uu, np.atleast_1d(the)) for the in theta)
+        # avoid implicit self in arguments
+        return self.__class__.copula_func(uu, vv, *theta)
+
+    def _inverse_conditional(
+        self,
+        conditional_func: Callable,
+        conditional_func_prime: Callable,
+        ranks: np.ndarray,
+        quantiles: np.ndarray,
+        *theta: float,
+        given_v: bool = False,
+    ) -> np.ndarray:
+        """Numeric inversion of conditional_func (inv_cdf_given_u or
+        inv_cdf_given_v), to be used as a last resort.
+
+        """
+        theta = np.squeeze(np.array(self.theta if theta is None else theta))
+        ranks1, quantiles: np.ndarray = np.atleast_1d(ranks, quantiles)
+        quantiles: np.ndarray = np.squeeze(quantiles)
+        thetas: np.ndarray = np.atleast_2d(theta)
+        if thetas.size == 1:
+            thetas = np.full((1, len(ranks1)), theta)
+        if quantiles.size == 1:
+            quantiles = np.full_like(ranks1, quantiles)
+
+        ranks2: np.ndarray = newton(
+            conditional_func,
+            conditional_func_prime,
+            np.squeeze(ranks1),
+            np.squeeze(quantiles),
+            thetas,
+            given_v,
+        )
+        return ranks2
+
+    def inv_cdf_given_u(self, ranks_u: np.ndarray, quantiles: np.ndarray, *theta: float) -> np.ndarray:
+        """Numeric inversion of cdf_given_u, to be used as a last resort."""
+        return self._inverse_conditional(
+            self.cdf_given_u,
+            self.cdf_given_u_prime,
+            ranks_u,
+            quantiles,
+            *theta,
+        )
+
+    def inv_cdf_given_v(self, ranks_v: np.ndarray, quantiles: np.ndarray, *theta: float) -> np.ndarray:
+        """Numeric inversion of cdf_given_v, to be used as a last resort."""
+        return self._inverse_conditional(
+            self.cdf_given_v,
+            self.cdf_given_v_prime,
+            ranks_v,
+            quantiles,
+            *theta,
+            given_v=True,
+        )
+
+    def sample(self, size: int, *theta: float) -> Tuple[np.ndarray, np.ndarray]:
+        uu: np.ndarray = random_sample(size)
+        xx: np.ndarray = random_sample(size)
+        theta = tuple(np.full_like(uu, the) for the in theta)
+        vv: np.ndarray = self.inv_cdf_given_u(uu, xx, *theta)
+        return uu, vv
+
+    def generate_fitted(self, ranks_u: np.ndarray, ranks_v: np.ndarray, *args: Any, **kwds: Any) -> 'Fitted':
+        """Returns a Fitted instance that contains ranks_u, ranks_v and the
+        fitted theta.
+        """
+        theta: np.ndarray = self.fit(ranks_u, ranks_v, *args, **kwds)
+        if isinstance(theta, float):
+            theta: Tuple[float] = (theta,)
+        return Fitted(self, ranks_u, ranks_v, *theta)
+
+    def rank0(self, rank: float, quantile: float, theta: float) -> float:
+        """Starting-value for newton root finding in the inverse conditionals.
+
+        Replace it with something more meaningfull in childs.
+        """
+        eps: float = 1e-4
+        return max(eps, min(quantile, 1 - eps))
+
+    def fit(self, *args: Any, **kwds: Any) -> np.ndarray:
+        # overwrite this function in child implementations, if a
+        # better method than general maximum likelihood is available
+        # as fitting procedure.
+        return self.fit_ml(*args, **kwds)
+
+    def fit_ml(
+        self,
+        ranks_u: np.ndarray,
+        ranks_v: np.ndarray,
+        method: str = "L-BFGS-B",
+        x0: Optional[np.ndarray] = None,
+        verbose: bool = False,
+        fit_mask: Optional[slice] = None,
+    ) -> np.ndarray:
+        """Maximum likelihood estimate."""
+        u_max: Optional[float] = None
+        v_max: Optional[float] = None
+        if fit_mask is None:
+            fit_mask: slice = slice(None)
+            censor: bool = False
+        else:
+            n_dry: int = np.sum(~fit_mask)
+            u_max = np.array([np.max(ranks_u[~fit_mask])])
+            v_max = np.array([np.max(ranks_v[~fit_mask])])
+            censor: bool = True
+
+        def neg_log_likelihood(theta: np.ndarray) -> float:
+            dens: np.ndarray = self.density(ranks_u[fit_mask], ranks_v[fit_mask], *theta)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                mask: np.ndarray = (dens <= 0) | ~np.isfinite(dens)
+                dens[mask] = 1e-9
+                loglike: float = -np.sum(np.log(dens))
+                if censor:
+                    if u_max > v_max:
+                        # lower_int = self.cdf(np.array([1.0]), v_max, *theta)
+                        lower_int = self.cdf(np.array([oneish]), v_max, *theta)
+                    else:
+                        # lower_int = self.cdf(u_max, np.array([1.0]), *theta)
+                        lower_int = self.cdf(u_max, np.array([oneish]), *theta)
+                    loglike -= n_dry * np.log(lower_int)
+            return loglike
+
+        if x0 is None:
+            x0 = self.theta_start
+        result = minimize(
+            neg_log_likelihood,
+            x0,
+            bounds=self.theta_bounds,
+            method=method,
+        )
+        self.theta: np.ndarray = result.x
+        self.likelihood: float = -result.fun if result.success else -np.inf
+        if not result.success:
+            # print(f"\tNo convergence for {self.name_camel}")
+            if censor:
+                return self.fit_ml(ranks_u, ranks_v)
+                # try:
+                #     # fit without mask
+                #     return self.fit_ml(ranks_u, ranks_v)
+                # except NoConvergence:
+                #     fig, ax = plt.subplots(nrows=1, ncols=1,
+                #                            subplot_kw=dict(aspect="equal"))
+                #     ax.scatter(ranks_u, ranks_v, alpha=.2, s=1)
+                #     ax.scatter(ranks_u[fit_mask], ranks_v[fit_mask], marker="x")
+                #     plt.show()
+                #     __import__('pdb').set_trace()
+            raise NoConvergence
+        return self.theta
+
+    def plot_cop_dens(self, theta: Optional[Tuple[float, ...]] = None, scatter: bool = True, kind: str = "img", opacity: float = 0.1) -> Tuple[plt.Figure, plt.Axes]:
+        fig, axs = plt.subplots(ncols=2, subplot_kw=dict(aspect="equal"))
+        self.plot_copula(theta=theta, fig=fig, ax=axs[0])
+        self.plot_density(
+            theta=theta,
+            scatter=scatter,
+            kind=kind,
+            opacity=opacity,
+            fig=fig,
+            ax=axs[1],
+        )
+        return fig, axs
+
+    def plot_density(
+        self,
+        *,
+        theta: Optional[Tuple[float, ...]] = None,
+        scatter: bool = True,
+        fig: Optional[plt.Figure] = None,
+        ax: Optional[plt.Axes] = None,
+        kind: str = "contourf",
+        opacity: float = 0.1,
+        sample_size: int = 1000,
+        s_kwds: Optional[dict] = None,
+        c_kwds: Optional[dict] = None,
+    ) -> Tuple[plt.Figure, plt.Axes]:
+        if theta is None:
+            try:
+                theta: Tuple[float, ...] = (self.theta,)
+                if isinstance(theta[0], sympy.core.symbol.Symbol):
+                    raise AttributeError
+            except AttributeError:
+                theta: Tuple[float, ...] = (self.theta_start,)
+        if s_kwds is None:
+            s_kwds: dict = dict()
+        if c_kwds is None:
+            c_kwds: dict = dict(
+                alpha=0.5,
+                # linewidth=.25
+            )
+        if kind == "img":
+            n_per_dim: int = 15
+        else:
+            n_per_dim: int = 100
+        uu: np.ndarray = vv: np.ndarray = stats.rel_ranks(np.arange(n_per_dim))
+        # theta_dens = tuple(np.repeat(the, n_per_dim ** 2) for the in theta[0])
+        theta_dens: Tuple[np.ndarray, ...] = tuple(np.repeat(the, n_per_dim ** 2) for the in theta)
+        density: np.ndarray = self.density(
+            uu.repeat(n_per_dim), np.tile(vv, n_per_dim), *theta_dens
+        ).reshape(n_per_dim, n_per_dim)
+        if fig is None or ax is None:
+            fig, ax = plt.subplots(subplot_kw=dict(aspect="equal"))
+        if not isinstance(self, Independence):
+            # get rid of large values for visualizations sake
+            density[density > 1e10] = 1e10
+            ax.set_title(f"Density {self.name}")
+        opacity: float = opacity
+        ax.scatter(uu, vv, marker="o", facecolors=(0, 0, 0, 0), edgecolors=(0, 0, 0, opacity))
+        return fig, ax
+
+    def fit(self, ranks_u: np.ndarray, ranks_v: np.ndarray, x0: Optional[float] = None, *args: Any, **kwds: Any) -> np.ndarray:
+        if x0 is None:
+            mask: np.ndarray = np.isfinite(ranks_u) & np.isfinite(ranks_v)
+            x0: float = spstats.pearsonr(ranks_u[mask], ranks_v[mask])[0]
+        return self.fit_ml(ranks_u, ranks_v, x0=x0, *args, **kwds)
+
+
+gaussian: Gaussian = Gaussian()
+
+
+class Plackett(Copulae):
+    par_names: Tuple[str, ...] = ("uu", "vv", "theta")
+    theta_start: Tuple[float, ...] = (2.0,)
+    theta_bounds: List[Tuple[float, float]] = [(1e-5, 20)]
+    uu, vv, theta: sympy.symbols = sympy.symbols(par_names)
+    cop_expr: sympy.Expr = (
+        1
+        / (2 * theta)
+        * (
+            1
+            + theta * (uu + vv)
+            - sympy.sqrt(
+                (1 + theta * (uu + vv)) ** 2 - 4 * theta * uu * vv
+            )
+        )
+    )
+    cop_expr: sympy.Expr = cop_expr.subs(theta, theta - 1)
+    cdf_given_uu_expr: sympy.Expr = 0.5 - 0.5 * (
+        (theta * uu + 1 - (theta + 2) * vv)
+        / sympy.sqrt((1 + theta * (uu + vv)) ** 2 - 4 * theta * uu * vv)
+    )
+    cdf_given_uu_expr: sympy.Expr = cdf_given_uu_expr.subs(theta, theta - 1)
+    known_fail: Tuple[str, ...] = ("inv_cdf_given_u", "inv_cdf_given_v")
+
+
+plackett: Plackett = Plackett()
+
+
+# class Galambos(Copulae, NoRotations):
+#     """p. 174"""
+#     par_names = "uu", "vv", "delta"
+#     theta_start = 1.8,
+#     theta_bounds = [(.011, 22)]
+#     bad_attrs = ("h_v",
+#                  "h_prime_v",
+#                  "h1_v",
+#                  "h1_prime_v",
+#                  "h_u",
+#                  "h_prime_u",
+#                  "h1_u",
+#                  "h1_prime_u")
+#     uu, vv, delta = sympy.symbols(par_names)
+#     cop_expr = uu * vv * exp(((-ln(uu)) ** -delta +
+#                               (-ln(vv)) ** -delta) ** (-1 / delta))
+#     x, y = sympy.symbols("x y")
+#     dens_expr = ((cop_expr / (uu * vv)) *
+#                  (1 -
+#                   (x ** -delta + y ** -delta) ** (-1 - 1 / delta) *
+#                   (x ** (-delta - 1) + y ** (-delta - 1)) +
+#                   (x ** -delta + y ** -delta) ** (-2 - 1 / delta) *
+#                   (x * y) ** (-delta - 1) *
+#                  (1 + delta + (x ** -delta + y ** -delta) ** (-1 / delta))))
+#     dens_expr = dens_expr.subs(dict(x=-ln(uu), y=-ln(vv)))
+
+#     def __init__(self):
+#         xx, yy, p, delta = sympy.symbols("xx yy p delta")
+#         h_expr = (ln(p) + yy -
+#                   (xx ** -delta + yy ** -delta) ** (-1 / delta) -
+#                   ln(1 - xx ** (-delta - 1) *
+#                      (xx ** -delta + yy ** -delta) ** (-1 / delta - 1)))
+#         h_prime_expr = (1 - yy ** (-delta - 1) *
+#                         (xx ** -delta + yy ** -delta) ** (-1 / delta - 1) -
+#                         (((1 + delta) *
+#                           xx ** (-delta - 1) *
+#                           yy ** (-delta - 1) *
+#                           (xx ** -delta + yy ** -delta) ** (-1 / delta - 2)) /
+#                          (1 - xx ** (-delta - 1) *
+#                           (xx ** -delta + yy ** -delta) ** (-1 / delta - 1))))
+#         r = sympy.symbols("r")
+#         h1_expr = (ln(p) +
+#                    xx * r ** (1 / delta) -
+#                    xx * (1 + r ** -1) ** (-1 / delta) -
+#                    ln(1 - (1 + r ** -1) ** (-1 / delta - 1)))
+#         h1_prime_expr = (delta ** -1 * xx * r ** (1 / delta - 1) -
+#                          delta ** -1 * xx *
+#                          (1 + r ** -1) ** (-1 / delta - 1) * r ** -2 +
+#                          ((1 + delta ** -1) *
+#                           (1 + r ** -1) ** (-1 / delta - 2) * r ** -2) /
+#                          (1 - (1 + r ** -1) ** (-1 / delta - 1)))
+#         h_args = [yy, xx, p, delta]
+#         h1_args = [r, xx, p, delta]
+#         h = ufuncify(self.__class__, "h", h_args, h_expr,
+#                      backend=self.backend)
+#         h_prime = ufuncify(self.__class__, "h_prime", h_args,
+#                            h_prime_expr, backend=self.backend)
+#         h1 = ufuncify(self.__class__, "h1", h1_args, h1_expr,
+#                       backend=self.backend)
+#         h1_prime = ufuncify(self.__class__, "h1_prime", h1_args,
+#                             h1_prime_expr, backend=self.backend)
+
+#         (self.h_u,
+#          self.h_prime_u,
+#          self.h1_u,
+#          self.h1_prime_u) = map(gen_arr_fun, (h, h_prime, h1, h1_prime))
+
+#         h_expr = swap_symbols(h_expr, xx, yy)
+#         h_prime_expr = swap_symbols(h_prime_expr, xx, yy)
+#         h1_expr = swap_symbols(h1_expr, xx, yy)
+#         h1_prime_expr = swap_symbols(h1_prime_expr, xx, yy)
+#         h_args = [xx, yy, p, delta]
+#         h1_args = [r, yy, p, delta]
+#         h = ufuncify(self.__class__, "h", h_args, h_expr,
+#                      backend=self.backend)
+#         h_prime = ufuncify(self.__class__, "h_prime", h_args,
+#                            h_prime_expr, backend=self.backend)
+#         h1 = ufuncify(self.__class__, "h1", h1_args, h1_expr,
+#                       backend=self.backend)
+#         h1_prime = ufuncify(self.__class__, "h1_prime", h1_args,
+#                             h1_prime_expr, backend=self.backend)
+#         (self.h_v,
+#          self.h_prime_v,
+#          self.h1_v,
+#          self.h1_prime_v) = map(gen_arr_fun, (h, h_prime, h1, h1_prime))
+
+#     def _inverse_conditional(self, ranks, quantiles, theta,
+#                              given_v=False):
+#         theta = np.array(self.theta if theta is None else theta)
+#         ranks1, quantiles, thetas = np.atleast_1d(ranks, quantiles,
+#                                                   theta)
+#         quantiles, thetas = map(np.squeeze, (quantiles, thetas))
+#         if thetas.size == 1:
+#             thetas = np.full_like(ranks1, theta)
+#         if quantiles.size == 1:
+#             quantiles = np.full_like(ranks1, quantiles)
+#         ranks2 = np.empty_like(ranks1)
+
+#         if given_v:
+#             h, h_prime, h1, h1_prime = (self.h_v, self.h_prime_v,
+#                                         self.h1_v, self.h1_prime_v)
+#         else:
+#             h, h_prime, h1, h1_prime = (self.h_u, self.h_prime_u,
+#                                         self.h1_u, self.h1_prime_u)
+
+#         tol = zero
+
+#         def f(rank2, rank1, quantile, theta):
+#             if given_v:
+#                 rank_u, rank_v = rank2, rank1
+#                 conditional_func = getattr(self, "cdf_given_v")
+#             else:
+#                 rank_u, rank_v = rank1, rank2
+#                 conditional_func = getattr(self, "cdf_given_u")
+#             quantile_calc = conditional_func(np.array([rank_u]),
+#                                              np.array([rank_v]),
+#                                              np.array([theta]))
+#             if np.isnan(quantile_calc):
+#                 if rank2 < tol:
+#                     quantile_calc = zero
+#                 elif rank2 > (1 - tol):
+#                     quantile_calc = one
+#             return np.squeeze(quantile_calc - quantile)
+
+#         for i, rank1 in enumerate(ranks1):
+#             x = -np.log(rank1)
+#             try:
+#                 y_root = newton(h,
+#                                 x0=x,
+#                                 fprime=h_prime,
+#                                 args=(np.array([x]),
+#                                       np.array([quantiles[i]]),
+#                                       np.array([thetas[i]])))
+#                 ranks2[i] = np.exp(-float(y_root))
+#             except RuntimeError as exc:
+#                 # warnings.warn("Newton did not converge.")
+#                 try:
+#                     r_root = newton(h1,
+#                                     x0=.5,
+#                                     fprime=h1_prime,
+#                                     args=(np.array([x]),
+#                                           np.array([quantiles[i]]),
+#                                           np.array([thetas[i]])))
+#                 except RuntimeError:
+#                     ranks2[i] = brentq(f, zero, one,
+#                                        args=(ranks1[i],
+#                                              quantiles[i],
+#                                              thetas[i])
+#                                        )
+#                 else:
+#                     ranks2[i] = x * float(r_root) ** (1 / thetas[i])
+#         return ranks2
+
+#     def inv_cdf_given_u(self, ranks_u, quantiles, theta):
+#         return self._inverse_conditional(ranks_u, quantiles, theta)
+
+#     def inv_cdf_given_v(self, ranks_v, quantiles, theta):
+#         return self._inverse_conditional(ranks_v, quantiles, theta,
+#                                          given_v=True)
+# galambos = Galambos()
+
+
+# class BB1(BB, No90, No270):
+#     theta_start = 1., 2.
+#     theta_bounds = ((1e-12, theta_large),
+#                     (1, theta_large))
+#     # s, theta, delta = sympy.symbols("t theta delta")
+#     # gen_expr = (1 + s ** (1 / delta)) ** (-1 / theta)
+#     uu, vv, theta, delta = sympy.symbols("uu vv theta delta")
+#     cop_expr = (1 + ((uu ** -theta - 1) ** delta +
+#                      (vv ** -theta - 1) ** delta) ** (1 / delta)
+#                 ) ** (-1 / theta)
+#     x, y = sympy.symbols("x y")
+#     cdf_given_uu_expr = ((1 + (x + y) ** (1 / delta)) ** (-1 / theta - 1) *
+#                          (x + y) ** (1 / delta - 1) *
+#                          x ** (1 - 1 / delta) *
+#                          uu ** (-theta - 1))
+#     cdf_given_uu_expr = cdf_given_uu_expr.subs(
+#         dict(x=(uu ** -theta - 1) ** delta,
+#              y=(vv ** -theta - 1) ** delta))
+# bb1 = BB1()
+
+
+# class BB2(BB, No270):
+#     theta_start = 2., 2.
+#     theta_bounds = ((1e-5, theta_large),
+#                     (1e-5, theta_large))
+#     # t, theta, delta = sympy.symbols("t theta delta")
+#     # gen_expr = (1 + delta ** -1 * ln(1 + t)) ** (-1 / theta)
+#     uu, vv, theta, delta = sympy.symbols("uu vv theta delta")
+#     cop_expr = (1 + delta ** -1 *
+#                 ln(exp(delta * (uu ** -theta - 1)) +
+#                    exp(delta * (vv ** -theta - 1))
+#                    - 1)) ** (-1 / theta)
+#     x, y = sympy.symbols("x y")
+#     cdf_given_uu_expr = ((1 + delta ** -1 *
+#                           ln(x + y + 1)) ** (-1 / theta - 1) *
+#                          (x + y + 1) ** -1 *
+#                          (x + 1) * uu ** (-theta - 1))
+#     cdf_given_uu_expr = cdf_given_uu_expr.subs(
+#         dict(x=exp(delta * (uu ** -theta - 1)) - 1,
+#              y=exp(delta * (vv ** -theta - 1)) - 1))
+# bb2 = BB2()
+
+
+# class BB3(BB, No90, No270):
+#     theta_start = 1.5, .5
+#     theta_bounds = ((1, theta_large),
+#                     (1e-12, theta_large))
+#     uu, vv, theta, delta = sympy.symbols("uu vv theta delta")
+#     cop_expr = exp(-(delta ** -1 *
+#                      ln(exp(delta * uu ** theta) +
+#                         exp(delta * vv ** theta) - 1)) ** (1 / theta))
+#     cop_expr = cop_expr.subs(dict(uu=-ln(uu), vv=-ln(vv)))
+#     # t, theta, delta = sympy.symbols("t theta delta")
+#     # gen_expr = exp(-(delta ** -1 * ln(1 + t) ** (1 / theta)))
+# bb3 = BB3()
+
+
+# class BB4(BB, No90, No270):
+#     theta_start = 1., 1.
+#     theta_bounds = ((1e-12, theta_large),
+#                     (1e-12, theta_large))
+#     uu, vv, theta, delta = sympy.symbols("uu vv theta delta")
+#     cop_expr = (uu ** -theta + vv ** -theta - 1 -
+#                 ((uu ** -theta - 1) ** -delta +
+#                  (vv ** -theta - 1) ** -delta) ** (-1 / delta)
+#                 ) ** (-1 / theta)
+# bb4 = BB4()
+
+
+# class BB5(BB, No90, No270):
+#     theta_start = 1., .1
+#     theta_bounds = [(1, theta_large),
+#                     (1e-12, theta_large)]
+#     uu, vv, x, y, theta, delta = sympy.symbols("uu vv x y theta delta")
+#     cop_expr = exp(-(x ** theta + y ** theta -
+#                      (x ** (-theta * delta) +
+#                       y ** (-theta * delta)) ** (-1 / delta)
+#                      ) ** (1 / theta))
+#     cop_expr = cop_expr.subs(dict(x=-ln(uu), y=-ln(vv)))
+# bb5 = BB5()
+
+
+# class BB6(BB):
+#     theta_start = 5., 2.
+#     theta_bounds = [(1., theta_large),
+#                     (1., theta_large)]
+#     # uu, vv, theta, delta = sympy.symbols("uu vv theta delta")
+#     # cop_expr = (1 - (1 - exp(-((-ln(1 - uu ** theta)) ** delta +
+#     #                            (-ln(1 - vv ** theta)) ** delta
+#     #                            ) ** delta
+#     #                          ) ** (1 / delta)
+#     #                  ) ** (1 / theta))
+#     # cop_expr = cop_expr.subs(dict(uu=(1 - uu), vv=(1 - vv)))
+#     t, theta, delta = sympy.symbols("t theta delta")
+#     gen_expr = 1 - (1 - exp(-t ** (1 / delta))) ** (1 / theta)
+# bb6 = BB6()
+
+
+class Independence(Copulae, NoRotations):
+    backend: str = "cython"
+    # backend = "numpy"
+    # having the theta here prevents trouble down the road...
+    par_names: Tuple[str, ...] = ("uu", "vv", "theta")
+    theta_start: Tuple[float, ...] = (0.0,)
+    uu, vv, _ = sympy.symbols(par_names)
+    cop_expr: sympy.Expr = uu * vv
+    known_fail: Tuple[str, ...] = ("inv_cdf_given_u", "inv_cdf_given_v")
+
+    def fit(self, uu: np.ndarray, vv: np.ndarray, *args: Any, **kwds: Any) -> np.ndarray:
+        return 0.0
+
+    def sample(self, size: int, *args: Any, **kwds: Any) -> Tuple[np.ndarray, np.ndarray]:
+        return random_sample(size), random_sample(size)
+
+    def density(self, uu: np.ndarray, vv: np.ndarray, *args: Any) -> np.ndarray:
+        return np.ones_like(uu)
+
+    def cdf_given_u(self, uu: np.ndarray, vv: np.ndarray, *args: Any) -> np.ndarray:
+        return uu
+
+    def cdf_given_v(self, uu: np.ndarray, vv: np.ndarray, *args: Any) -> np.ndarray:
+        return vv
+
+    def inv_cdf_given_u(self, uu: np.ndarray, qq: np.ndarray, *args: Any) -> np.ndarray:
+        return qq
+
+    def inv_cdf_given_v(self, vv: np.ndarray, qq: np.ndarray, *args: Any) -> np.ndarray:
+        return qq
+
+    def generate_fitted(self, ranks_u: np.ndarray, ranks_v: np.ndarray, *args: Any, **kwds: Any) -> 'Fitted':
+        """Returns a Fitted instance that contains ranks_u, ranks_v and the
+        fitted theta.
+        """
+        return Fitted(self, ranks_u, ranks_v, 0.0)
+
+
+independence: Independence = Independence()
+
+
+all_cops: OrderedDict[str, Copulae] = OrderedDict(
+    (name, obj)
+    for name, obj in sorted(dict(locals()).items())
+    if isinstance(obj, Copulae)
+)
+# rotate all the cops!!
+turned_cops: OrderedDict[str, Copulae] = OrderedDict()
+for cop_name, obj in all_cops.items():
+    if isinstance(obj, NoRotations):
+        continue
+    for norot_cls in (No90, No180, No270):
+        if isinstance(obj, norot_cls):
+            continue
+        rot_str: str = norot_cls.__name__[len("No") :]
+        old_type: type = type(obj)
+        new_name: str = f"{old_type.__name__}_{rot_str}"
+        # make the rotated copulas importable
+        TurnedCop: type = type(
+            new_name, (old_type,) + old_type.__bases__, dict(old_type.__dict__)
+        )
+        turned_cops[new_name.lower()] = TurnedCop()
+        globals()[new_name] = TurnedCop
+        globals()[new_name.lower()] = turned_cops[new_name.lower()]
+all_cops.update(turned_cops)
+all_cops = OrderedDict((name, obj) for name, obj in sorted(all_cops.items()))
+
+frozen_cops: OrderedDict[str, Copulae] = OrderedDict(
+    (name, copulas(copulas.theta_start))
+    for name, copulas in sorted(all_cops.items())
+)
+
+# all_cops = {k: v for k, v in all_cops.items()
+#             if k == "gaussian"}
+# frozen_cops = {k: v for k, v in frozen_cops.items()
+#                if k == "gaussian"}
+
+
+if __name__ == "__main__":
+    import doctest
+
+    doctest.testmod()
+
+    # from weathercop import cop_conf
+    # from weathercop import plotting as cplt
+
+    # frozen_cops["galambos"].sample(1000)
+
+    # for frozen_cop in frozen_cops.values():
+    #     frozen_cop.plot_cop_dens()
+    # plt.show()
+
+    # data_filepath = os.path.join(cop_conf.weathercop_dir, "code",
+    #                              "vg_data.npz")
+    # with np.load(data_filepath) as saved:
+    #     data_summer = saved["summer"]
+    # ranks_u_tm1 = stats.rel_ranks(data_summer[5, :-1])
+    # ranks_rh = stats.rel_ranks(data_summer[4, 1:])
+
+    # for copula in all_cops.values():
+    #     # copula.plot_cop_dens()
+    #     # copula.plot_copula()
+    #     # copula.plot_density()
+    #     # plt.title(copula.name)
+    #     try:
+    #         fitted_cop = copula.generate_fitted(ranks_u_tm1, ranks_rh,
+    #                                             # method="TNC",
+    #                                             verbose=False)
+    #     except NoConvergence:
+    #         print("No convergence for %s" % copula.name)
+    #         continue
+    #     fig, axs = plt.subplots(ncols=2, subplot_kw=dict(aspect="equal"))
+    #     fig.suptitle(copula.name + " " +
+    #                  repr(fitted_cop.theta) +
+    #                  "\n likelihood: %.2f" % fitted_cop.likelihood)
+    #     opacity = .1
+    #     fitted_cop.plot_density(ax=axs[0], opacity=opacity,
+    #                             scatter=True, sample_size=10000,
+    #                             kind="contour")
+    #     cplt.hist2d(ranks_u_tm1, ranks_rh, ax=axs[1],
+    #                 # kind="contourf",
+    #                 scatter=False)
+    #     axs[1].scatter(ranks_u_tm1, ranks_rh,
+    #                    marker="o", facecolors=(0, 0, 0, 0),
+    #                    edgecolors=(0, 0, 0, opacity))
+    # plt.show()
+
+...
+#+end_src
+
+This version of the =copulae.py= file includes type hints wherever appropriate. Note that some types (like =Callable=, =Any=, etc.) are placeholders and may need further refinement based on the specific use cases within the code.
+
+*** Do you see any issues with this code?
+
+The code appears to be structured and designed with good intentions, but there are a few potential issues and areas for improvement that I've observed:
+
+1. *Type Hints*: Although the code includes type hints, many of them are placeholders or not fully specified (e.g., =Callable=, =Any=). It would be beneficial to provide more specific type hints for better type checking and clarity.
+
+2. *Imports*: There are multiple imports from various modules, but some are commented out or conditionally imported. This can make it harder to understand the dependencies and potentially lead to issues if those modules are not installed.
+
+3. *Global Variables and Constants*: There are several global variables and constants defined, which can make the code harder to maintain and understand. It might be better to encapsulate these in a separate configuration or settings module.
+
+4. *Error Handling*: The code includes error handling using =try-except= blocks, but some exceptions are caught and ignored (e.g., =EOFError=, =KeyError=). It would be better to handle these exceptions more gracefully and provide meaningful error messages.
+
+5. *String Formatting*: The code uses string formatting in various places, but it could be replaced with f-strings for better readability and performance.
+
+6. *Code Duplication*: There is some code duplication, especially in the =MetaCop= and =MetaArch= classes, where similar functionality is defined multiple times. This can make the code harder to maintain and update.
+
+7. *Docstrings*: The docstrings are well-written, but it might be useful to include more examples and usage information, especially for functions and classes.
+
+8. *File Paths*: The code uses file paths in various places, but it might be better to encapsulate these in a configuration or settings module to make it easier to change them.
+
+Overall, the code is well-structured and follows good coding practices, but there are some areas where it could be improved for better maintainability, readability, and performance.
+
+*** Please go more into detail and propose concrete changes on code duplication.
+
+Certainly! Addressing code duplication is crucial for maintaining a clean, efficient, and manageable codebase. I'll identify specific areas of duplication in your =copulae.py= file and propose concrete changes to refactor and eliminate the duplication.
+
+*** *1. Duplication in Conditional CDF Generation*
+
+*Issue:* The =conditional_cdf= and =conditional_cdf_prime= methods in the =MetaCop= metaclass generate the conditional CDF and its derivative. The logic for both methods is nearly identical, differing only in the derivative calculation.
+
+*Solution:*
+- *Refactor into a Generic Method:* Create a generic method that takes a flag to determine whether to compute the CDF or its derivative.
+- *Use Decorators or Helper Functions:* Use decorators or helper functions to handle the differentiation logic.
+
+#+begin_src python
+class MetaCop(ABCMeta):
+    # ... other methods ...
+
+    def conditional_cdf(cls, conditioning: str) -> Callable:
+        return cls._generate_conditional_function(
+            conditioning, derivative=False
+        )
+
+    def cdf_given_u(cls) -> Callable:
+        return cls.conditional_cdf(sympy.symbols("uu"))
+
+    def cdf_given_v(cls) -> Callable:
+        return cls.conditional_cdf(sympy.symbols("vv"))
+
+    def conditional_cdf_prime(cls, conditioning: str, conditioned: str) -> Callable:
+        return cls._generate_conditional_function(
+            conditioning, derivative=True, conditioned=conditioned
+        )
+
+    def cdf_given_u_prime(cls) -> Callable:
+        return cls.conditional_cdf_prime(*sympy.symbols("vv uu"))
+
+    def cdf_given_v_prime(cls) -> Callable:
+        return cls.conditional_cdf_prime(*sympy.symbols("uu vv"))
+
+    def _generate_conditional_function(
+        cls,
+        conditioning: str,
+        derivative: bool = False,
+        conditioned: Optional[str] = None,
+    ) -> Callable:
+        uu, vv, *theta = sympy.symbols(cls.par_names)
+        expr_attr: str = (
+            rf"cdf_given_{conditioning}_expr"
+            if not derivative
+            else rf"cdf_given_{conditioning}_prime_expr"
+        )
+        with tools.shelve_open(conf.sympy_cache) as sh:
+            cls_hash: str = tools.hash_cop(cls)
+            key: str = (
+                f"{cls.name}_cdf_given_{conditioning}_{cls_hash}"
+                if not derivative
+                else f"{cls.name}_cdf_given_{conditioning}_prime_{cls_hash}"
+            )
+            if key not in sh or cls.name in rederive:
+                print(f"Generating {conditioning}-conditional {cls.name}")
+                good_cop: sympy.Expr = cls.cop_expr
+                if derivative:
+                    if conditioned is None:
+                        raise ValueError("Conditioned variable must be specified for derivative.")
+                    conditional_cdf_prime: sympy.Expr = sympy.diff(good_cop, conditioning, conditioned)
+                    conditional_cdf_expr: sympy.Expr = sympy.simplify(conditional_cdf_prime)
+                else:
+                    conditional_cdf: sympy.Expr = sympy.diff(good_cop, conditioning)
+                    conditional_cdf_expr: sympy.Expr = sympy.simplify(conditional_cdf)
+                # conditional_cdf_expr = optimize(conditional_cdf_expr, optims_c99)
+                sh[key] = conditional_cdf_expr
+            conditional_cdf_expr: sympy.Expr = sh[key]
+            setattr(cls, expr_attr, conditional_cdf_expr)
+        ufunc: Any = ufuncify(
+            cls,
+            f"conditional_cdf{'_prime' if derivative else ''}",
+            tuple([uu, vv] + theta),
+            conditional_cdf_expr,
+            helpers=cls.helpers,
+            backend=cls.backend,
+            verbose=cls.verbose,
+        )
+        return ufunc
+#+end_src
+
+*** *2. Duplication in Inverse Conditional CDF Generation*
+
+*Issue:* The =inv_cdf_given_u= and =inv_cdf_given_v= methods generate the inverse conditional CDFs. The logic is similar but operates on different conditioning variables.
+
+*Solution:*
+- *Refactor into a Generic Method:* Create a generic method that handles both =inv_cdf_given_u= and =inv_cdf_given_v=.
+
+#+begin_src python
+class MetaCop(ABCMeta):
+    # ... other methods ...
+
+    def inv_cdf_given_u(cls) -> Callable:
+        return cls.inverse_conditional_cdf(sympy.symbols("uu"))
+
+    def inv_cdf_given_v(cls) -> Callable:
+        # if not hasattr(cls, "inv_cdf_given_vv_expr"):
+        #     # if we are given an expression for the u-conditional, we can
+        #     # substitute v for u to get the corresponding v-conditional
+        #     try:
+        #         inv_cdf = getattr(cls, "inv_cdf_given_uu_expr")
+        #         uu, vv = sympy.symbols("uu vv")
+        #         inv_cdf = inv_cdf.subs({uu: vv})
+        #         setattr(cls, "inv_cdf_given_vv_expr", inv_cdf)
+        #     except AttributeError:
+        #         pass
+        return cls.inverse_conditional_cdf(sympy.symbols("vv"))
+
+    def inverse_conditional_cdf(cls, conditioning: str) -> Callable:
+        uu, vv, qq, theta = sympy.symbols("uu vv qq theta")
+        conditioned: str = list(set((uu, vv)) - set([conditioning]))[0]
+        cls_hash: str = tools.hash_cop(cls)
+        key: str = f"{cls.name}_inv_cdf_given_{conditioning}_{cls_hash}"
+        # keep a log of what does not work in order to not repeat ad
+        # nauseum
+        try:
+            if has_failed(key):
+                return
+        except FileNotFoundError:
+            open(faillog_file, "a").close()
+        attr_name: str = f"inv_cdf_given_{conditioning}_expr"
+        if not hasattr(cls, attr_name) or cls.rotated:
+            # cached sympy derivation
+            with tools.shelve_open(conf.sympy_cache) as sh:
+                if key not in sh or cls.name in rederive:
+                    print(
+                        f"Generating inverse {conditioning}-conditional {cls.name}"
+                    )
+                    cdf_given_expr: sympy.Expr = getattr(
+                        cls, f"cdf_given_{conditioning}_expr"
+                    )
+                    try:
+                        inv_cdf: sympy.Expr = sympy.solve(
+                            cdf_given_expr - qq, conditioned
+                        )[0]
+                    except (
+                        NotImplementedError,
+                        ValueError,
+                        TypeError,
+                        IndexError,
+                    ):
+                        warnings.warn(
+                            "Derivation of inv.-conditional "
+                            + "failed for"
+                            + f" {cls.name}"
+                        )
+                        mark_failed(key)
+                        return
+                    # inv_cdf = optimize(inv_cdf, optims_c99)
+                    sh[key] = inv_cdf
+                inv_cdf: sympy.Expr = sh[key]
+                setattr(cls, attr_name, inv_cdf)
+        inv_cdf: sympy.Expr = getattr(cls, attr_name)
+        # compile sympy expression
+        try:
+            ufunc: Any = ufuncify(
+                cls,
+                f"inv_cdf_given_{conditioning}",
+                [conditioning, qq, theta],
+                inv_cdf,
+                helpers=cls.helpers,
+                backend=cls.backend,
+                verbose=cls.verbose,
+            )
+        except (autowrap.CodeWrapError, TypeError):
+            warnings.warn(f"Could not compile inv.-conditional for {cls.name}")
+            mark_failed(key)
+            return
+        return ufunc
+#+end_src
+
+*** *3. Duplication in Rotated Expressions*
+
+*Issue:* The =rotate_expr= method in the =MetaCop= metaclass handles rotation for copula expressions. There are similar methods like =_inverse_conditional= that perform similar logic.
+
+*Solution:*
+- *Refactor Common Logic into Helper Functions:* Extract common logic into helper functions that can be reused in different methods.
+
+#+begin_src python
+def rotate_expression(expr: sympy.Expr, degrees: Optional[int] = None) -> sympy.Expr:
+    """Rotate copula expression.
+
+    Notes
+    -----
+    see p. 271
+    """
+    if degrees is None:
+        degrees: int = int(expr.name.rsplit("_")[1])
+        expr: sympy.Expr = expr.cop_expr
+    uu, vv = sympy.symbols("uu vv")
+    if degrees == 90:
+        expr: sympy.Expr = uu - expr.subs({vv: 1 - vv})
+    elif degrees == 180:
+        expr: sympy.Expr = uu + vv - 1 + expr.subs({uu: 1 - uu, vv: 1 - vv})
+    elif degrees == 270:
+        expr: sympy.Expr = vv - expr.subs({uu: 1 - uu})
+    else:
+        raise ValueError("degrees must be one of (None, 90, 180, 270)")
+    return expr
+
+
+class MetaCop(ABCMeta):
+    backend: str = "cython"
+    verbose: bool = True
+
+    def __new__(cls, name: str, bases: tuple, cls_dict: dict) -> type:
+        new_cls: type = super().__new__(cls, name, bases, cls_dict)
+        new_cls.name: str = name.lower()
+        new_cls.name_camel: str = name
+        MetaCop.check_defaults(cls_dict)
+        with suppress(TypeError):
+            new_cls.n_par: int = len(new_cls.par_names) - 2
+        if "backend" not in cls_dict:
+            new_cls.backend = MetaCop.backend
+        if "cop_expr" in cls_dict:
+            new_cls = MetaCop.symmetries(new_cls)
+            # auto-rotate the copula expression
+            if name.endswith(("90", "180", "270")):
+                new_cls.cop_expr = rotate_expression(new_cls.cop_expr)
+                new_cls.rotated: bool = True
+            else:
+                new_cls.rotated = False
+
+            if "known_fail" in cls_dict:
+                MetaCop.mark_failed(new_cls)
+                known_fail: tuple = cls_dict["known_fail"]
+            else:
+                known_fail: tuple = (None,)
+            new_cls.dens_func: Callable = MetaCop.density_from_cop(new_cls)
+            new_cls.cdf_given_u: Callable = staticmethod(MetaCop.cdf_given_u(new_cls))
+            new_cls.cdf_given_v: Callable = staticmethod(MetaCop.cdf_given_v(new_cls))
+            new_cls.cdf_given_u_prime: Callable = staticmethod(
+                MetaCop.cdf_given_u_prime(new_cls)
+            )
+            new_cls.cdf_given_v_prime: Callable = staticmethod(
+                MetaCop.cdf_given_v_prime(new_cls)
+            )
+            new_cls.copula_func: Callable = staticmethod(MetaCop.copula_func(new_cls))
+            if "inv_cdf_given_u" not in known_fail:
+                ufunc: Any = MetaCop.inv_cdf_given_u(new_cls)
+                if ufunc is not None:
+                    new_cls.inv_cdf_given_u: Callable = staticmethod(ufunc)
+            if "inv_cdf_given_v" not in known_fail:
+                ufunc: Any = MetaCop.inv_cdf_given_v(new_cls)
+                if ufunc is not None:
+                    new_cls.inv_cdf_given_v: Callable = staticmethod(ufunc)
+        elif "dens_expr" in cls_dict and "dens_func" not in cls_dict:
+            new_cls.dens_func: Callable = staticmethod(MetaCop.density_func(new_cls))
+        return new_cls
+
+    # ... other methods ...
+#+end_src
+
+*** *4. Duplication in Copula Density Generation*
+
+*Issue:* The =density_from_cop= method in =MetaCop= generates the copula density. The logic is similar to other methods like =conditional_cdf=.
+
+*Solution:*
+- *Refactor into a Generic Method:* Create a method that handles the generation of different types of expressions (CDF, PDF, etc.) and abstracts the common logic.
+
+#+begin_src python
+class MetaCop(ABCMeta):
+    # ... other methods ...
+
+    def density_from_cop(cls: type) -> Callable:
+        """Copula density obtained by sympy differentiation compiled with
+        configured backend.
+
+        """
+        return cls._generate_copula_expression(
+            sympy.diff(cls.cop_expr, cls.par_names[0], cls.par_names[1]),
+            f"{cls.name}_density",
+        )
+
+    def cdf_given_u(cls: type) -> Callable:
+        return cls.conditional_cdf(sympy.symbols("uu"))
+
+    def cdf_given_v(cls: type) -> Callable:
+        return cls.conditional_cdf(sympy.symbols("vv"))
+
+    def cdf_given_u_prime(cls: type) -> Callable:
+        return cls.conditional_cdf_prime(*sympy.symbols("vv uu"))
+
+    def cdf_given_v_prime(cls: type) -> Callable:
+        return cls.conditional_cdf_prime(*sympy.symbols("uu vv"))
+
+    def _generate_copula_expression(
+        cls,
+        sympy_expr: sympy.Expr,
+        cache_key_prefix: str,
+    ) -> Callable:
+        uu, vv, *theta = sympy.symbols(cls.par_names)
+        with tools.shelve_open(conf.sympy_cache) as sh:
+            cls_hash: str = tools.hash_cop(cls)
+            key: str = f"{cache_key_prefix}_{cls_hash}"
+            if key not in sh or cls.name in rederive:
+                print(f"Generating {cache_key_prefix} for {cls.name}")
+                sympy_expr: sympy.Expr = sympy.simplify(sympy_expr)
+                # sympy_expr = optimize(sympy_expr, optims_c99)
+                sh[key] = sympy_expr
+            sympy_expr: sympy.Expr = sh[key]
+        ufunc: Any = ufuncify(
+            cls,
+            cache_key_prefix,
+            tuple([uu, vv] + theta),
+            sympy_expr,
+            helpers=cls.helpers,
+            backend=cls.backend,
+            verbose=cls.verbose,
+        )
+        return raveled_func(ufunc)
+#+end_src
+
+*** *5. Duplication in Sample Generation*
+
+*Issue:* The =sample= method in the =Copulae= class generates samples from the copula. The logic is relatively simple but might be extended or modified in the future.
+
+*Solution:*
+- *Refactor for Flexibility:* While the current implementation is simple and doesn't require refactoring, ensure that any future modifications to sampling logic can be easily integrated.
+
+#+begin_src python
+class Copulae(metaclass=MetaCop):
+    # ... other methods ...
+
+    def sample(self, size: int, *theta: float) -> Tuple[np.ndarray, np.ndarray]:
+        uu: np.ndarray = random_sample(size)
+        xx: np.ndarray = random_sample(size)
+        theta = tuple(np.full_like(uu, the) for the in theta)
+        vv: np.ndarray = self.inv_cdf_given_u(uu, xx, *theta)
+        return uu, vv
+#+end_src
+
+*** *6. Duplication in Rotated Copula Classes*
+
+*Issue:* The script dynamically generates rotated copula classes by inheriting from existing copula classes. This involves duplicating class definitions and names.
+
+*Solution:*
+- *Use Class Factories:* Instead of manually creating and naming each rotated copula class, use a factory function to dynamically generate them. This reduces redundancy and makes it easier to add or modify rotations in the future.
+
+#+begin_src python
+def create_rotated_copula(base_copula: Type[Copulae], degrees: int) -> Type[Copulae]:
+    rot_str: str = f"_{degrees}0"
+    new_name: str = f"{base_copula.__name__}{rot_str}"
+    # Create a new class that inherits from the base copula
+    TurnedCop: type = type(
+        new_name, (base_copula,), {}
+    )
+    TurnedCop.__name__ = new_name
+    TurnedCop.cop_expr = rotate_expression(base_copula.cop_expr, degrees)
+    TurnedCop.rotated: bool = True
+    return TurnedCop
+
+# Dynamically create rotated copulas
+for cop_name, copula in all_cops.copy().items():
+    if isinstance(copula, NoRotations):
+        continue
+    for degrees in (90, 180, 270):
+        if any(isinstance(copula, cls) for cls in (No90, No180, No270)):
+            continue
+        new_copula = create_rotated_copula(copula, degrees)
+        turned_cops[new_copula.name.lower()] = new_copula
+        globals()[new_copula.name.lower()] = new_copula
+
+all_cops.update(turned_cops)
+all_cops = OrderedDict((name, obj) for name, obj in sorted(all_cops.items()))
+#+end_src
+
+*** *7. Duplication in Initialization of Frozen Copulas*
+
+*Issue:* The =frozen_cops= dictionary is populated by creating instances of each copula class with the default =theta_start= values.
+
+*Solution:*
+- *Use a Function to Create Frozen Copulas:* This makes it easier to add or modify copulas in the future and reduces duplication.
+
+#+begin_src python
+def create_frozen_copula(copula: Type[Copulae]) -> Copulae:
+    return copula(copula.theta_start)
+
+# Create frozen copulas using the factory function
+frozen_cops: OrderedDict[str, Copulae] = OrderedDict(
+    (name, create_frozen_copula(copula))
+    for name, copula in sorted(all_cops.items())
+)
+#+end_src
+
+*** *Summary of Changes*
+
+1. *Refactored Conditional CDF and Derivative Generation:*
+   - Combined the logic into a generic method =_generate_conditional_function=.
+
+2. *Refactored Inverse Conditional CDF Generation:*
+   - Combined the logic into a generic method =inverse_conditional_cdf=.
+
+3. *Refactored Rotation of Expressions:*
+   - Created a helper function =rotate_expression= to handle rotation logic.
+
+4. *Refactored Copula Density Generation:*
+   - Abstracted the common logic into =_generate_copula_expression=.
+
+5. *Dynamically Created Rotated Copula Classes:*
+   - Used a factory function =create_rotated_copula= to reduce redundancy in class definitions.
+
+6. *Used Functions to Create Frozen Copulas:*
+   - Created a =create_frozen_copula= function to simplify the initialization of frozen copulas.
+
+By implementing these changes, the code becomes more modular, easier to maintain, and reduces duplication. This approach enhances readability, scalability, and future-proofing of the codebase.
+
+*** 
+
