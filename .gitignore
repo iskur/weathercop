@@ -201,3 +201,4 @@ tmp/
 # Auto-generated Cython code (regenerated on install)
 src/weathercop/ufuncs/*.pyx
 src/weathercop/ufuncs/*.she
+/docs/*.aux
