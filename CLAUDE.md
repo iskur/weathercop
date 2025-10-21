@@ -20,6 +20,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `black --line-length 79 src/` - Format code (note: line length is 79, not default 88)
 - `black --check --line-length 79 src/` - Check formatting without making changes
 
+### Documentation
+- `make flowchart` - Regenerate flowchart PNG from LaTeX source (creates `img/weathercop_workflow.png`)
+- `docs/regenerate_flowchart.sh` - Direct script for flowchart regeneration
+
 ## Architecture Overview
 
 ### Core Components
