@@ -6,7 +6,7 @@ import xarray as xr
 import matplotlib.pyplot as plt
 from weathercop import copulae
 import opendata_vg_conf as vg_conf
-import vg
+import varwg as vg
 
 ms.set_conf(vg_conf)
 data_root = Path().home() / "data/opendata_dwd"

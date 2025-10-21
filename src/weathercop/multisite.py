@@ -19,15 +19,14 @@ import cartopy.crs as ccrs
 import cartopy.io.img_tiles as cimgt
 import cartopy.feature as cfeature
 
-import vg
-from vg import helpers as my
-from vg.core.vg_core import seasonal_back
-from vg.time_series_analysis import (
+import varwg as vg
+from varwg.core.core import seasonal_back
+from varwg.time_series_analysis import (
     distributions as dists,
     time_series as ts,
     rain_stats,
 )
-from vg.time_series_analysis.phase_randomization import _random_phases
+from varwg.time_series_analysis.phase_randomization import _random_phases
 from weathercop import cop_conf, plotting as wplt, tools, copulae as cops
 from weathercop.vine import CVine, MultiStationVine
 
@@ -61,7 +60,7 @@ mf_kwds = dict(
 
 
 def set_conf(conf_obj, **kwds):
-    objs = (vg, vg.vg_core, vg.vg_base, vg.vg_plotting)
+    objs = (vg, vg.core, vg.base, vg.plotting)
     for obj in objs:
         obj.conf = conf_obj
         for key, value in kwds.items():
@@ -248,7 +247,7 @@ def _retransform_sim(ranks_sim, data_trans_dist):
 
 
 def _rename_by_conversions(conversions, varnames_old, sim_sea, data_trans):
-    # need some dummy data
+    # need some dumvg.helpers data
     times_ = sim_sea.time[:2]
     data = sim_sea.isel(station=0, time=slice(2))
     for conversion in conversions:
@@ -2079,7 +2078,9 @@ class Multisite:
                 assert np.all(finite_mask)
             except AssertionError:
                 qq[~finite_mask] = np.nan
-                qq = np.array([my.interp_nonfin(values) for values in qq])
+                qq = np.array(
+                    [vg.helpers.interp_nonfin(values) for values in qq]
+                )
             stacked.data = qq
             self.cop_quantiles = (
                 stacked.unstack(dim="stacked")
@@ -2834,7 +2835,7 @@ class Multisite:
             sim_upper = sim_qq.quantile(upper_q, "realization")
             ax.step(
                 obs,
-                my.rel_ranks(len(obs)),
+                vg.helpers.rel_ranks(len(obs)),
                 where="mid",
                 label="obs",
                 color="k",

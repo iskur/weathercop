@@ -7,7 +7,7 @@ from scipy import stats
 import xarray as xr
 from matplotlib import pyplot as plt
 
-import vg
+import varwg as vg
 from weathercop.multisite import Multisite, set_conf, nan_corrcoef
 import opendata_vg_conf as vg_conf
 

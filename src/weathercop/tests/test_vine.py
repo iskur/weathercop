@@ -9,11 +9,12 @@ import numpy.testing as npt
 import pandas as pd
 from scipy import stats as spstats
 
-from vg import helpers as my
-import vg
-from vg.time_series_analysis import distributions as dists
+from varwg import helpers as my
+import varwg as vg
+from varwg.time_series_analysis import distributions as dists
 from weathercop import plotting, copulae
 from weathercop.vine import CVine, RVine, vg_ph
+from weathercop.multisite import set_conf
 
 
 class Test(npt.TestCase):
@@ -378,12 +379,13 @@ class Test(npt.TestCase):
     def test_seasonal(self):
         if self.verbose:
             print("Seasonal Vine with VG data")
-            import vg
-            from vg import vg_plotting, vg_base
+            import varwg as vg
+            from varwg import plotting, base
             import config_konstanz as conf
-        vg.conf = vg_plotting.conf = vg_base.conf = conf
+
+            set_conf(conf)
         # met_vg = vg.VG(("theta", "ILWR", "rh", "R"), verbose=True)
-        met_vg = vg.VG(("theta", "ILWR", "rh"), verbose=True)
+        met_vg = vg.VarWG(("theta", "ILWR", "rh"), verbose=True)
         ranks = np.array(
             [spstats.norm.cdf(values) for values in met_vg.data_trans]
         )

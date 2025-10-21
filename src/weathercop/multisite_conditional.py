@@ -10,8 +10,8 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize_scalar, minimize
 from weathercop import multisite as ms
 from weathercop import tools, cop_conf
-import vg
-from vg.time_series_analysis import rain_stats
+import varwg as vg
+from varwg.time_series_analysis import rain_stats
 
 DEBUG = cop_conf.DEBUG
 

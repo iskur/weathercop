@@ -812,12 +812,12 @@ def vg_sim(vg_obj, sc_pars):
 
 if __name__ == "__main__":
     # import pandas as pd
-    import vg
-    from vg import vg_base, vg_plotting
+    import varwg as vg
+    from varwg import base, plotting
     import config_konstanz_disag as conf
 
-    vg.conf = vg_base.conf = vg_plotting.conf = conf
-    from vg.time_series_analysis import distributions as dists
+    vg.set_conf(conf)
+    from varwg.time_series_analysis import distributions as dists
     from weathercop import stats, copulae as cops
 
     # varnames = "theta", "ILWR"

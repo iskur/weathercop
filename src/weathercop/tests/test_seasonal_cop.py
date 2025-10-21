@@ -1,7 +1,7 @@
 import numpy.testing as npt
 import matplotlib.pyplot as plt
 
-import vg
+import varwg as vg
 from weathercop import copulae as cops, seasonal_cop as scops, stats
 
 
