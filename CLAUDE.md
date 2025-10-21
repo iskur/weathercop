@@ -44,8 +44,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Multisite Weather Generation (`src/weathercop/multisite.py`)**
 - Weather generation workflows combining vine copulas with time series analysis
-- Integration with VG library for temporal structure preservation
-- Phase randomization methods (`vg_ph`) for scenario generation
+- Integration with VARWG library for managing marginal transformations
+- Phase randomization methods (`varwg_ph`) for temporal dependence
 - Parallel processing support for large ensemble generation
 
 **Configuration (`src/weathercop/cop_conf.py`)**
@@ -55,7 +55,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Multiprocessing pool size (`n_nodes`) defaults to CPU count - 2
 
 ### Key Dependencies
-- **VG Library**: Custom dependency for time series analysis and weather generation (`vg = { git = "https://github.com/iskur/vg" }`)
+- **VARWG Library**: Time series analysis and single-site weather generation
 - **Cython**: Used for performance-critical numerical computations
 - **SymPy**: Automatic generation of copula functions and derivatives
 - **XArray/Pandas**: Data handling and analysis
@@ -80,7 +80,7 @@ The project uses a hybrid build system:
 - Cython extensions must be built before running tests or using the package
 - The `ufuncs/` directory contains auto-generated code - do not edit manually
 - Configuration is imported as `cop_conf` throughout the codebase
-- The VG library is a custom dependency installed from GitHub, not PyPI
+- VARWG is installed from PyPI as a standard dependency
 - When modifying copula implementations, regenerate Cython extensions with `python setup.py build_ext --inplace`
 
 ## Common Issues
