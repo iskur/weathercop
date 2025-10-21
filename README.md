@@ -7,6 +7,39 @@ within each station. The package combines statistical copula theory with
 time series analysis from the VarWG library to create realistic weather
 ensembles for hydrodynamic and ecological modeling.
 
+## Architecture Overview
+
+![](./img/weathercop_workflow.png)
+
+### How It Works
+
+WeatherCop operates through a carefully choreographed workflow combining
+two complementary systems:
+
+1.  **VarWG Component** (marginal distributions):
+    - Fits KDE/parametric distributions to each weather variable at each
+      site, accounting for seasonal variations (F<sub>doy</sub>)
+    - Transforms measurement data to standard-normal space via inverse
+      CDF of day-of-year distributions: Φ⁻¹(F<sub>doy</sub>(X))
+    - Handles dryness probability estimation for precipitation
+    - Applies the inverse transformation to convert simulated data back
+      to the measurement domain: X = F<sub>doy</sub>⁻¹(Φ(Y))
+2.  **WeatherCop Component** (dependence structure):
+    - Fits vine copulas to deseasonalized observations to capture
+      inter-variate dependencies (relationships between different
+      weather variables)
+    - Decorrelates observations for phase randomization
+    - Re-correlates synthetic data using the fitted copula structure
+    - Preserves both temporal autocorrelation within each station and
+      spatial cross-correlations between stations through phase
+      randomization
+
+This separation of concerns enables realistic what-if scenarios: by
+conditioning on a guiding variable (e.g., temperature), changes
+propagate to other variables through the vine copula's inter-variate
+dependence structure, while VarWG ensures each variable maintains
+realistic distributions and seasonal patterns.
+
 # Installation
 
 ## Using uv (recommended)

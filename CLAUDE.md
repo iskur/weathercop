@@ -113,3 +113,4 @@ If pytest runs slowly or appears to hang, it's because the copulae module is aut
 - Edge copulas are accessed via `vine[row, col]` indexing on the vine array
 - The `name` property on vines is used in plot titles (set via `name` parameter or direct assignment)
 - main entry point: @src/weathercop/multisite.py::Multisite
+- VARWG is a single-site, WeatherCop is multisite. WeatherCop heavily depends on VARWG - it orchestrates VARWG instances and replaces their model via call-back functions. This lets WeatherCop deal with dependencies and VARWG fits distribution to the marginals and does the variable transform before and after WeatherCop simulation.
