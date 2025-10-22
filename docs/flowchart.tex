@@ -31,7 +31,10 @@
   right angle=110, text width=6em, minimum height=2em, text
   centered, draw=black, fill=white]
 
-  \tikzstyle{line} = [draw, -latex, shorten >=2pt, shorten <=2pt]
+  \tikzstyle{line} = [draw, -latex, shorten >=2pt, shorten <=2pt, gray]
+
+  % \tikzstyle{dashed-line} = [draw, -latex, shorten >=2pt, shorten <=2pt,
+  % dashed, line width=1.5pt, gray]
 
   \begin{tikzpicture}[node distance = \nodevdistance, auto]
     % nodes
@@ -66,13 +69,16 @@
 
     % edges
     \path [line] (data) -- (trans);
-    \path [line, dashed] (marg) -- (data);
+    % \path [dashed-line] (marg) -- (data);
+    \path [line] (marg) -- (data);
     \path [line] (trans) -- (rain);
     \path [line] (rain) -- (copfit);
     \path [line] (copfit) -- (simulate);
     \path [line] (simulate) -- (retrans);
-    \path [line, dashed] (marg) -- (trans);
-    \path [line, dashed] (marg) |- (retrans);
+    % \path [dashed-line] (marg) -- (trans);
+    % \path [dashed-line] (marg) |- (retrans);
+    \path [line] (marg) -- (trans);
+    \path [line] (marg) |- (retrans);
     \path [line] (retrans) -- (synth);
 
   \end{tikzpicture}
