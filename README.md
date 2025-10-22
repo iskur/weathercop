@@ -1,5 +1,9 @@
 # What is WeatherCop?
 
+[![Python](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![Managed with uv](https://img.shields.io/badge/managed%20with-uv-blue)](https://docs.astral.sh/uv/)
+
 WeatherCop is a multisite weather generator based on vine copulas. It
 was developed to generate synthetic weather scenarios that preserve both
 spatial dependencies across weather stations and temporal structure
