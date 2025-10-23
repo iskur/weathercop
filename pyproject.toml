@@ -2,7 +2,7 @@
 line-length = 79
 
 [tool.uv.sources]
-vg = { git = "https://github.com/iskur/vg" }
+varwg = { git = "https://github.com/iskur/varwg" }
 
 [project]
 name = "weathercop"
@@ -27,7 +27,7 @@ dependencies = [
     "sympy>=1.14.0",
     "timezonefinder>=6.5.9",
     "tqdm>=4.67.1",
-    "vg",
+    "varwg",
     "xarray>=2025.6.1",
 ]
 
