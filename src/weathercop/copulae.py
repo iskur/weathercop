@@ -50,7 +50,7 @@ except ImportError:
         open("ufuncs/__init__.py", "w").close()
     from weathercop import ufuncs
 
-import vg
+import varwg
 
 # Check if we're running tests
 SKIP_CYTHON_BUILD = os.environ.get("SKIP_CYTHON_BUILD", "").lower() in (
@@ -310,7 +310,7 @@ def swap_symbols(expr, symbol1, symbol2):
 
 def random_sample(size, bound=1e-9):
     """Sample in the closed interval (bound, 1 - bound)."""
-    return (1 - 2 * bound) * vg.rng.random(size) + bound
+    return (1 - 2 * bound) * varwg.rng.random(size) + bound
 
 
 def positive(func):
