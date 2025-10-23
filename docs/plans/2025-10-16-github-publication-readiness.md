@@ -10,26 +10,29 @@
 
 ---
 
-## 🚨 CRITICAL BLOCKER: VG Library Not on PyPI
+## ✅ RESOLVED: VARWG Library Now on PyPI
 
-**STATUS:** This blocks PyPI publication of WeatherCop (GitHub publication is OK)
+**STATUS:** Previously a blocker, now resolved! ✅
 
-**Issue:** WeatherCop depends on VG library which is only available via GitHub:
-- `pyproject.toml`: `vg = { git = "https://github.com/iskur/vg" }`
-- PyPI does not allow packages with git-based dependencies
-- Users installing from PyPI would fail to resolve the VG dependency
+**Issue (Resolved):** WeatherCop previously depended on VG library only available via GitHub.
+
+**Resolution:**
+- VG library has been renamed to VARWG
+- VARWG is now published on PyPI
+- `pyproject.toml` should be updated to use `varwg` instead of git URL
+- This unblocks PyPI publication of WeatherCop
 
 **Impact:**
 - WeatherCop can be published to **GitHub** ✅
-- WeatherCop **cannot** be published to **PyPI** ❌ (until VG is on PyPI)
-- Users must install from GitHub or use `uv` which supports git dependencies
+- WeatherCop can now be published to **PyPI** ✅ (blocker removed!)
+- Users can install via standard `pip install weathercop` from PyPI
+- Users can also use `uv` which supports both PyPI and git dependencies
 
-**Resolution Path:**
-1. Publish VG to PyPI first
-2. Update WeatherCop's `pyproject.toml` to use `vg>=version` instead of git URL
-3. Then WeatherCop can be published to PyPI
-
-**For now:** Document in README that installation requires git access and uv/pip with git support.
+**Action Items:**
+1. Update `pyproject.toml` to use `varwg` from PyPI
+2. Update documentation and README to reference VARWG
+3. Update any hardcoded VG references in code to VARWG
+4. Test PyPI installation path
 
 ---
 

@@ -1,9 +1,6 @@
 [tool.black]
 line-length = 79
 
-[tool.uv.sources]
-varwg = { git = "https://github.com/iskur/varwg" }
-
 [project]
 name = "weathercop"
 version = "0.1.0"

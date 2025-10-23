@@ -1079,7 +1079,7 @@ wheels = [
 [[package]]
 name = "varwg"
 version = "1.4.0"
-source = { git = "https://github.com/iskur/varwg#039e1001261601bafa398a2813f2c70a75168d2d" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bottleneck" },
     { name = "cartopy" },
@@ -1091,6 +1091,13 @@ dependencies = [
     { name = "timezonefinder" },
     { name = "tqdm" },
     { name = "xarray" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c3/ca/133e85349ed27e7d4fc437f20c09b7eb7fa4ebfc1221c072877b9b026a36/varwg-1.4.0.tar.gz", hash = "sha256:4aaa713a022463843431c8b444be731f19e7311724210e334e09e6f1d61870d9", size = 2397830, upload-time = "2025-10-21T19:55:45.488Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a2/7d/d995fc32e48a34503a4b52752b57858ed9ff3673ff4fde890c24211e9427/varwg-1.4.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:a276050afbeafe221fa0fb9bfb0ff518b073cb2bb32335a5be5c46bce3224c5c", size = 2714995, upload-time = "2025-10-21T19:55:37.947Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/86/d7ee10ec0284353d609ffb6fbd2479c7899a6895a7b42776ffc751ce197f/varwg-1.4.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:0670f7bef179bfb4ecd323d807adc4fa18669f98d7e30b5ea31d65faf0184604", size = 2693006, upload-time = "2025-10-21T19:55:39.815Z" },
+    { url = "https://files.pythonhosted.org/packages/f3/92/7a30417ed2124788e37bd950aae3fa748a0d1a1feb1f01e165c1e8790737/varwg-1.4.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:cb13050e10ca1bdbe344f4e78768281f78cddb088de75d4eee22dd68ca497d03", size = 4271458, upload-time = "2025-10-21T19:55:41.565Z" },
+    { url = "https://files.pythonhosted.org/packages/13/7c/13ed37b02d1d545aa27b3d61c408676f3f1b735a0f500a95234c8814a15e/varwg-1.4.0-cp313-cp313-win_amd64.whl", hash = "sha256:7725ef5955b8f03363c9e040952eceeb38b186a35676dba8d30efe59e45bff93", size = 2686321, upload-time = "2025-10-21T19:55:43.607Z" },
 ]
 
 [[package]]
@@ -1172,7 +1179,7 @@ requires-dist = [
     { name = "sympy", specifier = ">=1.14.0" },
     { name = "timezonefinder", specifier = ">=6.5.9" },
     { name = "tqdm", specifier = ">=4.67.1" },
-    { name = "varwg", git = "https://github.com/iskur/varwg" },
+    { name = "varwg" },
     { name = "xarray", specifier = ">=2025.6.1" },
 ]
 

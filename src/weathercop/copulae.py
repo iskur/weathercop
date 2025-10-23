@@ -1004,9 +1004,7 @@ class Copulae(metaclass=MetaCop):
         else:
             n_per_dim = 100
         uu = vv = stats.rel_ranks(np.arange(n_per_dim))
-        theta_dens = tuple(
-            np.repeat(the, n_per_dim**2) for the in theta
-        )
+        theta_dens = tuple(np.repeat(the, n_per_dim**2) for the in theta)
         density = self.density(
             uu.repeat(n_per_dim), np.tile(vv, n_per_dim), *theta_dens
         ).reshape(n_per_dim, n_per_dim)

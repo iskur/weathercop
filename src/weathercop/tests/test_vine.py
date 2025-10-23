@@ -14,6 +14,7 @@ import varwg
 from varwg.time_series_analysis import distributions as dists
 from weathercop import plotting, copulae
 from weathercop.vine import CVine, RVine, vg_ph
+from weathercop.multisite import set_conf
 
 
 class Test(npt.TestCase):

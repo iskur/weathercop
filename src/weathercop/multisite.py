@@ -251,7 +251,7 @@ def _retransform_sim(ranks_sim, data_trans_dist):
 
 
 def _rename_by_conversions(conversions, varnames_old, sim_sea, data_trans):
-    # need some dummy data
+    # need some dumvg.helpers data
     times_ = sim_sea.time[:2]
     data = sim_sea.isel(station=0, time=slice(2))
     for conversion in conversions:
@@ -2082,7 +2082,9 @@ class Multisite:
                 assert np.all(finite_mask)
             except AssertionError:
                 qq[~finite_mask] = np.nan
-                qq = np.array([my.interp_nonfin(values) for values in qq])
+                qq = np.array(
+                    [vg.helpers.interp_nonfin(values) for values in qq]
+                )
             stacked.data = qq
             self.cop_quantiles = (
                 stacked.unstack(dim="stacked")
@@ -2837,7 +2839,7 @@ class Multisite:
             sim_upper = sim_qq.quantile(upper_q, "realization")
             ax.step(
                 obs,
-                my.rel_ranks(len(obs)),
+                vg.helpers.rel_ranks(len(obs)),
                 where="mid",
                 label="obs",
                 color="k",

@@ -20,6 +20,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `black --line-length 79 src/` - Format code (note: line length is 79, not default 88)
 - `black --check --line-length 79 src/` - Check formatting without making changes
 
+### Documentation
+- `make flowchart` - Regenerate flowchart PNG from LaTeX source (creates `img/weathercop_workflow.png`)
+- `docs/regenerate_flowchart.sh` - Direct script for flowchart regeneration
+
 ## Architecture Overview
 
 ### Core Components
@@ -44,8 +48,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Multisite Weather Generation (`src/weathercop/multisite.py`)**
 - Weather generation workflows combining vine copulas with time series analysis
-- Integration with VG library for temporal structure preservation
-- Phase randomization methods (`vg_ph`) for scenario generation
+- Integration with VARWG library for managing marginal transformations
+- Phase randomization methods (`varwg_ph`) for temporal dependence
 - Parallel processing support for large ensemble generation
 
 **Configuration (`src/weathercop/cop_conf.py`)**
@@ -80,7 +84,7 @@ The project uses a hybrid build system:
 - Cython extensions must be built before running tests or using the package
 - The `ufuncs/` directory contains auto-generated code - do not edit manually
 - Configuration is imported as `cop_conf` throughout the codebase
-- The VG library is a custom dependency installed from GitHub, not PyPI
+- VARWG is installed from PyPI as a standard dependency
 - When modifying copula implementations, regenerate Cython extensions with `python setup.py build_ext --inplace`
 
 ## Common Issues
@@ -113,3 +117,4 @@ If pytest runs slowly or appears to hang, it's because the copulae module is aut
 - Edge copulas are accessed via `vine[row, col]` indexing on the vine array
 - The `name` property on vines is used in plot titles (set via `name` parameter or direct assignment)
 - main entry point: @src/weathercop/multisite.py::Multisite
+- VARWG is a single-site, WeatherCop is multisite. WeatherCop heavily depends on VARWG - it orchestrates VARWG instances and replaces their model via call-back functions. This lets WeatherCop deal with dependencies and VARWG fits distribution to the marginals and does the variable transform before and after WeatherCop simulation.

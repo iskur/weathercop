@@ -1,11 +1,48 @@
 # What is WeatherCop?
 
+[![Python](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
+[![Managed with uv](https://img.shields.io/badge/managed%20with-uv-blue)](https://docs.astral.sh/uv/)
+
 WeatherCop is a multisite weather generator based on vine copulas. It
 was developed to generate synthetic weather scenarios that preserve both
 spatial dependencies across weather stations and temporal structure
 within each station. The package combines statistical copula theory with
-time series analysis from the VG library to create realistic weather
+time series analysis from the VarWG library to create realistic weather
 ensembles for hydrodynamic and ecological modeling.
+
+## Architecture Overview
+
+![](./img/weathercop_workflow.png)
+
+### How It Works
+
+WeatherCop operates through a carefully choreographed workflow combining
+two complementary systems:
+
+1.  **VarWG Component** (marginal distributions):
+    - Fits KDE/parametric distributions to each weather variable at each
+      site, accounting for seasonal variations (F<sub>doy</sub>)
+    - Transforms measurement data to standard-normal space via inverse
+      CDF of day-of-year distributions: Φ⁻¹(F<sub>doy</sub>(X))
+    - Handles dryness probability estimation for precipitation
+    - Applies the inverse transformation to convert simulated data back
+      to the measurement domain: X = F<sub>doy</sub>⁻¹(Φ(Y))
+2.  **WeatherCop Component** (dependence structure):
+    - Fits vine copulas to deseasonalized observations to capture
+      inter-variate dependencies (relationships between different
+      weather variables)
+    - Decorrelates observations for phase randomization
+    - Re-correlates synthetic data using the fitted copula structure
+    - Preserves both temporal autocorrelation within each station and
+      spatial cross-correlations between stations through phase
+      randomization
+
+This separation of concerns enables realistic what-if scenarios: by
+conditioning on a guiding variable (e.g., temperature), changes
+propagate to other variables through the vine copula's inter-variate
+dependence structure, while VarWG ensures each variable maintains
+realistic distributions and seasonal patterns.
 
 # Installation
 
@@ -46,9 +83,9 @@ python setup.py build_ext --inplace
 **Note**: The first import may take 5-10 minutes as Cython extensions
 compile. Pre-build them to avoid this delay.
 
-**Important**: WeatherCop depends on the VG library, currently installed
-from GitHub. For general availability, VG will be published to PyPI
-first.
+**Important**: WeatherCop depends on the VarWG library, currently
+installed from GitHub. For general availability, VarWG will be published
+to PyPI first.
 
 # Quick Start
 
@@ -59,7 +96,7 @@ synthetic weather data:
 import xarray as xr
 from weathercop.multisite import Multisite, set_conf
 
-# Configure VG (e.g., with your config module)
+# Configure VarWG (e.g., with your config module)
 import your_vg_conf
 set_conf(your_vg_conf)
 
@@ -148,7 +185,7 @@ uv run pytest
 
 - Initial release with vine copula implementations (CVine, RVine)
 - Seasonal copula wrapper for time-varying parameters
-- Integration with VG library for temporal structure preservation
+- Integration with VarWG library for temporal structure preservation
 - Automatic Cython code generation for copula functions
 - Multisite weather generation workflows
 - Migration to modern build system with pyproject.toml
@@ -160,7 +197,8 @@ uv run pytest
 
 Code is hosted at: \<repository-url\>
 
-Related project: [VG Weather Generator](https://github.com/iskur/vg)
+Related project: [VarWG Weather
+Generator](https://github.com/iskur/varwg)
 
 # License Information
 

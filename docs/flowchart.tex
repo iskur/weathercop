@@ -1,0 +1,87 @@
+\documentclass[border=5pt]{standalone}
+\usepackage{tikz}
+\usetikzlibrary{shapes, arrows}
+
+\begin{document}
+
+\begin{footnotesize}
+  \newcommand{\blockwidth}{7.5cm}
+  \newcommand{\cloudwidth}{2.5cm}
+  \newcommand{\nodevdistance}{5em}
+  \newcommand{\nodehdistance}{7.5cm}
+  \newcommand{\minheight}{3em}
+
+  \tikzstyle{block} = [rectangle, draw, fill=white, text
+  width=\blockwidth, text centered, rounded corners, minimum
+  height=\minheight]
+
+  \tikzstyle{normblock} = [rectangle, draw, fill=gray, text
+  width=\blockwidth, text centered, rounded corners, minimum
+  height=\minheight]
+
+  \tikzstyle{rainblock} = [rectangle, draw, fill=blue, text
+  width=\blockwidth, text centered, rounded corners, minimum
+  height=\minheight]
+
+  \tikzstyle{cloud} = [draw, circle, fill=white, text centered, text
+  width=\cloudwidth, node distance=\nodehdistance, minimum
+  height=\minheight]
+
+  \tikzstyle{io} = [trapezium, trapezium left angle=70, trapezium
+  right angle=110, text width=6em, minimum height=2em, text
+  centered, draw=black, fill=white]
+
+  \tikzstyle{line} = [draw, -latex, shorten >=2pt, shorten <=2pt, gray]
+
+  % \tikzstyle{dashed-line} = [draw, -latex, shorten >=2pt, shorten <=2pt,
+  % dashed, line width=1.5pt, gray]
+
+  \begin{tikzpicture}[node distance = \nodevdistance, auto]
+    % nodes
+    \node [io] (data) {Measurement data\\$X$};
+
+    \node [block, below of=data] (trans) %
+    {Transformation to standard-normal \\
+      $\Phi^{-1}(F_{doy}(X))$};
+
+    \node [normblock, below of=trans] (rain) %
+    {Dryness probability estimation};
+
+    \node [normblock, below of=rain] (copfit) %
+    {Fit copula per doy\\
+      Decorrelate observations\\
+      $C_{doy}$, $P_{i,t}$};
+
+    \node [normblock, below of=copfit] (simulate) %
+    {Phase-randomize decorrelated observations\\
+      Re-correlate with fitted copula};
+
+    \node [block, below of=simulate] (retrans) %
+    {Re-transformation \\
+      $\hat{X} = F_{doy}^{-1}(\Phi(Y))$};
+
+    \node [cloud, left of=trans] (marg) %
+    {KDE/ parametric distributions\\ $F_{doy}$};
+
+    \node [io, below of=retrans] (synth) %
+    {Synthetic time series\\$\hat{X}$};
+
+
+    % edges
+    \path [line] (data) -- (trans);
+    % \path [dashed-line] (marg) -- (data);
+    \path [line] (marg) -- (data);
+    \path [line] (trans) -- (rain);
+    \path [line] (rain) -- (copfit);
+    \path [line] (copfit) -- (simulate);
+    \path [line] (simulate) -- (retrans);
+    % \path [dashed-line] (marg) -- (trans);
+    % \path [dashed-line] (marg) |- (retrans);
+    \path [line] (marg) -- (trans);
+    \path [line] (marg) |- (retrans);
+    \path [line] (retrans) -- (synth);
+
+  \end{tikzpicture}
+\end{footnotesize}
+
+\end{document}
