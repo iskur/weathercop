@@ -10,8 +10,8 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize_scalar, minimize
 from weathercop import multisite as ms
 from weathercop import tools, cop_conf
-import vg
-from vg.time_series_analysis import rain_stats
+import varwg
+from varwg.time_series_analysis import rain_stats
 
 DEBUG = cop_conf.DEBUG
 
@@ -244,7 +244,7 @@ def sim_one(args):
         write_to_disk,
         verbose,
     ) = args
-    vg.seed(1000 * real_i)
+    varwg.seed(1000 * real_i)
     if "phase_randomize_vary_mean" not in sim_kwds:
         sim_kwds["phase_randomize_vary_mean"] = False
     if DEBUG:
@@ -329,7 +329,7 @@ def sim_one(args):
                     current_process().name
                     + " in conditional.sim_one. after daily to_netcdf"
                 )
-        vg.seed(1000 * real_i)
+        varwg.seed(1000 * real_i)
         if DEBUG:
             print(
                 current_process().name
@@ -868,7 +868,7 @@ if __name__ == "__main__":
 
     # seed = 19 * 1000
     seed = 0
-    vg.seed(seed)
+    varwg.seed(seed)
     xds = xr.open_dataset(postdoc_conf.MS.nc_clean_filepath)
     xds = xds.interpolate_na("time")
     xar = xds.drop_vars(("latitude", "longitude")).to_array("station")
