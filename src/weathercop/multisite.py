@@ -1441,7 +1441,9 @@ class Multisite:
         else:
             disaggregate = False
         # ensure those are written. they might be needed for derived scenarios
-        kwds.update(return_trans=True)
+        # Only return transformed data if not in test/memory-constrained mode
+        if not cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING:
+            kwds.update(return_trans=True)
         ensemble_root = (
             cop_conf.ensemble_root if ensemble_root is None else ensemble_root
         )
@@ -1539,7 +1541,8 @@ class Multisite:
                             csv_path, sim_sea, filename_prefix=f"{real_str}_"
                         )
                     np.save(filepaths_rphases[real_i], self.rphases)
-                    if sim_result.sim_trans is not None:
+                    if (sim_result.sim_trans is not None
+                        and not cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING):
                         sim_result.sim_trans.to_netcdf(filepath_trans)
         else:
             # this means we do parallel computation
@@ -1579,8 +1582,9 @@ class Multisite:
                     self.to_csv(
                         csv_path, sim_sea, filename_prefix=f"{real_str}_"
                     )
-                if sim_result.sim_trans is not None:
-                    sim_result.sim_trans.to_netcdf(filepaths_trans[0])
+                if write_to_disk and not cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING:
+                    if sim_result.sim_trans is not None:
+                        sim_result.sim_trans.to_netcdf(filepaths_trans[0])
             # filter realizations in advance according to output file
             # existance
             realizations = []

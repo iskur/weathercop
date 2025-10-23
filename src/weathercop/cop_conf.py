@@ -9,6 +9,15 @@ import os
 PROFILE = False
 DEBUG = False
 
+# Memory optimization for testing
+# When True, skip storing intermediate results like transformed data
+# in ensemble simulations to reduce memory footprint
+SKIP_INTERMEDIATE_RESULTS_TESTING = False
+
+# When True, enable aggressive cleanup of temporary data structures
+# during ensemble generation
+AGGRESSIVE_CLEANUP = False
+
 # Use environment variables or fallback to reasonable defaults
 home = Path.home()
 weathercop_dir = Path(os.environ.get(

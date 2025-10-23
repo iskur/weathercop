@@ -164,6 +164,16 @@ uv sync --group test
 uv run pytest
 ```
 
+## Memory-Efficient Testing
+
+For running the full test suite on systems with limited memory, automated memory optimizations are enabled during pytest:
+
+- Intermediate results are skipped by default during ensemble tests
+- Fixtures prevent duplicate dataset loading
+- Explicit garbage collection runs between tests
+
+See [`docs/TESTING_MEMORY.md`](docs/TESTING_MEMORY.md) for detailed information and manual memory profiling.
+
 # Key Features
 
 - **Vine Copula Models**: Canonical (C-vine) and Regular (R-vine)
