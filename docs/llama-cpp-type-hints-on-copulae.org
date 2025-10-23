@@ -62,7 +62,7 @@ except ImportError:
         open("ufuncs/__init__.py", "w").close()
     from weathercop import ufuncs
 
-import vg
+import varwg
 
 # if sys.platform == "win32":
 #     MKL = False

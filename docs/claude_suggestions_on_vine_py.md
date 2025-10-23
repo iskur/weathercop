@@ -21,9 +21,9 @@ import networkx as nx
 import scipy.stats as spstats
 from tqdm import tqdm
 
-from vg import helpers as my
-import vg
-from vg.time_series_analysis import distributions as dists
+from varwg import helpers as my
+import varwg
+from varwg.time_series_analysis import distributions as dists
 from weathercop import (
     cop_conf,
     copulae as cops,
@@ -1591,7 +1591,7 @@ def vg_ph(vg_obj, sc_pars, refit=False):
 
 
 if __name__ == "__main__":
-    import vg
+    import varwg
     import config_konstanz as vg_conf
 
     vg.set_conf(vg_conf)
@@ -1611,8 +1611,8 @@ if __name__ == "__main__":
     # np.random.seed(2)
     # import dill
     # import time
-    # import vg
-    # from vg import vg_plotting, vg_base
+    # import varwg
+    # from varwg import varwg_plotting, vg_base
     # import config_konstanz_disag as vg_conf
     # vg.conf = vg_plotting.conf = vg_base.conf = vg_conf
     # try:
@@ -1788,9 +1788,9 @@ Assistant: Yes, I can identify several issues in this code:
 ## 1. **Import and Dependency Issues**
 
 ```python
-from vg import helpers as my
-import vg
-from vg.time_series_analysis import distributions as dists
+from varwg import helpers as my
+import varwg
+from varwg.time_series_analysis import distributions as dists
 ```
 These imports suggest dependencies on a `vg` package that may not be available to other users, making the code less portable.
 
