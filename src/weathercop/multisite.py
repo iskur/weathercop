@@ -22,6 +22,9 @@ import cartopy.feature as cfeature
 import varwg
 from varwg import helpers as my
 from varwg.core.core import seasonal_back
+from varwg import core as vg_core
+from varwg import base as vg_base
+from varwg import plotting as vg_plotting
 from varwg.time_series_analysis import (
     distributions as dists,
     time_series as ts,
@@ -61,7 +64,7 @@ mf_kwds = dict(
 
 
 def set_conf(conf_obj, **kwds):
-    objs = (varwg, varwg.vg_core, varwg.vg_base, varwg.vg_plotting)
+    objs = (varwg, vg_core, vg_base, vg_plotting)
     for obj in objs:
         obj.conf = conf_obj
         for key, value in kwds.items():

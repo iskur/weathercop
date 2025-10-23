@@ -57,7 +57,6 @@ synthetic weather data:
 
 ``` python
 import xarray as xr
-import vg
 from weathercop.multisite import Multisite, set_conf
 
 # Configure VG (e.g., with your config module)
