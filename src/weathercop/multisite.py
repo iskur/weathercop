@@ -21,7 +21,7 @@ import cartopy.feature as cfeature
 
 import varwg
 from varwg import helpers as my
-from varwg.core import seasonal_back
+from varwg.core.core import seasonal_back
 from varwg.time_series_analysis import (
     distributions as dists,
     time_series as ts,
