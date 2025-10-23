@@ -6,7 +6,7 @@ import xarray as xr
 import matplotlib.pyplot as plt
 from weathercop import copulae
 import opendata_vg_conf as vg_conf
-import varwg as vg
+import varwg
 
 ms.set_conf(vg_conf)
 data_root = Path().home() / "data/opendata_dwd"
@@ -14,7 +14,7 @@ data_root = Path().home() / "data/opendata_dwd"
 
 class Test(npt.TestCase):
     def setUp(self):
-        vg.reseed(0)
+        varwg.reseed(0)
         self.verbose = True
         self.refit = True
         self.refit_vine = True

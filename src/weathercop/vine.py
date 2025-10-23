@@ -97,7 +97,7 @@ import scipy.stats as spstats
 from tqdm import tqdm
 
 from varwg import helpers as my
-import varwg as vg
+import varwg
 from varwg.time_series_analysis import distributions as dists
 from weathercop import (
     cop_conf,
@@ -869,7 +869,7 @@ class Vine:
         ---------
         edge_labels : "nodes" or "copulas", optional
         """
-        vg.reseed(0)
+        varwg.reseed(0)
         nrows = int(len(self.trees) / 2)
         if nrows * 2 < len(self.trees):
             nrows += 1
@@ -1235,7 +1235,7 @@ class CVine(Vine):
         T = self.T if T is None else T
 
         if randomness is None:
-            Ps = vg.rng.random((self.d, T))
+            Ps = varwg.rng.random((self.d, T))
         else:
             Ps = randomness
         if isinstance(T, int):
@@ -1471,7 +1471,7 @@ class RVine(Vine):
         # one = 1 - zero
 
         if randomness is None:
-            Ps = vg.rng.random(self.d, T)
+            Ps = varwg.rng.random(self.d, T)
         else:
             Ps = randomness
 
@@ -1592,7 +1592,7 @@ def vg_ph(vg_obj, sc_pars, refit=False):
         vg_ph.phases = np.angle(vg_ph.As)
     T = vg_obj.T_sim
     # phase randomization with same random phases in all variables
-    phases_lh = vg.rng.uniform(
+    phases_lh = varwg.rng.uniform(
         -np.pi, np.pi, T // 2 if T % 2 == 1 else T // 2 - 1
     )
     phases_lh = np.array(vg_obj.K * [phases_lh])
@@ -1666,11 +1666,11 @@ def vg_ph(vg_obj, sc_pars, refit=False):
 
 
 if __name__ == "__main__":
-    import varwg as vg
+    import varwg
     import config_konstanz as vg_conf
 
-    vg.set_conf(vg_conf)
-    met_vg = vg.VG(("theta", "ILWR", "rh", "R"), verbose=True)
+    varwg.set_conf(vg_conf)
+    met_vg = varwg.VG(("theta", "ILWR", "rh", "R"), verbose=True)
     ranks = np.array(
         [spstats.norm.cdf(values) for values in met_vg.data_trans]
     )

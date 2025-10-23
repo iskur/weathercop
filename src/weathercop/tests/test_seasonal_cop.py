@@ -1,7 +1,7 @@
 import numpy.testing as npt
 import matplotlib.pyplot as plt
 
-import varwg as vg
+import varwg
 from weathercop import copulae as cops, seasonal_cop as scops, stats
 
 
@@ -9,7 +9,7 @@ class Test(npt.TestCase):
     def setUp(self):
         self.verbose = True
         self.varnames = "theta", "rh"
-        self.met_vg = vg.VG(
+        self.met_vg = varwg.VG(
             (
                 "theta",
                 "u",
@@ -75,7 +75,7 @@ class Test(npt.TestCase):
                 raise
 
     # def test_marginals(self):
-    #     vg.reseed(0)
+    #     varwg.reseed(0)
     #     ranks_u, ranks_v = self.scop.sample(self.dtimes.repeat(1))
     #     for label, ranks in zip(self.varnames, (ranks_u, ranks_v)):
     #         _, p_value = spstats.kstest(ranks, spstats.uniform.cdf)
@@ -87,36 +87,36 @@ class Test(npt.TestCase):
     #             plt.show()
 
     # def test_vg_sim(self):
-    #     vg.reseed(0)
+    #     varwg.reseed(0)
     #     theta_incr = 2
     #     T = 5000
-    #     simt, sim = self.met_vg.simulate(
+    #     simt, sim = self.met_varwg.simulate(
     #         T=T, theta_incr=theta_incr, sim_func=scops.vg_sim
     #     )
-    #     prim_i = self.met_vg.primary_var_ii
+    #     prim_i = self.met_varwg.primary_var_ii
     #     new_mean = sim[prim_i].mean()
     #     old_mean = (
-    #         self.met_vg.data_raw[prim_i].mean()
-    #         / self.met_vg.sum_interval[prim_i]
+    #         self.met_varwg.data_raw[prim_i].mean()
+    #         / self.met_varwg.sum_interval[prim_i]
     #     )
     #     assert sim.shape[1] == T
     #     npt.assert_almost_equal(new_mean - old_mean, theta_incr, decimal=1)
 
     # def test_vg_ph(self):
-    #     vg.reseed(0)
+    #     varwg.reseed(0)
     #     theta_incr = 2
     #     T = 5000
-    #     simt, sim = self.met_vg.simulate(T=T, theta_incr=theta_incr,
+    #     simt, sim = self.met_varwg.simulate(T=T, theta_incr=theta_incr,
     #                                      sim_func=scops.vg_ph)
-    #     prim_i = self.met_vg.primary_var_ii
+    #     prim_i = self.met_varwg.primary_var_ii
     #     new_mean = sim[prim_i].mean()
-    #     old_mean = (self.met_vg.data_raw[prim_i].mean() /
-    #                 self.met_vg.sum_interval[prim_i])
+    #     old_mean = (self.met_varwg.data_raw[prim_i].mean() /
+    #                 self.met_varwg.sum_interval[prim_i])
     #     assert sim.shape[1] == T
     #     npt.assert_almost_equal(new_mean - old_mean, theta_incr,
     #                             decimal=1)
-    #     npt.assert_almost_equal(self.met_vg.sim.std(axis=1),
-    #                             (self.met_vg.data_trans).std(axis=1),
+    #     npt.assert_almost_equal(self.met_varwg.sim.std(axis=1),
+    #                             (self.met_varwg.data_trans).std(axis=1),
     #                             decimal=1)
 
 

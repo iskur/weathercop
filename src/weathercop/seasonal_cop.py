@@ -9,8 +9,8 @@ import numpy as np
 from scipy.optimize import minimize
 from tqdm import tqdm
 
-from vg import helpers as my, times
-from vg.time_series_analysis import distributions as dists, spectral
+from varwg import helpers as my, times
+from varwg.time_series_analysis import distributions as dists, spectral
 from weathercop import copulae as cops, stats
 from weathercop import cop_conf
 
@@ -694,7 +694,7 @@ def phase_rand(*, ranks=None, data_stdn=None, T=None):
     middle_i = As.shape[1] // 2
     phase_first, phase_middle = np.angle(As[:, [0, middle_i]])
     # phase randomization with same random phases in both variables
-    phases_lh = vg.rng.uniform(
+    phases_lh = varwg.rng.uniform(
         0, 2 * np.pi, T // 2 if T % 2 == 1 else T // 2 - 1
     )
     phases_lh = np.array(K * [phases_lh])
@@ -812,18 +812,18 @@ def vg_sim(vg_obj, sc_pars):
 
 if __name__ == "__main__":
     # import pandas as pd
-    import varwg as vg
-    from varwg import base, plotting
+    import varwg
+    from varwg import base as vg_base, plotting as vg_plotting
     import config_konstanz_disag as conf
 
-    vg.set_conf(conf)
+    varwg.conf = vg_base.conf = vg_plotting.conf = conf
     from varwg.time_series_analysis import distributions as dists
     from weathercop import stats, copulae as cops
 
     # varnames = "theta", "ILWR"
     # varnames = "theta", "R"
     varnames = "theta", "u"
-    met_vg = vg.VG(varnames, refit=True, verbose=True)
+    met_vg = varwg.VG(varnames, refit=True, verbose=True)
     met_vg.fit()
 
     simt, sim = met_vg.simulate(theta_incr=0, sim_func=vg_ph)

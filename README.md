@@ -94,7 +94,6 @@ synthetic weather data:
 
 ``` python
 import xarray as xr
-import varwg as vg
 from weathercop.multisite import Multisite, set_conf
 
 # Configure VarWG (e.g., with your config module)

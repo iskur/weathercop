@@ -3,7 +3,7 @@ import multiprocessing
 from itertools import repeat
 import numpy as np
 import numpy.testing as npt
-import varwg as vg
+import varwg
 from varwg.time_series_analysis import distributions as dists
 from weathercop.vine import CVine, cquant_py, csim_py
 from weathercop.cvine import csim as csim_cy, cquant as cquant_cy
@@ -13,7 +13,7 @@ n_nodes = multiprocessing.cpu_count() - 1
 
 class Test(npt.TestCase):
     def setUp(self):
-        vg.reseed(0)
+        varwg.reseed(0)
         self.verbose = True
         self.cov = np.array(
             [

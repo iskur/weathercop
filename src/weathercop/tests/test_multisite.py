@@ -7,7 +7,7 @@ from scipy import stats
 import xarray as xr
 from matplotlib import pyplot as plt
 
-import varwg as vg
+import varwg
 from weathercop.multisite import Multisite, set_conf, nan_corrcoef
 import opendata_vg_conf as vg_conf
 
@@ -199,7 +199,7 @@ class Test(npt.TestCase):
         if self.verbose:
             fig_axs = self.wc.plot_meteogram_daily()
 
-        vg.reseed(0)
+        varwg.reseed(0)
         self.wc.reset_sim()
         sim_result = self.wc.simulate(
             # n_realizations=1,
@@ -232,7 +232,7 @@ class Test(npt.TestCase):
         # if self.verbose:
         #     fig_axs = self.wc.plot_meteogram_daily()
 
-        vg.reseed(0)
+        varwg.reseed(0)
         self.wc.reset_sim()
         self.wc.verbose = True
         sim_result = self.wc.simulate(
@@ -267,7 +267,7 @@ class Test(npt.TestCase):
         # if self.verbose:
         #     fig_axs = self.wc.plot_meteogram_daily()
 
-        vg.reseed(0)
+        varwg.reseed(0)
         self.wc.reset_sim()
         self.wc.verbose = True
         sim_result = self.wc.simulate(
@@ -311,7 +311,7 @@ class Test(npt.TestCase):
         # decimal = 0  # ooof
         decimal = 1
         self.wc.reset_sim()
-        vg.reseed(1)
+        varwg.reseed(1)
         sim_result = self.wc.simulate(
             theta_grad=theta_grad,
             phase_randomize_vary_mean=False,

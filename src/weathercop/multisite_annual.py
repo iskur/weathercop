@@ -54,7 +54,7 @@ class MultisiteAnnual(ms.Multisite):
         varnames_annual="R",
         lower_period=None,
         upper_period=None,
-        **kwds
+        **kwds,
     ):
         super().__init__(*args, **kwds)
         if isinstance(varnames_annual, str):
@@ -221,6 +221,7 @@ class MultisiteAnnual(ms.Multisite):
 if __name__ == "__main__":
     from pathlib import Path
     import xarray as xr
+    import varwg
     from weathercop import copulae
 
     home = Path.home()
@@ -238,7 +239,7 @@ if __name__ == "__main__":
     # seed = 19 * 1000
     seed = 0
     # np.random.seed(seed)
-    vg.reseed(seed)
+    varwg.reseed(seed)
     xds = xr.open_dataset(postdoc_conf.MS.nc_clean_filepath)
     xds = xds.interpolate_na("time")
     xar = xds.drop_vars(("latitude", "longitude")).to_array("station")

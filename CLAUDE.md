@@ -59,7 +59,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Multiprocessing pool size (`n_nodes`) defaults to CPU count - 2
 
 ### Key Dependencies
-- **VARWG Library**: Time series analysis and single-site weather generation
+- **VARWG Library**: Custom dependency for time series analysis and weather generation (`varwg = { git = "https://github.com/iskur/varwg" }`)
 - **Cython**: Used for performance-critical numerical computations
 - **SymPy**: Automatic generation of copula functions and derivatives
 - **XArray/Pandas**: Data handling and analysis

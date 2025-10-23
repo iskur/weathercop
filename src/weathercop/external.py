@@ -4,9 +4,9 @@ import xarray as xr
 import pandas as pd
 
 from weathercop import multisite, cop_conf
-from vg.time_series_analysis import (seasonal_distributions as sdists,
-                                     seasonal_kde as skde,
-                                     distributions as dists)
+from varwg.time_series_analysis import (seasonal_distributions as sdists,
+                                        seasonal_kde as skde,
+                                        distributions as dists)
 
 class MultisiteExternal(multisite.Multisite):
     def __init__(self, xds, external_ds, seas_class, *args,
