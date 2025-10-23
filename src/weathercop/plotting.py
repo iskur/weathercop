@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from scipy import stats as spstats
 import xarray as xr
 from weathercop import stats
-from vg import helpers as my
+from varwg import helpers as my
 
 
 def suptitle_prepend(fig, name):
