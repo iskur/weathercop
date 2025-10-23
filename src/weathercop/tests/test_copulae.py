@@ -10,7 +10,7 @@ from scipy import integrate
 
 # mpl.use("Agg")
 import matplotlib.pyplot as plt
-import vg
+import varwg
 from weathercop import copulae as cop
 
 img_dir = Path("./img").absolute()
