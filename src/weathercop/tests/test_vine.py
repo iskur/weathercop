@@ -379,7 +379,7 @@ class Test(npt.TestCase):
         if self.verbose:
             print("Seasonal Vine with VG data")
             import varwg
-            from vg import varwg_plotting, vg_base
+            from varwg import plotting as vg_plotting, base as vg_base
             import config_konstanz as conf
         varwg.conf = vg_plotting.conf = vg_base.conf = conf
         # met_vg = varwg.VG(("theta", "ILWR", "rh", "R"), verbose=True)
