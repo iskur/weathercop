@@ -813,7 +813,7 @@ def vg_sim(vg_obj, sc_pars):
 if __name__ == "__main__":
     # import pandas as pd
     import varwg
-    from varwg import vg_base, vg_plotting
+    from varwg import base as vg_base, plotting as vg_plotting
     import config_konstanz_disag as conf
 
     varwg.conf = vg_base.conf = vg_plotting.conf = conf
