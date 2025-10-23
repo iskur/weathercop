@@ -9,16 +9,16 @@ import numpy.testing as npt
 import pandas as pd
 from scipy import stats as spstats
 
-from vg import helpers as my
-import vg
-from vg.time_series_analysis import distributions as dists
+from varwg import helpers as my
+import varwg
+from varwg.time_series_analysis import distributions as dists
 from weathercop import plotting, copulae
 from weathercop.vine import CVine, RVine, vg_ph
 
 
 class Test(npt.TestCase):
     def setUp(self):
-        vg.reseed(0)
+        varwg.reseed(0)
         self.verbose = True
         # self.cov = np.array([[ 1.3  , -0.045,  0.597,  0.669,  0.568,  0.507],
         #                      [-0.045,  0.927,  0.576, -0.248,  0.072,  0.136],
@@ -345,12 +345,12 @@ class Test(npt.TestCase):
     # def test_seasonal_yearly(self):
     #     if self.verbose:
     #         print("Seasonal Vine with singe year VG data")
-    #         import vg
-    #         from vg import vg_plotting, vg_base
+    #         import varwg
+    #         from vg import varwg_plotting, vg_base
     #         import config_konstanz_disag as conf
-    #     vg.conf = vg_plotting.conf = vg_base.conf = conf
-    #     # met_vg = vg.VG(("theta", "ILWR", "rh", "R"), verbose=True)
-    #     met_vg = vg.VG(("theta", "Qsw", "ILWR", "rh", "u", "v"), verbose=True)
+    #     varwg.conf = vg_plotting.conf = vg_base.conf = conf
+    #     # met_vg = varwg.VG(("theta", "ILWR", "rh", "R"), verbose=True)
+    #     met_vg = varwg.VG(("theta", "Qsw", "ILWR", "rh", "u", "v"), verbose=True)
     #     ranks = np.array([spstats.norm.cdf(values)
     #                       for values in met_vg.data_trans])
     #     T = ranks.shape[1]
@@ -378,12 +378,12 @@ class Test(npt.TestCase):
     def test_seasonal(self):
         if self.verbose:
             print("Seasonal Vine with VG data")
-            import vg
-            from vg import vg_plotting, vg_base
+            import varwg
+            from vg import varwg_plotting, vg_base
             import config_konstanz as conf
-        vg.conf = vg_plotting.conf = vg_base.conf = conf
-        # met_vg = vg.VG(("theta", "ILWR", "rh", "R"), verbose=True)
-        met_vg = vg.VG(("theta", "ILWR", "rh"), verbose=True)
+        varwg.conf = vg_plotting.conf = vg_base.conf = conf
+        # met_vg = varwg.VG(("theta", "ILWR", "rh", "R"), verbose=True)
+        met_vg = varwg.VG(("theta", "ILWR", "rh"), verbose=True)
         ranks = np.array(
             [spstats.norm.cdf(values) for values in met_vg.data_trans]
         )
@@ -436,11 +436,11 @@ class Test(npt.TestCase):
     # def test_seasonal_ph(self):
     #     if self.verbose:
     #         print("VG with phase randomization")
-    #     import vg
+    #     import varwg
     #     import config_konstanz as conf
 
-    #     vg.conf = vg.vg_base.conf = vg.vg_plotting.conf = conf
-    #     met_vg = vg.VG(
+    #     varwg.conf = varwg.vg_base.conf = varwg.vg_plotting.conf = conf
+    #     met_vg = varwg.VG(
     #         (
     #             # 'R',
     #             "theta",
@@ -454,7 +454,7 @@ class Test(npt.TestCase):
     #     )
     #     met_vg.fit(p=3)
     #     theta_incr = 0.1
-    #     vg.reseed(0)
+    #     varwg.reseed(0)
     #     n_realizations = 4
     #     means_norm0, means0, means1 = [], [], []
     #     before = time.perf_counter()
