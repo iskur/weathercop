@@ -19,15 +19,15 @@ import cartopy.crs as ccrs
 import cartopy.io.img_tiles as cimgt
 import cartopy.feature as cfeature
 
-import vg
-from vg import helpers as my
-from vg.core.vg_core import seasonal_back
-from vg.time_series_analysis import (
+import varwg
+from varwg import helpers as my
+from varwg.core.vg_core import seasonal_back
+from varwg.time_series_analysis import (
     distributions as dists,
     time_series as ts,
     rain_stats,
 )
-from vg.time_series_analysis.phase_randomization import _random_phases
+from varwg.time_series_analysis.phase_randomization import _random_phases
 from weathercop import cop_conf, plotting as wplt, tools, copulae as cops
 from weathercop.vine import CVine, MultiStationVine
 
@@ -61,7 +61,7 @@ mf_kwds = dict(
 
 
 def set_conf(conf_obj, **kwds):
-    objs = (vg, vg.vg_core, vg.vg_base, vg.vg_plotting)
+    objs = (varwg, varwg.vg_core, varwg.vg_base, varwg.vg_plotting)
     for obj in objs:
         obj.conf = conf_obj
         for key, value in kwds.items():
@@ -124,7 +124,7 @@ def sim_one(args):
         verbose,
         conversions,
     ) = args
-    vg.reseed((1000 * real_i))
+    varwg.reseed((1000 * real_i))
     # sim_sea, sim_trans = simulate(wcop, sim_times, *sim_args, **sim_kwds)
     if filepath_rphases_src:
         rphases = np.load(filepath_rphases_src.with_suffix(".npy"))
@@ -142,7 +142,7 @@ def sim_one(args):
     if dis_kwds is not None:
         if write_to_disk:
             sim_result.sim_sea.to_netcdf(filepath_daily)
-        vg.reseed((1000 * real_i))
+        varwg.reseed((1000 * real_i))
         if DEBUG:
             print(current_process().name + " in sim_one. before disagg")
         sim_sea_dis = wcop.disaggregate(**dis_kwds)
@@ -194,7 +194,7 @@ def _adjust_fft_sim(
         K = fft_sim.shape[0]
         mean_eps = np.zeros(K)[:, None]
         mean_eps[primary_var_ii[0], 0] = (
-            phase_randomize_vary_mean * vg.rng.normal()
+            phase_randomize_vary_mean * varwg.rng.normal()
         )
         fft_sim += mean_eps
 
@@ -1032,7 +1032,7 @@ class Multisite:
                     data = pd.DataFrame(
                         index=_times, data=data, columns=varnames
                     )
-                svg = vg.VG(
+                svg = varwg.VG(
                     list(data.columns),
                     met_file=data,
                     cache_dir=cache_dir,
@@ -1122,7 +1122,7 @@ class Multisite:
                 cache_file.unlink()
 
     def _phase_inflation(self, data_ar):
-        vg.reseed((0))
+        varwg.reseed((0))
         if self.verbose:
             data = data_ar.values.copy()
         else:
@@ -1151,7 +1151,7 @@ class Multisite:
         # ii = np.argsort(np.sum(As_stacked * (1 - missing_mean[:, None]),
         #                        axis=0)
         #                 - As_stacked[fullest_var_i])
-        phases[ii] = vg.rng.uniform(0, np.pi, len(ii))
+        phases[ii] = varwg.rng.uniform(0, np.pi, len(ii))
 
         # def opt_func(phase, phases, i):
         #     phases[i] = phase
@@ -1503,7 +1503,7 @@ class Multisite:
                 if filepath.exists() and filepath.stat().st_size:
                     continue
                 filepath_trans = filepaths_trans[real_i]
-                vg.reseed((1000 * real_i))
+                varwg.reseed((1000 * real_i))
                 if name_derived:
                     rphases = np.load(filepaths_rphases_src[real_i])
                 else:
@@ -1541,7 +1541,7 @@ class Multisite:
         else:
             # this means we do parallel computation
             # do one simulation in the main loop to set up attributes
-            # vg.reseed((0))
+            # varwg.reseed((0))
             if (
                 name_derived
                 and filepaths_rphases_src[0].with_suffix(".npy").exists()
@@ -2679,7 +2679,7 @@ class Multisite:
     ):
         assert "R" in self.varnames
         if thresh is None:
-            thresh = vg.conf.dists_kwds["R"]["threshold"] / 24
+            thresh = varwg.conf.dists_kwds["R"]["threshold"] / 24
         if name_figaxs is None:
             name_figaxs = self.plot_exceedance_daily(
                 draw_scatter=False, figsize=figsize, thresh=thresh, alpha=0
@@ -3618,7 +3618,7 @@ class Multisite:
         """Cross-Copula-plot matrix of input and output."""
         if masked and "R" in self.varnames:
             obs_all = self.ranks[:, self.rain_mask.data]
-            thresh = vg.conf.threshold
+            thresh = varwg.conf.threshold
             sim_all = self.ranks_sim.where(
                 self.sim_sea.sel(variable="R") >= thresh
             ).stack(rank=("time", "station"))
@@ -3645,7 +3645,7 @@ class Multisite:
             station_names = self.station_names
         if masked and "R" in self.varnames:
             obs_all = self.ranks[:, self.rain_mask.data]
-            thresh = vg.conf.threshold
+            thresh = varwg.conf.threshold
             sim_all = self.ranks_sim.where(
                 self.sim_sea.sel(variable="R") >= thresh
             )
@@ -3679,7 +3679,7 @@ class Multisite:
         figs = {}
         if masked and "R" in self.varnames:
             obs_all = self.ranks[:, self.rain_mask.data].unstack("rank")
-            thresh = vg.conf.threshold
+            thresh = varwg.conf.threshold
             sim_all = self.ranks_sim.where(
                 self.sim_sea.sel(variable="R") >= thresh
             )
@@ -3739,7 +3739,7 @@ if __name__ == "__main__":
     # ms_filepath = pickle_filepath(xds)
     # Multisite.load(ms_filepath)
 
-    # vg.reseed(0)
+    # varwg.reseed(0)
     # sim = wc.simulate(usevine=False)
     # sim = wc.simulate(usevine=True)
     sim = wc.simulate_ensemble(
