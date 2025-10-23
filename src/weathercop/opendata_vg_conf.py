@@ -5,10 +5,10 @@ from builtins import range
 import collections
 import numpy as np
 from scipy import stats
-from vg.time_series_analysis import distributions
-from vg.time_series_analysis import seasonal_distributions as sd
-from vg.time_series_analysis import seasonal_kde as skde
-from vg.meteo import meteox2y_cy, meteox2y
+from varwg.time_series_analysis import distributions
+from varwg.time_series_analysis import seasonal_distributions as sd
+from varwg.time_series_analysis import seasonal_kde as skde
+from varwg.meteo import meteox2y_cy, meteox2y
 
 # coordinates of measurement station
 # latitude = 47.66
@@ -127,7 +127,7 @@ hpd = 24
 
 
 def max_sunshine_hours(doys):
-    from vg import times
+    from varwg import times
 
     dates = times.doy2datetime(doys)
     sun_hours = meteox2y.sunshine_hours(
