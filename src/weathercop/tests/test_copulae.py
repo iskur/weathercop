@@ -389,7 +389,7 @@ class Test(npt.TestCase):
         """Is fit able to reproduce parameters of a self-generated sample?"""
         if self.verbose:
             print("\nTesting fit")
-        vg.reseed(1)
+        varwg.reseed(1)
         for name, copula in cop.all_cops.items():
             if self.verbose:
                 print(name)

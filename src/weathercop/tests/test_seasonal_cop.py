@@ -19,10 +19,10 @@ class Test(npt.TestCase):
             ),
             refit=True,
         )
-        self.met_varwg.fit(p=3)
-        self.dtimes = self.met_varwg.times
-        self.ranks_u = stats.rel_ranks(self.met_varwg.data_raw[0])
-        self.ranks_v = stats.rel_ranks(self.met_varwg.data_raw[1])
+        self.met_vg.fit(p=3)
+        self.dtimes = self.met_vg.times
+        self.ranks_u = stats.rel_ranks(self.met_vg.data_raw[0])
+        self.ranks_v = stats.rel_ranks(self.met_vg.data_raw[1])
         window_len = 15
         scop_all = {
             name: scops.SeasonalCop(
