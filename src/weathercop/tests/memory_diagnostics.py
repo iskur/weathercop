@@ -58,14 +58,17 @@ class MemoryDiagnosticsLogger:
         except FileNotFoundError:
             proc_status = {"error": "proc/status not available"}
 
-        # Get Python tracemalloc snapshot
+        # Get Python tracemalloc snapshot (only if actively tracking)
         try:
-            snapshot = tracemalloc.take_snapshot()
-            top_stats = snapshot.statistics('lineno')[:3]
-            tracemalloc_info = [
-                f"{stat.filename}:{stat.lineno}: {stat.size / 1024 / 1024:.1f} MB"
-                for stat in top_stats
-            ]
+            if tracemalloc.is_tracing():
+                snapshot = tracemalloc.take_snapshot()
+                top_stats = snapshot.statistics('lineno')[:3]
+                tracemalloc_info = [
+                    f"{stat.filename}:{stat.lineno}: {stat.size / 1024 / 1024:.1f} MB"
+                    for stat in top_stats
+                ]
+            else:
+                tracemalloc_info = ["(tracemalloc not active)"]
         except Exception as e:
             tracemalloc_info = [f"error: {e}"]
 
