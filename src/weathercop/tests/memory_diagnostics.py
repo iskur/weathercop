@@ -109,6 +109,9 @@ class MemoryDiagnosticsLogger:
             for info in entry['tracemalloc_top3']:
                 lines.append(f"    {info}")
 
+        if entry.get('peak_memory_mb') is not None:
+            lines.append(f"  Peak memory: {entry['peak_memory_mb']:.1f} MB")
+
         if entry.get('gc_stats'):
             lines.append(f"  GC: collections={entry['gc_stats']['collections']}, "
                         f"uncollectable={entry['gc_stats']['uncollectable']}")
