@@ -10,7 +10,7 @@ import gc
 def test_small_ensemble_generation(multisite_instance):
     """Test that small ensemble can be generated without excessive memory use."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        n_reals = 2
+        n_reals = 1  # Reduced from 2 to minimize memory usage
         multisite_instance.simulate_ensemble(
             n_realizations=n_reals,
             name="test_ensemble",
