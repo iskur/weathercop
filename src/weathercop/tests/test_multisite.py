@@ -41,6 +41,10 @@ class Test(npt.TestCase):
 
     def tearDown(self):
         """Explicit cleanup after each test."""
+        # Cleanup matplotlib figures
+        from matplotlib import pyplot as plt
+        plt.close('all')
+
         if hasattr(self, 'wc'):
             del self.wc
         if hasattr(self, 'xds'):
