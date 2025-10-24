@@ -4,8 +4,10 @@ import pytest
 from pathlib import Path
 import xarray as xr
 import gc
+import socket
 from weathercop.multisite import Multisite, set_conf
 from weathercop import cop_conf
+from weathercop.tests.memory_diagnostics import get_memory_logger
 import opendata_vg_conf as vg_conf
 
 
@@ -14,6 +16,24 @@ os.environ.setdefault("WEATHERCOP_SKIP_INTERMEDIATE_RESULTS", "1")
 
 # Disable parallel xarray loading during testing to reduce memory fragmentation
 os.environ.setdefault("WEATHERCOP_PARALLEL_LOADING", "0")
+
+# Enable memory diagnostics logging (can be disabled with WEATHERCOP_DISABLE_DIAGNOSTICS=1)
+os.environ.setdefault("WEATHERCOP_DISABLE_DIAGNOSTICS", "0")
+
+# Custom log path for memory diagnostics (optional)
+# os.environ.setdefault("WEATHERCOP_MEMORY_LOG", "/path/to/log")
+
+
+def pytest_sessionstart(session):
+    """Hook: Log session start and initialize diagnostics."""
+    logger = get_memory_logger()
+    logger.log_session_start()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Hook: Log session end."""
+    logger = get_memory_logger()
+    logger.log_session_end()
 
 
 @pytest.fixture(scope="session")
@@ -83,6 +103,24 @@ def multisite_instance(test_dataset, vg_config):
     finally:
         del wc
         gc.collect()
+
+
+@pytest.fixture(scope="function", autouse=True)
+def log_test_memory(request):
+    """Auto-log fixture for test memory tracking."""
+    logger = get_memory_logger()
+    logger.log_test_start(request.node.name)
+    logger.start_peak_tracking()
+
+    yield
+
+    # Get peak memory from tracemalloc
+    peak_mb = logger.get_peak_and_stop_tracking()
+
+    # Count open xarray datasets
+    xarray_count = len([obj for obj in gc.get_objects() if isinstance(obj, xr.Dataset)])
+
+    logger.log_test_end(request.node.name, peak_memory_mb=peak_mb, xarray_count=xarray_count)
 
 
 @pytest.fixture(scope="function", autouse=True)
