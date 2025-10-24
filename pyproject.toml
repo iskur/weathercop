@@ -62,6 +62,12 @@ test = [
 [tool.pytest.ini_options]
 # Use --pdb flag manually when debugging: pytest --pdb
 # addopts = "--pdb"
+testpaths = ["src/weathercop/tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test"]
+python_functions = ["test_*"]
+# Use function scope for fixtures to maximize memory cleanup
+addopts = "-v --tb=short"
 
 [tool.mypy]
 disable_error_code = ["import-untyped"]

@@ -1,5 +1,6 @@
 from collections.abc import Iterable
 from collections import OrderedDict, namedtuple
+import os
 import shutil
 import inspect
 from functools import wraps, partial
@@ -49,7 +50,11 @@ lock = Lock()
 
 SimResult = namedtuple("SimResult", ["sim_sea", "sim_trans", "rphases"])
 
-chunks = dict(realization=-1)
+chunks = dict(realization=5)  # Load 5 realizations at a time
+
+# During testing, disable parallel loading to reduce memory fragmentation
+parallel_loading = os.environ.get("WEATHERCOP_PARALLEL_LOADING", "1") != "0"
+
 mf_kwds = dict(
     concat_dim="realization",
     combine="nested",
@@ -59,7 +64,7 @@ mf_kwds = dict(
     # compat="override",
     # see https://github.com/pydata/xarray/issues/7079
     # parallel=False,
-    parallel=True,
+    parallel=parallel_loading,
 )
 
 
@@ -1441,7 +1446,9 @@ class Multisite:
         else:
             disaggregate = False
         # ensure those are written. they might be needed for derived scenarios
-        kwds.update(return_trans=True)
+        # Only return transformed data if not in test/memory-constrained mode
+        if not cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING:
+            kwds.update(return_trans=True)
         ensemble_root = (
             cop_conf.ensemble_root if ensemble_root is None else ensemble_root
         )
@@ -1539,7 +1546,8 @@ class Multisite:
                             csv_path, sim_sea, filename_prefix=f"{real_str}_"
                         )
                     np.save(filepaths_rphases[real_i], self.rphases)
-                    if sim_result.sim_trans is not None:
+                    if (sim_result.sim_trans is not None
+                        and not cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING):
                         sim_result.sim_trans.to_netcdf(filepath_trans)
         else:
             # this means we do parallel computation
@@ -1579,8 +1587,9 @@ class Multisite:
                     self.to_csv(
                         csv_path, sim_sea, filename_prefix=f"{real_str}_"
                     )
-                if sim_result.sim_trans is not None:
-                    sim_result.sim_trans.to_netcdf(filepaths_trans[0])
+                if write_to_disk and not cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING:
+                    if sim_result.sim_trans is not None:
+                        sim_result.sim_trans.to_netcdf(filepaths_trans[0])
             # filter realizations in advance according to output file
             # existance
             realizations = []

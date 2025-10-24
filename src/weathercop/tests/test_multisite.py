@@ -1,4 +1,5 @@
 from pathlib import Path
+import gc
 
 import numpy as np
 import numpy.testing as npt
@@ -39,7 +40,16 @@ class Test(npt.TestCase):
         )
 
     def tearDown(self):
-        pass
+        """Explicit cleanup after each test."""
+        # Cleanup matplotlib figures
+        from matplotlib import pyplot as plt
+        plt.close('all')
+
+        if hasattr(self, 'wc'):
+            del self.wc
+        if hasattr(self, 'xds'):
+            self.xds.close()
+        gc.collect()
 
     # def test_seasonality(self):
     #     station_name = self.wc.station_names[0]
