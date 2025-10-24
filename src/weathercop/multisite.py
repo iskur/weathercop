@@ -49,7 +49,7 @@ lock = Lock()
 
 SimResult = namedtuple("SimResult", ["sim_sea", "sim_trans", "rphases"])
 
-chunks = dict(realization=-1)
+chunks = dict(realization=5)  # Load 5 realizations at a time
 mf_kwds = dict(
     concat_dim="realization",
     combine="nested",
