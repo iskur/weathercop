@@ -38,18 +38,22 @@ def data_root():
     return Path().home() / "data/opendata_dwd"
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def test_dataset(data_root):
-    """Load test dataset once per session (session-scoped)."""
+    """Load test dataset fresh for each test (function-scoped)."""
     xds = xr.open_dataset(data_root / "multisite_testdata.nc")
     yield xds
-    # Cleanup at end of session
+    # Cleanup after each test
     xds.close()
 
 
 @pytest.fixture(scope="function")
 def multisite_instance(test_dataset, vg_config):
-    """Create a fresh Multisite instance for each test (function-scoped)."""
+    """Create a fresh Multisite instance for each test (function-scoped).
+
+    Note: test_dataset is now function-scoped, so each test gets a fresh
+    dataset and Multisite instance with independent memory.
+    """
     wc = Multisite(
         test_dataset,
         verbose=False,
