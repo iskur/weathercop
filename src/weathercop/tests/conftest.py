@@ -12,6 +12,9 @@ import opendata_vg_conf as vg_conf
 # Enable memory-efficient mode for testing
 os.environ.setdefault("WEATHERCOP_SKIP_INTERMEDIATE_RESULTS", "1")
 
+# Disable parallel xarray loading during testing to reduce memory fragmentation
+os.environ.setdefault("WEATHERCOP_PARALLEL_LOADING", "0")
+
 
 @pytest.fixture(scope="session")
 def vg_config():

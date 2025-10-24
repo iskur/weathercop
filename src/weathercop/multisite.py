@@ -1,5 +1,6 @@
 from collections.abc import Iterable
 from collections import OrderedDict, namedtuple
+import os
 import shutil
 import inspect
 from functools import wraps, partial
@@ -50,6 +51,10 @@ lock = Lock()
 SimResult = namedtuple("SimResult", ["sim_sea", "sim_trans", "rphases"])
 
 chunks = dict(realization=5)  # Load 5 realizations at a time
+
+# During testing, disable parallel loading to reduce memory fragmentation
+parallel_loading = os.environ.get("WEATHERCOP_PARALLEL_LOADING", "1") != "0"
+
 mf_kwds = dict(
     concat_dim="realization",
     combine="nested",
@@ -59,7 +64,7 @@ mf_kwds = dict(
     # compat="override",
     # see https://github.com/pydata/xarray/issues/7079
     # parallel=False,
-    parallel=True,
+    parallel=parallel_loading,
 )
 
 
