@@ -8,6 +8,7 @@ import socket
 from weathercop.multisite import Multisite, set_conf
 from weathercop import cop_conf
 from weathercop.tests.memory_diagnostics import get_memory_logger
+from weathercop.tests.xarray_tracking import get_xarray_tracker
 import opendata_vg_conf as vg_conf
 
 
@@ -114,11 +115,10 @@ def log_test_memory(request):
 
     yield
 
-    # Get peak memory from tracemalloc
+    # Get peak memory and xarray count using tracker
     peak_mb = logger.get_peak_and_stop_tracking()
-
-    # Count open xarray datasets
-    xarray_count = len([obj for obj in gc.get_objects() if isinstance(obj, xr.Dataset)])
+    tracker = get_xarray_tracker()
+    xarray_count = tracker.count_active()
 
     logger.log_test_end(request.node.name, peak_memory_mb=peak_mb, xarray_count=xarray_count)
 
