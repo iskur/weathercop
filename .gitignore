@@ -205,3 +205,5 @@ tmp/
 src/weathercop/ufuncs/*.pyx
 src/weathercop/ufuncs/*.she
 /docs/*.aux
+/auto/
+/docs/auto/
