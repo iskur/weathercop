@@ -87,20 +87,12 @@ def multisite_instance(test_dataset, vg_config):
         fit_kwds=dict(seasonal=True),
     )
     yield wc
-    # Explicit cleanup after each test
+    # Cleanup after each test - use Multisite's close() method
     try:
-        # Close xarray datasets if they exist
-        if hasattr(wc, 'ensemble') and wc.ensemble is not None:
-            if hasattr(wc.ensemble, 'close'):
-                wc.ensemble.close()
-        if hasattr(wc, 'ensemble_daily') and wc.ensemble_daily is not None:
-            if hasattr(wc.ensemble_daily, 'close'):
-                wc.ensemble_daily.close()
-        if hasattr(wc, 'ensemble_trans') and wc.ensemble_trans is not None:
-            if hasattr(wc.ensemble_trans, 'close'):
-                wc.ensemble_trans.close()
-    except Exception:
-        pass  # Silently ignore cleanup errors
+        wc.close()
+    except Exception as e:
+        import warnings
+        warnings.warn(f"Error closing Multisite instance: {e}")
     finally:
         del wc
         gc.collect()

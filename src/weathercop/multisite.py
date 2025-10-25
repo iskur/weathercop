@@ -824,6 +824,38 @@ class Multisite:
         self.vine_cache = cop_conf.vine_cache
         self._init_vgs(*self.args, **self.kwds)
 
+    def __enter__(self):
+        """Context manager entry: return self for use in with statement."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit: close all ensemble datasets."""
+        self.close()
+        return False  # Don't suppress exceptions
+
+    def close(self):
+        """Close all xarray ensemble datasets to release file handles and memory.
+
+        Safely handles cases where ensemble_daily and ensemble are the same
+        object (when disaggregate=False).
+        """
+        closed_ids = set()
+
+        for attr_name in ['ensemble_trans', 'ensemble_daily', 'ensemble']:
+            if (obj := getattr(self, attr_name, None)) is None:
+                continue
+
+            obj_id = id(obj)
+            if obj_id in closed_ids or not hasattr(obj, 'close'):
+                continue
+
+            try:
+                obj.close()
+                closed_ids.add(obj_id)
+            except Exception as e:
+                import warnings
+                warnings.warn(f"Failed to close {attr_name}: {e}")
+
     def __eq__(self, other):
         if not hasattr(other, "__getitem__"):
             return False
