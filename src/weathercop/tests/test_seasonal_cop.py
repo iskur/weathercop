@@ -1,5 +1,7 @@
 import numpy.testing as npt
 import matplotlib.pyplot as plt
+import pytest
+from pathlib import Path
 
 import varwg
 from weathercop import copulae as cops, seasonal_cop as scops, stats
@@ -9,6 +11,14 @@ class Test(npt.TestCase):
     def setUp(self):
         self.verbose = True
         self.varnames = "theta", "rh"
+
+        # Try to find test data or skip test if not available
+        data_root = Path().home() / "data/opendata_dwd"
+        met_file = data_root / "opendata_dwd_Weißenburg-Emetzheim_D_sim_2010-01-01_2016-12-31.txt"
+
+        if not met_file.exists():
+            pytest.skip(f"Test data not found at {met_file}")
+
         self.met_vg = varwg.VG(
             (
                 "theta",
@@ -17,6 +27,7 @@ class Test(npt.TestCase):
                 # "rh",
                 # , "ILWR", "rh", "u", "v"
             ),
+            met_file=str(met_file),
             refit=True,
         )
         self.met_vg.fit(p=3)
