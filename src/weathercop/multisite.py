@@ -50,22 +50,23 @@ lock = Lock()
 
 SimResult = namedtuple("SimResult", ["sim_sea", "sim_trans", "rphases"])
 
-chunks = dict(realization=5)  # Load 5 realizations at a time
+# Disable parallel loading by default to avoid dask dependency
+# Set WEATHERCOP_PARALLEL_LOADING=1 to enable (requires dask)
+parallel_loading = os.environ.get("WEATHERCOP_PARALLEL_LOADING", "0") != "0"
 
-# During testing, disable parallel loading to reduce memory fragmentation
-parallel_loading = os.environ.get("WEATHERCOP_PARALLEL_LOADING", "1") != "0"
-
+# Build mf_kwds, only including chunks if parallel loading enabled (dask required)
 mf_kwds = dict(
     concat_dim="realization",
     combine="nested",
-    chunks=chunks,
     # data_vars="minimal",
     # coords="minimal",
     # compat="override",
     # see https://github.com/pydata/xarray/issues/7079
-    # parallel=False,
     parallel=parallel_loading,
 )
+# Only add chunks when parallel loading is enabled
+if parallel_loading:
+    mf_kwds["chunks"] = dict(realization=5)
 
 
 def set_conf(conf_obj, **kwds):
@@ -1470,6 +1471,11 @@ class Multisite:
         *args,
         **kwds,
     ):
+        # If parallel loading is disabled (no dask), default to keeping ensemble in memory
+        # because reading chunked NetCDF files requires dask
+        if not parallel_loading and write_to_disk is True:
+            write_to_disk = False
+
         # TODO: the first realization is weird, so omit it for now
         n_realizations += 1
         if dis_kwds is not None:
@@ -1690,27 +1696,34 @@ class Multisite:
                 str(varname)
                 for varname in self.sim_sea.coords["variable"].data
             ]
-        # expose the ensemble as a dask array
+        # expose the ensemble as a dask array (or in-memory if write_to_disk=False)
         drop_dummy = self.n_stations > 1
-        try:
-            self.ensemble = (
-                xr.open_mfdataset(filepaths[1:], **mf_kwds)
-                .assign_coords(realization=range(n_realizations))
-                .to_array("dummy")
-                .squeeze("dummy", drop=drop_dummy)
-            )
-        except KeyError as exc:
-            print(exc)
-            __import__("pdb").set_trace()
-        except OSError as exc:
-            print(exc)
-            __import__("pdb").set_trace()
-        except RuntimeError as exc:
-            if exc.__str__() == "NetCDF: Not a valid ID":
-                nc_file = exc.__context__.args[0][1][0]
-                print(f"Removing offending nc-file ({nc_file})")
-                Path(nc_file).unlink()
-            raise
+
+        if write_to_disk:
+            # Load ensemble from disk files
+            try:
+                self.ensemble = (
+                    xr.open_mfdataset(filepaths[1:], **mf_kwds)
+                    .assign_coords(realization=range(n_realizations))
+                    .to_array("dummy")
+                    .squeeze("dummy", drop=drop_dummy)
+                )
+            except KeyError as exc:
+                print(f"KeyError loading ensemble: {exc}")
+                raise
+            except OSError as exc:
+                print(f"OSError loading ensemble: {exc}")
+                raise
+            except RuntimeError as exc:
+                if exc.__str__() == "NetCDF: Not a valid ID":
+                    nc_file = exc.__context__.args[0][1][0]
+                    print(f"Removing offending nc-file ({nc_file})")
+                    Path(nc_file).unlink()
+                raise
+        else:
+            # Use in-memory ensemble from self.sim_sea
+            # Store the current simulation as the ensemble
+            self.ensemble = self.sim_sea.expand_dims("realization")
 
         if disaggregate:
             self.ensemble_daily = (
