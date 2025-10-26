@@ -11,7 +11,8 @@ xds = xr.open_dataset(Path.home() / "data/opendata_dwd/multisite_testdata.nc")
 
 # Initialize and generate ensemble
 multisite = Multisite(xds, verbose=True)
-ensemble = multisite.simulate_ensemble(n_realizations=5, name="example")
+# Keep ensemble in memory (avoids dask dependency for mfdataset loading)
+ensemble = multisite.simulate_ensemble(n_realizations=5, name="example", write_to_disk=False)
 
 # Visualize
 fig_axs = multisite.plot_ensemble_meteogram_daily()
