@@ -89,38 +89,24 @@ to PyPI first.
 
 # Quick Start
 
-After installation, you can use WeatherCop to generate multisite
-synthetic weather data:
+Generate a weather ensemble in 10 lines of code:
 
 ``` python
 import xarray as xr
 from weathercop.multisite import Multisite, set_conf
+import opendata_vg_conf as vg_conf
 
-# Configure VarWG (e.g., with your config module)
-import your_vg_conf
-set_conf(your_vg_conf)
-
-# Load multisite weather data as xarray Dataset
-# Expected dimensions: (time, station, variable)
-xds = xr.open_dataset("path/to/multisite_data.nc")
-
-# Initialize the multisite weather generator
-wc = Multisite(
-    xds,
-    verbose=True,
-)
-
-# Generate a single realization
-sim_result = wc.simulate()
-
-# Generate an ensemble of 20 realizations
-wc.simulate_ensemble(20)
-
-# Visualize results
-wc.plot_ensemble_stats()
-wc.plot_ensemble_meteogram_daily()
-wc.plot_ensemble_qq()
+set_conf(vg_conf)
+xds = xr.open_dataset("~/data/opendata_dwd/multisite_testdata.nc")
+multisite = Multisite(xds, verbose=True)
+ensemble = multisite.simulate_ensemble(n_realizations=5, name="example")
+figs = multisite.plot_ensemble_meteogram_daily()
+multisite.close()
 ```
+
+**See [examples/quickstart.py](examples/quickstart.py) for a complete working example.**
+
+For detailed tutorial with customization examples, see [examples/notebook_tutorial.ipynb](examples/notebook_tutorial.ipynb).
 
 # Troubleshooting
 
