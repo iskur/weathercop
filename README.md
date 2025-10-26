@@ -106,7 +106,7 @@ multisite.close()
 
 **See [examples/quickstart.py](examples/quickstart.py) for a complete working example.**
 
-For detailed tutorial with customization examples, see [examples/notebook_tutorial.ipynb](examples/notebook_tutorial.ipynb).
+For detailed tutorial with customization examples, see [examples/notebook_tutorial.ipynb](examples/notebook_tutorial.ipynb). To download real DWD weather data in the format WeatherCop expects, use the [dwd_opendata](https://github.com/iskur/dwd_opendata) package.
 
 # Troubleshooting
 
