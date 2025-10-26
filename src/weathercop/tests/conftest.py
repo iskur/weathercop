@@ -1,10 +1,10 @@
 """Pytest configuration and fixtures for weathercop tests."""
+
 import os
 import pytest
 from pathlib import Path
 import xarray as xr
 import gc
-import socket
 from weathercop.multisite import Multisite, set_conf
 from weathercop import cop_conf
 from weathercop.tests.memory_diagnostics import get_memory_logger
@@ -92,6 +92,7 @@ def multisite_instance(test_dataset, vg_config):
         wc.close()
     except Exception as e:
         import warnings
+
         warnings.warn(f"Error closing Multisite instance: {e}")
     finally:
         del wc
@@ -112,7 +113,9 @@ def log_test_memory(request):
     tracker = get_xarray_tracker()
     xarray_count = tracker.count_active()
 
-    logger.log_test_end(request.node.name, peak_memory_mb=peak_mb, xarray_count=xarray_count)
+    logger.log_test_end(
+        request.node.name, peak_memory_mb=peak_mb, xarray_count=xarray_count
+    )
 
 
 @pytest.fixture(scope="function", autouse=True)
