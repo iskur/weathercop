@@ -71,3 +71,25 @@ addopts = "-v --tb=short"
 
 [tool.mypy]
 disable_error_code = ["import-untyped"]
+
+[tool.cibuildwheel]
+# Build for Python 3.13 only
+build = "cp313-*"
+skip = "pp* *-musllinux_*"
+
+# Skip testing during build to avoid installing heavy dependencies (cartopy->pyproj->proj)
+# Extensions are validated by successful compilation; smoke tests run in CI workflow
+test-skip = "*"
+
+# Platform-specific settings
+[tool.cibuildwheel.linux]
+archs = ["x86_64"]
+before-build = "pip install cython numpy setuptools"
+
+[tool.cibuildwheel.windows]
+archs = ["AMD64"]
+before-build = "pip install cython numpy setuptools"
+
+[tool.cibuildwheel.macos]
+archs = ["x86_64", "arm64"]
+before-build = "pip install cython numpy setuptools"
