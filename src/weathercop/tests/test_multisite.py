@@ -10,7 +10,9 @@ from matplotlib import pyplot as plt
 
 import varwg
 from weathercop.multisite import Multisite, set_conf, nan_corrcoef
-import opendata_vg_conf as vg_conf
+from weathercop.configs import get_dwd_vg_config
+
+vg_conf = get_dwd_vg_config()
 
 set_conf(vg_conf)
 data_root = Path().home() / "data/opendata_dwd"
