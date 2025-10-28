@@ -9,7 +9,9 @@ from weathercop.multisite import Multisite, set_conf
 from weathercop import cop_conf
 from weathercop.tests.memory_diagnostics import get_memory_logger
 from weathercop.tests.xarray_tracking import get_xarray_tracker
-import opendata_vg_conf as vg_conf
+from weathercop.configs import get_dwd_vg_config
+
+vg_conf = get_dwd_vg_config()
 
 
 # Enable memory-efficient mode for testing

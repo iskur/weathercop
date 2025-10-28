@@ -1,0 +1,132 @@
+name: Build Multi-Platform Wheels
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'setup.py'
+      - 'pyproject.toml'
+      - 'src/weathercop/**/*.pyx'
+      - '.github/workflows/build-wheels.yml'
+
+jobs:
+  build_wheels:
+    name: Build wheels on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-13, macos-14]
+        # macos-13 is x86_64, macos-14 is arm64
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Build wheels
+      uses: pypa/cibuildwheel@v2.22.0
+      env:
+        CIBW_BUILD_VERBOSITY: 1
+
+    - name: Set up Python for verification
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+
+    - name: Verify wheel integrity after build
+      shell: bash
+      run: |
+        python -m pip install twine
+        ls -lh ./wheelhouse/*.whl
+        python -m twine check ./wheelhouse/*.whl
+
+    - name: Upload wheels as artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: wheels-${{ matrix.os }}
+        path: ./wheelhouse/*.whl
+        if-no-files-found: error
+
+  build_sdist:
+    name: Build source distribution
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v6
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+
+    - name: Install build dependencies
+      run: uv pip install --system cython numpy setuptools build
+
+    - name: Build sdist
+      run: uv build --sdist
+
+    - name: Upload sdist as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: sdist
+        path: dist/*.tar.gz
+        if-no-files-found: error
+
+  publish:
+    name: Publish to PyPI
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+    # Uncomment after setting up PyPI trusted publisher
+    # if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      id-token: write
+
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: dist
+        merge-multiple: true
+
+    - name: List distributions to upload
+      run: ls -lh dist/
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+
+    - name: Verify wheels after download
+      shell: bash
+      run: |
+        python -m pip install twine
+        python -m twine check dist/*.whl dist/*.tar.gz
+
+        # Thoroughly test ZIP structure of all wheels
+        python << 'EOF'
+        import zipfile
+        from pathlib import Path
+
+        for wheel in sorted(Path('dist').glob('*.whl')):
+            try:
+                with zipfile.ZipFile(wheel, 'r') as zf:
+                    # testzip() returns None if OK, or name of first bad file
+                    bad_file = zf.testzip()
+                    if bad_file:
+                        print(f"✗ {wheel.name}: BAD FILE {bad_file}")
+                        exit(1)
+                    print(f"✓ {wheel.name}: ZIP structure valid ({len(zf.namelist())} files)")
+            except Exception as e:
+                print(f"✗ {wheel.name}: {e}")
+                exit(1)
+
+        print("✓ All distributions verified successfully")
+        EOF
+
+    - name: Publish to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
+      with:
+        skip-existing: true

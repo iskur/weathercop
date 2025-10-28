@@ -3763,8 +3763,9 @@ class Multisite:
 
 
 if __name__ == "__main__":
-    import opendata_vg_conf as vg_conf
+    from weathercop.configs import get_dwd_vg_config
 
+    vg_conf = get_dwd_vg_config()
     set_conf(vg_conf)
     # Example usage - replace with your own data path:
     # xds = xr.open_dataset("path/to/your/multisite_testdata.nc")

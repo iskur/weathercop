@@ -5,8 +5,10 @@ from pathlib import Path
 import xarray as xr
 import matplotlib.pyplot as plt
 from weathercop import copulae
-import opendata_vg_conf as vg_conf
+from weathercop.configs import get_dwd_vg_config
 import varwg
+
+vg_conf = get_dwd_vg_config()
 
 ms.set_conf(vg_conf)
 data_root = Path().home() / "data/opendata_dwd"
