@@ -1123,6 +1123,18 @@ class Multisite:
             data_trans = data_trans.interpolate_na("time")
         self.data_trans = data_trans
         self.data_daily = data_daily
+
+        # DEBUG: Check for NaNs in data_trans before rank calculation
+        if self.verbose:
+            print("\n=== Checking data_trans for NaNs before rank calculation ===")
+            for var in data_trans.variable.values:
+                var_data = data_trans.sel(variable=var).values
+                nan_count = np.isnan(var_data).sum()
+                if nan_count > 0:
+                    total = var_data.size
+                    pct = 100 * nan_count / total
+                    print(f"Variable '{var}': {nan_count} NaNs out of {total} values ({pct:.1f}%)")
+
         # ranks = dists.norm.cdf(self.data_trans)
         ranks = xr.full_like(self.data_trans, np.nan)
         for station_name in self.station_names:
