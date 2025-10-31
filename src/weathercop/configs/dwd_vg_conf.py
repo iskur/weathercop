@@ -14,6 +14,9 @@ Variables covered:
 from varwg.time_series_analysis import distributions
 from varwg.time_series_analysis import seasonal_distributions as sd
 from varwg.time_series_analysis import seasonal_kde as skde
+from varwg.meteo import meteox2y
+import numpy as np
+
 
 # Station coordinates (None - using in-situ data, not location-dependent)
 latitude = None
@@ -23,13 +26,34 @@ longitude = None
 # Same unit as precipitation in the input file (mm)
 threshold = 0.01 * 24  # 0.24 mm daily threshold
 
+
+def max_sunshine_hours(doys):
+    from varwg import times
+
+    dates = times.doy2datetime(doys)
+    sun_hours = meteox2y.sunshine_hours(
+        dates,
+        longitude=longitude,
+        latitude=latitude,
+        # does not matter, because we
+        # are not interested in when,
+        # but in how long
+        # tz_offset=0
+        tz_offset=None,
+    )
+    return sun_hours
+
+
 # Distribution families for each variable
 # Maps variable names to VARWG distribution classes or "empirical" for KDE
 dists = {
-    "theta": distributions.norm,      # Temperature: normal distribution
+    "theta": distributions.norm,  # Temperature: normal distribution
     "R": (distributions.RainMix, distributions.kumaraswamy),  # Precip: mixed
-    "sun": distributions.norm,         # Sunshine duration: normal
-    "rh": "empirical",                 # Relative humidity: empirical (KDE)
+    "sun": (
+        distributions.RainMix,
+        distributions.kumaraswamy,
+    ),  # Sunshine duration: mixed
+    "rh": "empirical",  # Relative humidity: empirical (KDE)
 }
 
 # Seasonal distribution classes (fit parameters vs day-of-year)
@@ -39,44 +63,45 @@ seasonal_classes["rh"] = skde.SeasonalKDE  # Use KDE for humidity
 # Keyword arguments for seasonal distribution fitting
 dists_kwds = {
     "R": dict(
-        threshold=threshold,          # References top-level threshold
-        q_thresh_lower=0.95,          # Lower quantile for rain transition
-        q_thresh_upper=0.99,          # Upper quantile for extremes
-        doy_width=10,                 # 10-day window for seasonal fitting
-        fft_order=9,                  # Fourier series order for smoothing
-        tabulate_cdf=True             # Pre-compute CDF for speed
+        threshold=threshold,  # References top-level threshold
+        q_thresh_lower=0.95,  # Lower quantile for rain transition
+        q_thresh_upper=0.99,  # Upper quantile for extremes
+        doy_width=10,  # 10-day window for seasonal fitting
+        fft_order=9,  # Fourier series order for smoothing
+        # tabulate_cdf=True             # Pre-compute CDF for speed
     ),
     "theta": dict(
-        doy_width=15,                 # 15-day window for temp seasonality
-        fft_order=6,                  # Lower order for temperature smoothing
-        tabulate_cdf=True
+        doy_width=15,  # 15-day window for temp seasonality
+        fft_order=6,  # Lower order for temperature smoothing
+        # tabulate_cdf=True
     ),
-    "rh": dict(
-        doy_width=10                  # 10-day window for humidity seasonality
-    ),
+    "rh": dict(doy_width=10),  # 10-day window for humidity seasonality
     "sun": dict(
-        doy_width=15,                 # 15-day window for sunshine seasonality
-        q_thresh_lower=0.8,           # No sun on 80% of days
-        q_thresh_upper=0.975,         # Maximum sun near equinoxes
-        tabulate_cdf=True
+        doy_width=20,  # 15-day window for sunshine seasonality
+        q_thresh_lower=0.8,
+        q_thresh_upper=0.975,
+        # tabulate_cdf=True
     ),
 }
 
 # Known parameters fixed during fitting
 par_known = dict.fromkeys(dists)
-par_known.update({
-    "R": {
-        "l": lambda tt: 0 * tt,       # Lower bound: 0 (no negative rain)
-        "u": lambda tt: 1.0 + 0 * tt,  # Upper bound: 1 (normalized)
-    },
-    "rh": {
-        "lc": lambda tt: 0 * tt,      # Lower clipping: 0%
-        "uc": lambda tt: 1.0 + 0 * tt,  # Upper clipping: 100%
-    },
-    "sun": {
-        "l": lambda tt: 0 * tt,       # Lower bound: no negative sunshine
-    },
-})
+par_known.update(
+    {
+        "R": {
+            "l": lambda tt: 0 * tt,  # Lower bound: 0 (no negative rain)
+            "u": lambda tt: 1.0 + 0 * tt,  # Upper bound: 1 (normalized)
+        },
+        "rh": {
+            "lc": lambda tt: 0 * tt,  # Lower clipping: 0%
+            "uc": lambda tt: 1.0 + 0 * tt,  # Upper clipping: 100%
+        },
+        "sun": {
+            "l": lambda tt: 0 * tt,  # Lower bound: no negative sunshine
+            "u": np.vectorize(max_sunshine_hours),
+        },
+    }
+)
 
 # Human-readable variable names
 long_var_names = {
