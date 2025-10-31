@@ -1131,9 +1131,32 @@ class Multisite:
                 self.data_trans_dists[station_name],
             )
         ranks.data[(ranks.data <= 0) | (ranks.data >= 1)] = np.nan
+
+        # DEBUG: Check for NaNs before interpolation
+        nan_before = np.isnan(ranks.values).sum()
+        if nan_before > 0 and self.verbose:
+            print(f"DEBUG: {nan_before} NaNs in ranks before interpolation")
+            # Count NaNs per variable
+            for var in ranks.variable.values:
+                var_nans = np.isnan(ranks.sel(variable=var).values).sum()
+                print(f"  {var}: {var_nans} NaNs")
+
         self.ranks.values = ranks
         self.ranks = self.ranks.interpolate_na(dim="time")
-        assert np.all(np.isfinite(self.ranks.values))
+
+        # DEBUG: Check for NaNs after interpolation
+        nan_after = np.isnan(self.ranks.values).sum()
+        if nan_after > 0:
+            print(f"ERROR: {nan_after} NaNs in ranks after interpolation")
+            # Find which variables still have NaNs
+            for var in self.ranks.variable.values:
+                var_nans = np.isnan(self.ranks.sel(variable=var).values)
+                if var_nans.any():
+                    nans_count = var_nans.sum()
+                    print(f"  {var}: {nans_count} NaNs at indices: {np.where(var_nans.any(axis=(0,1)))[0][:10]}")  # First 10
+
+        assert np.all(np.isfinite(self.ranks.values)), \
+            f"Ranks contain {nan_after} NaN values after interpolation"
         if not self.station_vines:
             # reorganize so that variable dependence does not consider
             # inter-site relationships
