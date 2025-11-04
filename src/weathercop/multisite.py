@@ -1124,17 +1124,6 @@ class Multisite:
         self.data_trans = data_trans
         self.data_daily = data_daily
 
-        # DEBUG: Check for NaNs in data_trans before rank calculation
-        if self.verbose:
-            print("\n=== Checking data_trans for NaNs before rank calculation ===")
-            for var in data_trans.variable.values:
-                var_data = data_trans.sel(variable=var).values
-                nan_count = np.isnan(var_data).sum()
-                if nan_count > 0:
-                    total = var_data.size
-                    pct = 100 * nan_count / total
-                    print(f"Variable '{var}': {nan_count} NaNs out of {total} values ({pct:.1f}%)")
-
         # ranks = dists.norm.cdf(self.data_trans)
         ranks = xr.full_like(self.data_trans, np.nan)
         for station_name in self.station_names:
@@ -1144,31 +1133,15 @@ class Multisite:
             )
         ranks.data[(ranks.data <= 0) | (ranks.data >= 1)] = np.nan
 
-        # DEBUG: Check for NaNs before interpolation
-        nan_before = np.isnan(ranks.values).sum()
-        if nan_before > 0 and self.verbose:
-            print(f"DEBUG: {nan_before} NaNs in ranks before interpolation")
-            # Count NaNs per variable
-            for var in ranks.variable.values:
-                var_nans = np.isnan(ranks.sel(variable=var).values).sum()
-                print(f"  {var}: {var_nans} NaNs")
-
         self.ranks.values = ranks
         self.ranks = self.ranks.interpolate_na(dim="time")
 
-        # DEBUG: Check for NaNs after interpolation
-        nan_after = np.isnan(self.ranks.values).sum()
-        if nan_after > 0:
-            print(f"ERROR: {nan_after} NaNs in ranks after interpolation")
-            # Find which variables still have NaNs
-            for var in self.ranks.variable.values:
-                var_nans = np.isnan(self.ranks.sel(variable=var).values)
-                if var_nans.any():
-                    nans_count = var_nans.sum()
-                    print(f"  {var}: {nans_count} NaNs at indices: {np.where(var_nans.any(axis=(0,1)))[0][:10]}")  # First 10
+        # Fallback for boundary/sparse NaNs
+        if np.isnan(self.ranks.values).any():
+            self.ranks = self.ranks.bfill(dim="time").ffill(dim="time")
 
         assert np.all(np.isfinite(self.ranks.values)), \
-            f"Ranks contain {nan_after} NaN values after interpolation"
+            f"Ranks contain NaN values: {np.isnan(self.ranks.values).sum()} NaNs"
         if not self.station_vines:
             # reorganize so that variable dependence does not consider
             # inter-site relationships
