@@ -1124,6 +1124,31 @@ class Multisite:
         self.data_trans = data_trans
         self.data_daily = data_daily
 
+        # Check for all-NaN station-variable pairs (indicator of VarWG failures)
+        all_nan_pairs = []
+        for station_name in self.station_names:
+            for var_i, varname in enumerate(self.varnames):
+                data = self.data_trans.sel(
+                    station=station_name, variable=varname
+                ).values
+                if np.isnan(data).all():
+                    all_nan_pairs.append((station_name, varname))
+
+        if all_nan_pairs:
+            error_msg = (
+                "Found all-NaN transformed data (data_trans) for the following "
+                "station/variable pairs. This indicates a VarWG marginal "
+                "transformation failure and needs investigation:\n"
+            )
+            for station_name, varname in all_nan_pairs:
+                error_msg += f"  - Station: {station_name}, Variable: {varname}\n"
+            error_msg += (
+                "\nThis is a serious error that requires fixing in VarWG, not "
+                "masking in WeatherCop. Please investigate the VarWG "
+                "transformation for these variables."
+            )
+            raise RuntimeError(error_msg)
+
         # ranks = dists.norm.cdf(self.data_trans)
         ranks = xr.full_like(self.data_trans, np.nan)
         for station_name in self.station_names:
