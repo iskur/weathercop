@@ -58,6 +58,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Path configurations for cache directories and temporary files
 - Multiprocessing pool size (`n_nodes`) defaults to CPU count - 2
 
+**DWD VARWG Configuration (`src/weathercop/configs/dwd_vg_conf.py`)**
+- Specific VARWG configuration required for DWD meteorological data
+- **Location**: Defined in `src/weathercop/configs/dwd_vg_conf.py`
+- **Load point**: Tests import via `from weathercop.configs import get_dwd_vg_config`
+- **Apply point**: `set_conf(vg_conf)` in `multisite.py:17` and pytest `conftest.py`
+- **Critical**: Relative humidity (`rh`) must use empirical distribution (KDE), not truncnorm
+- Using the wrong configuration causes all-NaN transformations during data preprocessing
+
+To verify the correct config is loaded:
+```python
+import varwg
+from weathercop.configs import get_dwd_vg_config
+
+dwd_conf = get_dwd_vg_config()
+assert varwg.conf is dwd_conf
+assert varwg.conf.dists['rh'] == 'empirical'
+```
+
 ### Key Dependencies
 - **VARWG Library**: Custom dependency for time series analysis and weather generation (`varwg = { git = "https://github.com/iskur/varwg" }`)
 - **Cython**: Used for performance-critical numerical computations
@@ -118,3 +136,12 @@ If pytest runs slowly or appears to hang, it's because the copulae module is aut
 - The `name` property on vines is used in plot titles (set via `name` parameter or direct assignment)
 - main entry point: @src/weathercop/multisite.py::Multisite
 - VARWG is a single-site, WeatherCop is multisite. WeatherCop heavily depends on VARWG - it orchestrates VARWG instances and replaces their model via call-back functions. This lets WeatherCop deal with dependencies and VARWG fits distribution to the marginals and does the variable transform before and after WeatherCop simulation.
+
+### DWD Configuration Issues
+If you see `RuntimeError: Found all-NaN transformed data for rh`:
+1. Check `varwg.conf.dists['rh']` - should be `'empirical'`, not `'truncnorm'`
+2. Verify `set_conf()` was called in test setup (check `conftest.py`)
+3. Check import order - DWD config imports must happen before VarWG usage
+4. Ensure `get_dwd_vg_config()` is imported from `weathercop.configs`
+
+**Root cause**: Relative humidity data from DWD has unusual distribution characteristics that truncnorm cannot handle properly, resulting in NaN values during transformation. The empirical (KDE) distribution handles this correctly.
