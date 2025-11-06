@@ -94,7 +94,7 @@ par_known.update(
         },
         "rh": {
             "lc": lambda tt: 0 * tt,  # Lower clipping: 0%
-            "uc": lambda tt: 1.0 + 0 * tt,  # Upper clipping: 100%
+            "uc": lambda tt: 24 * 1.0 + 0 * tt,  # Upper clipping: 24 (daily aggregation)
         },
         "sun": {
             "l": lambda tt: 0 * tt,  # Lower bound: no negative sunshine
