@@ -1104,7 +1104,7 @@ wheels = [
 
 [[package]]
 name = "varwg"
-version = "1.4.0"
+version = "1.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "bottleneck" },
@@ -1118,12 +1118,12 @@ dependencies = [
     { name = "tqdm" },
     { name = "xarray" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c3/ca/133e85349ed27e7d4fc437f20c09b7eb7fa4ebfc1221c072877b9b026a36/varwg-1.4.0.tar.gz", hash = "sha256:4aaa713a022463843431c8b444be731f19e7311724210e334e09e6f1d61870d9", size = 2397830, upload-time = "2025-10-21T19:55:45.488Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/3b/e8/28ce83779845f85d74b7f144b7ba240d1f8b4a789d764473f3c731f8d6db/varwg-1.4.1.tar.gz", hash = "sha256:022a934d9ee4aea2fc5f8e6bcbb2ae026f35a74472658e99eb194e11b2a158ae", size = 2414480, upload-time = "2025-11-05T21:46:23.665Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a2/7d/d995fc32e48a34503a4b52752b57858ed9ff3673ff4fde890c24211e9427/varwg-1.4.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:a276050afbeafe221fa0fb9bfb0ff518b073cb2bb32335a5be5c46bce3224c5c", size = 2714995, upload-time = "2025-10-21T19:55:37.947Z" },
-    { url = "https://files.pythonhosted.org/packages/fe/86/d7ee10ec0284353d609ffb6fbd2479c7899a6895a7b42776ffc751ce197f/varwg-1.4.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:0670f7bef179bfb4ecd323d807adc4fa18669f98d7e30b5ea31d65faf0184604", size = 2693006, upload-time = "2025-10-21T19:55:39.815Z" },
-    { url = "https://files.pythonhosted.org/packages/f3/92/7a30417ed2124788e37bd950aae3fa748a0d1a1feb1f01e165c1e8790737/varwg-1.4.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:cb13050e10ca1bdbe344f4e78768281f78cddb088de75d4eee22dd68ca497d03", size = 4271458, upload-time = "2025-10-21T19:55:41.565Z" },
-    { url = "https://files.pythonhosted.org/packages/13/7c/13ed37b02d1d545aa27b3d61c408676f3f1b735a0f500a95234c8814a15e/varwg-1.4.0-cp313-cp313-win_amd64.whl", hash = "sha256:7725ef5955b8f03363c9e040952eceeb38b186a35676dba8d30efe59e45bff93", size = 2686321, upload-time = "2025-10-21T19:55:43.607Z" },
+    { url = "https://files.pythonhosted.org/packages/28/f9/e1f4d38534a09605f30ba33bd89ca16ed8af681b10bff1385a18b3adcaaf/varwg-1.4.1-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:7cb94bf5e05649743020c5dc7c96c37fc3c1343cbfa5cf40181c3dccf51d8e9c", size = 2727826, upload-time = "2025-11-05T10:19:14.506Z" },
+    { url = "https://files.pythonhosted.org/packages/52/c5/5d530cdeab13a16599d830b14244833b38cb1b8ce1b21238c8510e290d4e/varwg-1.4.1-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:57eff44552a4c5c1c783684779e6ea9e3e130eb3fb54189b6c27c79e77b931af", size = 2722297, upload-time = "2025-11-05T21:46:18.37Z" },
+    { url = "https://files.pythonhosted.org/packages/23/7f/ca3d0cb18d557c11ead330abff2aeb02cfea0a47848ba109a51d3d68106f/varwg-1.4.1-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:01309a034171e83c84aa70a1c70693ba6c74cc6cb21fd351df726758e6156776", size = 4258420, upload-time = "2025-11-05T21:46:20.104Z" },
+    { url = "https://files.pythonhosted.org/packages/4a/9d/fa3d25ffcf2260031b2997c3ab98d12589191d40727724c26b8165b72c6c/varwg-1.4.1-cp313-cp313-win_amd64.whl", hash = "sha256:07faf7b640835c0a0144ba2f98cf8e93c3858599342dbc1cc1b17b16275e9bfb", size = 2697322, upload-time = "2025-11-05T21:46:21.936Z" },
 ]
 
 [[package]]
@@ -1207,7 +1207,7 @@ requires-dist = [
     { name = "sympy", specifier = ">=1.14.0" },
     { name = "timezonefinder", specifier = ">=6.5.9" },
     { name = "tqdm", specifier = ">=4.67.1" },
-    { name = "varwg" },
+    { name = "varwg", specifier = ">=1.4.1" },
     { name = "xarray", specifier = ">=2025.6.1" },
 ]
 
