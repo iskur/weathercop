@@ -39,6 +39,23 @@ def pytest_sessionfinish(session, exitstatus):
     logger.log_session_end()
 
 
+@pytest.fixture(scope="session", autouse=True)
+def setup_dwd_varwg_config():
+    """Configure VarWG with DWD WeatherCop settings before any tests run.
+
+    This must run at session scope and be autouse=True to ensure the config
+    is set BEFORE VarWG modules are imported by test code.
+    """
+    from weathercop.configs import get_dwd_vg_config
+    from weathercop.multisite import set_conf
+
+    vg_conf = get_dwd_vg_config()
+    set_conf(vg_conf)
+
+    yield  # Tests run here
+    # No cleanup needed - config persists for all tests in session
+
+
 @pytest.fixture(scope="session")
 def vg_config():
     """Initialize and return VG configuration (session-scoped)."""
