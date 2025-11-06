@@ -70,11 +70,24 @@ if parallel_loading:
 
 
 def set_conf(conf_obj, **kwds):
+    """Apply DWD configuration to VarWG modules.
+
+    Validates that the configuration is properly applied to all VarWG
+    modules that cache it. This is critical for tox and other contexts
+    where import order may vary.
+    """
     objs = (varwg, vg_core, vg_base, vg_plotting)
     for obj in objs:
         obj.conf = conf_obj
         for key, value in kwds.items():
             setattr(obj.conf, key, value)
+
+    # Defensive check: verify config was actually set
+    if varwg.conf is not conf_obj:
+        warnings.warn(
+            f"VarWG configuration may not be properly applied. "
+            f"Expected {conf_obj}, got {varwg.conf}"
+        )
 
 
 def pickle_filepath(xds, rain_method="simulation", warn=True):
