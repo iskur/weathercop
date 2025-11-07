@@ -855,12 +855,12 @@ class Multisite:
         """
         closed_ids = set()
 
-        for attr_name in ['ensemble_trans', 'ensemble_daily', 'ensemble']:
+        for attr_name in ["ensemble_trans", "ensemble_daily", "ensemble"]:
             if (obj := getattr(self, attr_name, None)) is None:
                 continue
 
             obj_id = id(obj)
-            if obj_id in closed_ids or not hasattr(obj, 'close'):
+            if obj_id in closed_ids or not hasattr(obj, "close"):
                 continue
 
             try:
@@ -868,6 +868,7 @@ class Multisite:
                 closed_ids.add(obj_id)
             except Exception as e:
                 import warnings
+
                 warnings.warn(f"Failed to close {attr_name}: {e}")
 
     def __eq__(self, other):
@@ -1154,7 +1155,9 @@ class Multisite:
                 "transformation failure and needs investigation:\n"
             )
             for station_name, varname in all_nan_pairs:
-                error_msg += f"  - Station: {station_name}, Variable: {varname}\n"
+                error_msg += (
+                    f"  - Station: {station_name}, Variable: {varname}\n"
+                )
             error_msg += (
                 "\nThis is a serious error that requires fixing in VarWG, not "
                 "masking in WeatherCop. Please investigate the VarWG "
@@ -1178,8 +1181,9 @@ class Multisite:
         if np.isnan(self.ranks.values).any():
             self.ranks = self.ranks.bfill(dim="time").ffill(dim="time")
 
-        assert np.all(np.isfinite(self.ranks.values)), \
-            f"Ranks contain NaN values: {np.isnan(self.ranks.values).sum()} NaNs"
+        assert np.all(
+            np.isfinite(self.ranks.values)
+        ), f"Ranks contain NaN values: {np.isnan(self.ranks.values).sum()} NaNs"
         if not self.station_vines:
             # reorganize so that variable dependence does not consider
             # inter-site relationships
@@ -1517,10 +1521,10 @@ class Multisite:
         *args,
         **kwds,
     ):
-        # If parallel loading is disabled (no dask), default to keeping ensemble in memory
-        # because reading chunked NetCDF files requires dask
-        if not parallel_loading and write_to_disk is True:
-            write_to_disk = False
+        # # If parallel loading is disabled (no dask), default to keeping ensemble in memory
+        # # because reading chunked NetCDF files requires dask
+        # if not parallel_loading and write_to_disk is True:
+        #     write_to_disk = False
 
         # TODO: the first realization is weird, so omit it for now
         n_realizations += 1
@@ -1630,8 +1634,10 @@ class Multisite:
                             csv_path, sim_sea, filename_prefix=f"{real_str}_"
                         )
                     np.save(filepaths_rphases[real_i], self.rphases)
-                    if (sim_result.sim_trans is not None
-                        and not cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING):
+                    if (
+                        sim_result.sim_trans is not None
+                        and not cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING
+                    ):
                         sim_result.sim_trans.to_netcdf(filepath_trans)
         else:
             # this means we do parallel computation
@@ -1671,7 +1677,10 @@ class Multisite:
                     self.to_csv(
                         csv_path, sim_sea, filename_prefix=f"{real_str}_"
                     )
-                if write_to_disk and not cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING:
+                if (
+                    write_to_disk
+                    and not cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING
+                ):
                     if sim_result.sim_trans is not None:
                         sim_result.sim_trans.to_netcdf(filepaths_trans[0])
             # filter realizations in advance according to output file
