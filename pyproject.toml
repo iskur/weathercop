@@ -24,7 +24,7 @@ dependencies = [
     "sympy>=1.14.0",
     "timezonefinder>=6.5.9",
     "tqdm>=4.67.1",
-    "varwg",
+    "varwg>=1.4.1",
     "xarray>=2025.6.1",
 ]
 
@@ -44,6 +44,7 @@ dev = [
     "flake8>=7.3.0",
     "ipython>=9.5.0",
     "pre-commit>=4.0.0",
+    "psutil>=7.1.2",
     "pyflakes>=3.4.0",
     "pytest>=8.4.1",
     "setuptools>=80.9.0",
@@ -53,6 +54,7 @@ optional = [
 ]
 test = [
     "cython>=3.1.2",
+    "psutil>=7.1.2",
     "pytest>=8.4.1",
     "setuptools>=80.9.0",
     "tox>=4.24.2",
@@ -60,8 +62,6 @@ test = [
 ]
 
 [tool.pytest.ini_options]
-# Use --pdb flag manually when debugging: pytest --pdb
-# addopts = "--pdb"
 testpaths = ["src/weathercop/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test"]
@@ -71,3 +71,25 @@ addopts = "-v --tb=short"
 
 [tool.mypy]
 disable_error_code = ["import-untyped"]
+
+[tool.cibuildwheel]
+# Build for Python 3.13 only
+build = "cp313-*"
+skip = "pp* *-musllinux_*"
+
+# Skip testing during build to avoid installing heavy dependencies (cartopy->pyproj->proj)
+# Extensions are validated by successful compilation; smoke tests run in CI workflow
+test-skip = "*"
+
+# Platform-specific settings
+[tool.cibuildwheel.linux]
+archs = ["x86_64"]
+before-build = "pip install cython numpy setuptools"
+
+[tool.cibuildwheel.windows]
+archs = ["AMD64"]
+before-build = "pip install cython numpy setuptools"
+
+[tool.cibuildwheel.macos]
+archs = ["x86_64", "arm64"]
+before-build = "pip install cython numpy setuptools"

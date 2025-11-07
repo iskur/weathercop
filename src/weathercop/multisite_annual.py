@@ -38,7 +38,6 @@ def get_yearly_integs(amp, period, shift, hyd_years_ii, tt):
     yearly_integs = np.zeros(len(hyd_years_ii))
     hyd_years_ii = np.concatenate((hyd_years_ii, [tt[-1]]))
     year_i = 0
-    __import__("pdb").set_trace()
     for step, integ in zip(integ_steps, integs_all):
         if step > hyd_years_ii[year_i]:
             year_i += 1

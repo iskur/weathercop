@@ -9,10 +9,10 @@ import numpy as np
 from weathercop import (
     cop_conf,
     copulae,
-    plotting as wplt,
-    seasonal_cop as scop,
     stats,
 )
+from weathercop import plotting as wplt
+from weathercop import seasonal_cop as scop
 
 
 def generate_fitted(args, verbose=False, **kwds):
@@ -229,7 +229,7 @@ def mml_serial(
                 edgecolor=(0, 0, 0, 0.25),
             )
             ax.set_title(
-                "%s\n%.2f" % (cop.name[len("fitted "):], cop.likelihood),
+                "%s\n%.2f" % (cop.name[len("fitted ") :], cop.likelihood),
                 fontsize=8,
             )
         fig.tight_layout()
@@ -293,7 +293,7 @@ def plot_matrix(data, kind="contourf"):
                     edgecolor=(0, 0, 0, 0.1),
                 )
                 ax.set_title(
-                    "%s (%.2f)" % (cop.name[len("fitted "):], cop.likelihood)
+                    "%s (%.2f)" % (cop.name[len("fitted ") :], cop.likelihood)
                 )
                 rho = stats.spearmans_rank(ranks_x, ranks_y)
                 asy1 = stats.asymmetry1(ranks_x, ranks_y)

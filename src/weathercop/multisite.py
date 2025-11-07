@@ -70,11 +70,24 @@ if parallel_loading:
 
 
 def set_conf(conf_obj, **kwds):
+    """Apply DWD configuration to VarWG modules.
+
+    Validates that the configuration is properly applied to all VarWG
+    modules that cache it. This is critical for tox and other contexts
+    where import order may vary.
+    """
     objs = (varwg, vg_core, vg_base, vg_plotting)
     for obj in objs:
         obj.conf = conf_obj
         for key, value in kwds.items():
             setattr(obj.conf, key, value)
+
+    # Defensive check: verify config was actually set
+    if varwg.conf is not conf_obj:
+        warnings.warn(
+            f"VarWG configuration may not be properly applied. "
+            f"Expected {conf_obj}, got {varwg.conf}"
+        )
 
 
 def pickle_filepath(xds, rain_method="simulation", warn=True):
@@ -842,12 +855,12 @@ class Multisite:
         """
         closed_ids = set()
 
-        for attr_name in ['ensemble_trans', 'ensemble_daily', 'ensemble']:
+        for attr_name in ["ensemble_trans", "ensemble_daily", "ensemble"]:
             if (obj := getattr(self, attr_name, None)) is None:
                 continue
 
             obj_id = id(obj)
-            if obj_id in closed_ids or not hasattr(obj, 'close'):
+            if obj_id in closed_ids or not hasattr(obj, "close"):
                 continue
 
             try:
@@ -855,6 +868,7 @@ class Multisite:
                 closed_ids.add(obj_id)
             except Exception as e:
                 import warnings
+
                 warnings.warn(f"Failed to close {attr_name}: {e}")
 
     def __eq__(self, other):
@@ -1123,6 +1137,34 @@ class Multisite:
             data_trans = data_trans.interpolate_na("time")
         self.data_trans = data_trans
         self.data_daily = data_daily
+
+        # Check for all-NaN station-variable pairs (indicator of VarWG failures)
+        all_nan_pairs = []
+        for station_name in self.station_names:
+            for var_i, varname in enumerate(self.varnames):
+                data = self.data_trans.sel(
+                    station=station_name, variable=varname
+                ).values
+                if np.isnan(data).all():
+                    all_nan_pairs.append((station_name, varname))
+
+        if all_nan_pairs:
+            error_msg = (
+                "Found all-NaN transformed data (data_trans) for the following "
+                "station/variable pairs. This indicates a VarWG marginal "
+                "transformation failure and needs investigation:\n"
+            )
+            for station_name, varname in all_nan_pairs:
+                error_msg += (
+                    f"  - Station: {station_name}, Variable: {varname}\n"
+                )
+            error_msg += (
+                "\nThis is a serious error that requires fixing in VarWG, not "
+                "masking in WeatherCop. Please investigate the VarWG "
+                "transformation for these variables."
+            )
+            raise RuntimeError(error_msg)
+
         # ranks = dists.norm.cdf(self.data_trans)
         ranks = xr.full_like(self.data_trans, np.nan)
         for station_name in self.station_names:
@@ -1131,9 +1173,17 @@ class Multisite:
                 self.data_trans_dists[station_name],
             )
         ranks.data[(ranks.data <= 0) | (ranks.data >= 1)] = np.nan
+
         self.ranks.values = ranks
         self.ranks = self.ranks.interpolate_na(dim="time")
-        assert np.all(np.isfinite(self.ranks.values))
+
+        # Fallback for boundary/sparse NaNs
+        if np.isnan(self.ranks.values).any():
+            self.ranks = self.ranks.bfill(dim="time").ffill(dim="time")
+
+        assert np.all(
+            np.isfinite(self.ranks.values)
+        ), f"Ranks contain NaN values: {np.isnan(self.ranks.values).sum()} NaNs"
         if not self.station_vines:
             # reorganize so that variable dependence does not consider
             # inter-site relationships
@@ -1471,10 +1521,10 @@ class Multisite:
         *args,
         **kwds,
     ):
-        # If parallel loading is disabled (no dask), default to keeping ensemble in memory
-        # because reading chunked NetCDF files requires dask
-        if not parallel_loading and write_to_disk is True:
-            write_to_disk = False
+        # # If parallel loading is disabled (no dask), default to keeping ensemble in memory
+        # # because reading chunked NetCDF files requires dask
+        # if not parallel_loading and write_to_disk is True:
+        #     write_to_disk = False
 
         # TODO: the first realization is weird, so omit it for now
         n_realizations += 1
@@ -1584,8 +1634,10 @@ class Multisite:
                             csv_path, sim_sea, filename_prefix=f"{real_str}_"
                         )
                     np.save(filepaths_rphases[real_i], self.rphases)
-                    if (sim_result.sim_trans is not None
-                        and not cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING):
+                    if (
+                        sim_result.sim_trans is not None
+                        and not cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING
+                    ):
                         sim_result.sim_trans.to_netcdf(filepath_trans)
         else:
             # this means we do parallel computation
@@ -1625,7 +1677,10 @@ class Multisite:
                     self.to_csv(
                         csv_path, sim_sea, filename_prefix=f"{real_str}_"
                     )
-                if write_to_disk and not cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING:
+                if (
+                    write_to_disk
+                    and not cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING
+                ):
                     if sim_result.sim_trans is not None:
                         sim_result.sim_trans.to_netcdf(filepaths_trans[0])
             # filter realizations in advance according to output file
@@ -3763,8 +3818,9 @@ class Multisite:
 
 
 if __name__ == "__main__":
-    import opendata_vg_conf as vg_conf
+    from weathercop.configs import get_dwd_vg_config
 
+    vg_conf = get_dwd_vg_config()
     set_conf(vg_conf)
     # Example usage - replace with your own data path:
     # xds = xr.open_dataset("path/to/your/multisite_testdata.nc")
