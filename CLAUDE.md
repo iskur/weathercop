@@ -145,3 +145,4 @@ If you see `RuntimeError: Found all-NaN transformed data for rh`:
 4. Ensure `get_dwd_vg_config()` is imported from `weathercop.configs`
 
 **Root cause**: Relative humidity data from DWD has unusual distribution characteristics that truncnorm cannot handle properly, resulting in NaN values during transformation. The empirical (KDE) distribution handles this correctly.
+- The tests are very slow. If you run the full test suite or "uv run tox", do so in the background.
