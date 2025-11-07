@@ -5,6 +5,8 @@ import tempfile
 from pathlib import Path
 import xarray as xr
 
+from weathercop.tests.assertion_utils import assert_valid_ensemble_structure
+
 
 @pytest.fixture
 @pytest.mark.slow
@@ -32,9 +34,9 @@ def test_ensemble_generation_creates_dataset(ensemble_with_disk_output):
 
 
 def test_ensemble_is_valid_xarray(ensemble_with_disk_output):
-    """Test that ensemble is a valid xarray Dataset or DataArray."""
+    """Test that ensemble is a valid xarray Dataset with required dimensions."""
     ensemble, _ = ensemble_with_disk_output
-    assert isinstance(ensemble, (xr.Dataset, xr.DataArray))
+    assert_valid_ensemble_structure(ensemble)
 
 
 @pytest.mark.parametrize("dimension", ["station", "variable", "time"])
