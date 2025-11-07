@@ -38,18 +38,20 @@ class Test(npt.TestCase):
             fit_kwds=dict(seasonal=True),
         )
         self.sim_result = self.wc.simulate(
-            phase_randomize_vary_mean=False, return_rphases=True
+            phase_randomize_vary_mean=False,
+            return_rphases=True,
         )
 
     def tearDown(self):
         """Explicit cleanup after each test."""
         # Cleanup matplotlib figures
         from matplotlib import pyplot as plt
-        plt.close('all')
 
-        if hasattr(self, 'wc'):
+        plt.close("all")
+
+        if hasattr(self, "wc"):
             del self.wc
-        if hasattr(self, 'xds'):
+        if hasattr(self, "xds"):
             self.xds.close()
         gc.collect()
 
@@ -69,7 +71,7 @@ class Test(npt.TestCase):
     #     # ax.plot(coeffs, "--")
     #     plt.show()
 
-    def test_phase_randomization(self):
+    def test_phase_randomization_corr(self):
         qq_std = self.wc.qq_std
         fft_sim = self.wc.fft_sim
         for var_i, varname in enumerate(self.wc.varnames):
@@ -166,7 +168,7 @@ class Test(npt.TestCase):
                 plt.show()
                 raise
 
-    def test_sim(self):
+    def test_sim_mean(self):
         sim_sea = self.sim_result.sim_sea
         # for station_name, svg in self.wc.vgs.items():
         #     fig, axs = svg.plot_meteogramm()
