@@ -48,7 +48,7 @@ def test_debug_05_config_identity():
 
 def test_debug_06_module_paths():
     """Check where varwg modules are loaded from."""
-    import varwg.core.core as vg_core
+    from varwg.core import core as vg_core
     import varwg.core.base as vg_base
 
     print(f"\n✓ varwg module path: {varwg.__file__}")
