@@ -178,6 +178,22 @@ def log_test_memory(request):
     )
 
 
+@pytest.fixture(scope="function")
+def multisite_simulation_result(multisite_instance):
+    """Simulate weather once and return result for reuse across multiple tests.
+
+    This fixture mimics the setUp() behavior from test_multisite.Test but using
+    pytest fixture patterns. It runs the expensive simulation once and shares
+    the result across test functions that depend on it.
+    """
+    sim_result = multisite_instance.simulate(
+        T=2 * multisite_instance.T_daily,
+        phase_randomize_vary_mean=False,
+        return_rphases=True,
+    )
+    return multisite_instance, sim_result
+
+
 @pytest.fixture(scope="function", autouse=True)
 def cleanup_after_test():
     """Auto-cleanup fixture to run after each test."""
