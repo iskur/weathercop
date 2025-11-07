@@ -6,23 +6,22 @@ from weathercop.configs import get_dwd_vg_config
 
 def test_debug_01_config_exists():
     """Check if varwg.conf exists."""
-    assert hasattr(varwg, 'conf'), "varwg.conf does not exist!"
+    assert hasattr(varwg, "conf"), "varwg.conf does not exist!"
     print(f"\n✓ varwg.conf exists: {varwg.conf}")
 
 
 def test_debug_02_config_has_dists():
     """Check if config has dists."""
-    assert hasattr(varwg.conf, 'dists'), "varwg.conf.dists does not exist!"
+    assert hasattr(varwg.conf, "dists"), "varwg.conf.dists does not exist!"
     print(f"\n✓ varwg.conf.dists exists: {varwg.conf.dists}")
 
 
 def test_debug_03_rh_dist():
     """Check what distribution is used for rh."""
-    rh_dist = varwg.conf.dists.get('rh', 'NOT FOUND')
+    rh_dist = varwg.conf.dists.get("rh", "NOT FOUND")
     print(f"\n✓ varwg.conf.dists['rh'] = {rh_dist}")
-    assert rh_dist == 'empirical', (
-        f"Expected 'empirical', got {rh_dist}. "
-        f"This is the problem!"
+    assert rh_dist == "empirical", (
+        f"Expected 'empirical', got {rh_dist}. " f"This is the problem!"
     )
 
 
@@ -31,7 +30,7 @@ def test_debug_04_dwd_conf_object():
     dwd_conf = get_dwd_vg_config()
     print(f"\n✓ dwd_conf object: {dwd_conf}")
     print(f"  - dwd_conf.dists['rh'] = {dwd_conf.dists['rh']}")
-    assert dwd_conf.dists['rh'] == 'empirical'
+    assert dwd_conf.dists["rh"] == "empirical"
 
 
 def test_debug_05_config_identity():
