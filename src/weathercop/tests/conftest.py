@@ -5,6 +5,9 @@ import pytest
 from pathlib import Path
 import xarray as xr
 import gc
+import shutil
+import tempfile
+import dill
 from weathercop.multisite import Multisite, set_conf
 from weathercop import cop_conf
 from weathercop.tests.memory_diagnostics import get_memory_logger
@@ -81,6 +84,26 @@ def data_root():
     return Path().home() / "data/opendata_dwd"
 
 
+@pytest.fixture(scope="session")
+def vg_cache_dir():
+    """Return path to VARWG cache fixtures directory (session-scoped).
+
+    Returns None if cache does not exist (will trigger fresh fitting in tests).
+    """
+    cache_dir = Path(__file__).parent / "fixtures"
+    cache_ready_marker = cache_dir / "vg_cache_ready"
+
+    if cache_ready_marker.exists():
+        return cache_dir
+    return None
+
+
+def _vg_cache_exists():
+    """Check if VARWG cache is available."""
+    cache_dir = Path(__file__).parent / "fixtures"
+    return (cache_dir / "vg_cache_ready").exists()
+
+
 @pytest.fixture(scope="function")
 def test_dataset(data_root):
     """Load test dataset fresh for each test (function-scoped)."""
@@ -91,21 +114,39 @@ def test_dataset(data_root):
 
 
 @pytest.fixture(scope="function")
-def multisite_instance(test_dataset, vg_config):
+def multisite_instance(test_dataset, vg_config, vg_cache_dir):
     """Create a fresh Multisite instance for each test (function-scoped).
 
-    Note: test_dataset is now function-scoped, so each test gets a fresh
-    dataset and Multisite instance with independent memory.
+    If VARWG cache exists (vg_cache_ready marker), uses cached instances
+    with reinitialize_vgs=False (fast). Otherwise fits fresh (slow).
+
+    Note: test_dataset is function-scoped, so each test gets a fresh dataset
+    and Multisite instance with independent memory.
     """
+    # Determine whether to use cached VGs or fit fresh
+    use_cached_vgs = vg_cache_dir is not None
+
+    if use_cached_vgs:
+        # Use cached VARWG instances - skip fitting
+        reinit_vgs = False
+        cache_dir = vg_cache_dir
+    else:
+        # No cache available - fit fresh (slower)
+        reinit_vgs = True
+        cache_dir = None
+
     wc = Multisite(
         test_dataset,
         verbose=False,
-        refit=True,
+        refit=False,
         refit_vine=False,
-        reinitialize_vgs=True,
+        reinitialize_vgs=reinit_vgs,
         fit_kwds=dict(seasonal=True),
+        vgs_cache_dir=cache_dir,
     )
+
     yield wc
+
     # Cleanup after each test - use Multisite's close() method
     try:
         wc.close()
