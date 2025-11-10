@@ -35,7 +35,7 @@ ensemble_root.mkdir(exist_ok=True, parents=True)
 
 script_home = Path(__file__).parent
 ufunc_tmp_dir = script_home / "ufuncs"
-sympy_cache = ufunc_tmp_dir / "sympy_cache.she"
+sympy_cache = ufunc_tmp_dir / "sympy_cache.json"
 cache_dir = weathercop_dir / "cache"
 theano_cache = ufunc_tmp_dir / "theano_cache.she"
 vine_cache = cache_dir / "vine_cache.she"
