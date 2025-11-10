@@ -23,7 +23,7 @@ from scipy.optimize import (
     # minimize_scalar,
 )
 from scipy.special import erf, erfinv
-from sympy import exp, ln
+from sympy import exp, ln, sympify
 from sympy.utilities import autowrap
 
 # from sympy.codegen.rewriting import optimize, optims_c99
@@ -519,10 +519,10 @@ class MetaCop(ABCMeta):
     def conditional_cdf(cls, conditioning):
         uu, vv, *theta = sympy.symbols(cls.par_names)
         expr_attr = rf"cdf_given_{conditioning}_expr"
-        with tools.shelve_open(conf.sympy_cache) as sh:
+        with tools.json_cache_open(conf.sympy_cache) as cache:
             cls_hash = tools.hash_cop(cls)
             key = f"{cls.name}_cdf_given_{conditioning}_{cls_hash}"
-            if key not in sh or cls.name in rederive:
+            if key not in cache or cls.name in rederive:
                 print(f"Generating {conditioning}-conditional {cls.name}")
                 # a good cop always stays positive!
                 # good_cop = sympy.Piecewise((cls.cop_expr,
@@ -536,8 +536,8 @@ class MetaCop(ABCMeta):
                 conditional_cdf = sympy.diff(good_cop, conditioning)
                 conditional_cdf = sympy.simplify(conditional_cdf)
                 # conditional_cdf = optimize(good_cop, optims_c99)
-                sh[key] = conditional_cdf
-            conditional_cdf = sh[key]
+                cache[key] = str(conditional_cdf)
+            conditional_cdf = sympify(cache[key])
             setattr(cls, expr_attr, conditional_cdf)
         ufunc = ufuncify(
             cls,
@@ -559,10 +559,10 @@ class MetaCop(ABCMeta):
     def conditional_cdf_prime(cls, conditioning, conditioned):
         uu, vv, *theta = sympy.symbols(cls.par_names)
         expr_attr = rf"cdf_given_{conditioning}_expr"
-        with tools.shelve_open(conf.sympy_cache) as sh:
+        with tools.json_cache_open(conf.sympy_cache) as cache:
             cls_hash = tools.hash_cop(cls)
             key = f"{cls.name}_cdf_given_{conditioning}_prime_{cls_hash}"
-            if key not in sh or cls.name in rederive:
+            if key not in cache or cls.name in rederive:
                 print(
                     f"Generating {conditioning}-conditional prime {cls.name}"
                 )
@@ -574,8 +574,8 @@ class MetaCop(ABCMeta):
                 # conditional_cdf_prime = optimize(
                 #     conditional_cdf_prime, optims_c99
                 # )
-                sh[key] = conditional_cdf_prime
-            conditional_cdf_prime = sh[key]
+                cache[key] = str(conditional_cdf_prime)
+            conditional_cdf_prime = sympify(cache[key])
             setattr(cls, expr_attr, conditional_cdf_prime)
         ufunc = ufuncify(
             cls,
@@ -609,8 +609,8 @@ class MetaCop(ABCMeta):
         attr_name = f"inv_cdf_given_{conditioning}_expr"
         if not hasattr(cls, attr_name) or cls.rotated:
             # cached sympy derivation
-            with tools.shelve_open(conf.sympy_cache) as sh:
-                if key not in sh or cls.name in rederive:
+            with tools.json_cache_open(conf.sympy_cache) as cache:
+                if key not in cache or cls.name in rederive:
                     print(
                         f"Generating inverse {conditioning}-conditional "
                         f"{cls.name}"
@@ -636,8 +636,8 @@ class MetaCop(ABCMeta):
                         mark_failed(key)
                         return
                     # inv_cdf = optimize(inv_cdf, optims_c99)
-                    sh[key] = inv_cdf
-                inv_cdf = sh[key]
+                    cache[key] = str(inv_cdf)
+                inv_cdf = sympify(cache[key])
                 setattr(cls, attr_name, inv_cdf)
         inv_cdf = getattr(cls, attr_name)
         # compile sympy expression
@@ -679,18 +679,18 @@ class MetaCop(ABCMeta):
 
         """
         uu, vv, *theta = sympy.symbols(cls.par_names)
-        with tools.shelve_open(conf.sympy_cache) as sh:
+        with tools.json_cache_open(conf.sympy_cache) as cache:
             cls_hash = tools.hash_cop(cls)
             key = f"{cls.name}_density_{cls_hash}"
-            if key not in sh or cls.name in rederive:
+            if key not in cache or cls.name in rederive:
                 print(f"Generating density for {cls.name}")
                 dens_expr = sympy.diff(cls.cop_expr, uu, vv)
                 # dens_expr = sympy.Piecewise((dens_expr, cls.cop_expr > 0),
                 #                             (0, True))
                 dens_expr = sympy.simplify(dens_expr)
                 # dens_expr = optimize(dens_expr, optims_c99)
-                sh[key] = dens_expr
-            dens_expr = sh[key]
+                cache[key] = str(dens_expr)
+            dens_expr = sympify(cache[key])
         # for outer pleasure
         cls.dens_expr = dens_expr
         ufunc = ufuncify(
@@ -710,17 +710,17 @@ class MetaArch(MetaCop):
         if ("gen_expr" in cls_dict) and ("cop_expr" not in cls_dict):
             gen = cls_dict["gen_expr"]
             uu, vv, x, t = sympy.symbols("uu vv x t")
-            with tools.shelve_open(conf.sympy_cache) as sh:
+            with tools.json_cache_open(conf.sympy_cache) as cache:
                 key = f"{name}_cop_{tools.hash_cop(gen)}"
-                if key not in sh or name in rederive:
+                if key not in cache or name in rederive:
                     print(f"Generating inv. gen for {name}")
                     if "gen_inv" not in cls_dict:
                         gen_inv = sympy.solve(gen - x, t)[0]
                     cop = gen_inv.subs(x, gen.subs(t, uu) + gen.subs(t, vv))
                     cop = sympy.simplify(cop)
                     # cop = optimize(cop, optims_c99)
-                    sh[key] = cop
-                cop = sh[key]
+                    cache[key] = str(cop)
+                cop = sympify(cache[key])
                 # # kendall_tau expression
                 # key = f"{name}_kendall_{tools.hash_cop(gen)}"
                 # theta = sympy.symbols("theta")

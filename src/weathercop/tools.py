@@ -49,7 +49,8 @@ def json_cache_open(filename):
         try:
             with open(filename, 'r') as f:
                 cache = json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError):
+        except (json.JSONDecodeError, FileNotFoundError, UnicodeDecodeError):
+            # UnicodeDecodeError occurs when trying to read old binary shelve cache
             cache = {}
 
     yield cache
