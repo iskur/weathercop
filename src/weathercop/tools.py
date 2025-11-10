@@ -7,6 +7,7 @@ from hashlib import md5
 import dill
 import numpy as np
 import pandas as pd
+import json
 
 shelve.Pickler = dill.Pickler
 shelve.Unpickler = dill.Unpickler
@@ -21,6 +22,41 @@ def shelve_open(filename, *args, **kwds):
     sh = shelve.open(filename, "c")
     yield sh
     sh.close()
+
+
+@contextlib.contextmanager
+def json_cache_open(filename):
+    """
+    Context manager for JSON-based expression caching.
+
+    Loads a JSON cache file on entry, yields the cache dict for read/write,
+    and saves back to disk on exit.
+
+    Args:
+        filename: Path to JSON cache file. Directory is created if missing.
+
+    Yields:
+        dict: The cache dictionary. Keys are cache IDs, values are serialized expressions.
+    """
+    filename = str(filename)
+    dirname = os.path.dirname(filename)
+    if dirname and not os.path.exists(dirname):
+        os.makedirs(dirname)
+
+    # Load existing cache or start empty
+    cache = {}
+    if os.path.exists(filename):
+        try:
+            with open(filename, 'r') as f:
+                cache = json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError):
+            cache = {}
+
+    yield cache
+
+    # Save back to file with indentation for readability
+    with open(filename, 'w') as f:
+        json.dump(cache, f, indent=2)
 
 
 @contextlib.contextmanager
