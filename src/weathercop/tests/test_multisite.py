@@ -13,6 +13,36 @@ from weathercop.multisite import Multisite, set_conf, nan_corrcoef
 from weathercop.tests.assertion_utils import assert_valid_ensemble_structure
 
 
+def test_phase_randomization_corr(multisite_simulation_result):
+    """Verify cross-station correlations preserved under phase randomization.
+
+    Generates FFT-based phase-randomized weather and compares inter-station
+    correlations against observed data using 2 decimal place tolerance.
+    """
+    wc, sim_result = multisite_simulation_result
+    qq_std = wc.qq_std
+    fft_sim = wc.fft_sim
+
+    for var_i, varname in enumerate(wc.varnames):
+        data_sim_ = fft_sim.sel(variable=varname).values
+        sim_corr = nan_corrcoef(data_sim_)
+        sim_corr = sim_corr[np.triu_indices_from(sim_corr, 1)]
+        data_obs_ = qq_std.sel(variable=varname).values
+        obs_corr = nan_corrcoef(data_obs_)
+        obs_corr = obs_corr[np.triu_indices_from(obs_corr, 1)]
+        try:
+            npt.assert_almost_equal(sim_corr, obs_corr, decimal=2)
+        except AssertionError:
+            fig, ax = plt.subplots(
+                nrows=1, ncols=1, subplot_kw=dict(aspect="equal")
+            )
+            ax.scatter(obs_corr, sim_corr, marker="x")
+            ax.set_xlim(0, 1)
+            ax.set_ylim(0, 1)
+            plt.show()
+            raise
+
+
 class Test(npt.TestCase):
     def setUp(self):
         self.verbose = True
