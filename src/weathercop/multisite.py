@@ -320,29 +320,36 @@ def simulate(
     usevg=False,
     usevine=True,
     conversions=None,
+    vgs=None,
     **kwds,
 ):
-    """this is like Multisite.simulate, but simplified for multiprocessing."""
+    """this is like Multisite.simulate, but simplified for multiprocessing.
+
+    Parameters
+    ----------
+    vgs : dict, optional
+        Thread-local VG objects. If None, uses wcop.vgs (default behavior).
+        When called from worker threads, this should be the thread-local copy
+        to avoid shared state issues.
+    """
     # allow for site-specific theta_incr
     theta_incrs = kwds.pop("theta_incr", None)
     sim_sea = sim_trans = None
     # sim_sea = None
     T_sim = len(sim_times)
 
-    if DEBUG:
-        print(current_process().name + " in simulate. aquiring lock")
-    with lock:
+    # Use passed-in vgs if available, otherwise fall back to wcop.vgs
+    if vgs is None:
         vgs = wcop.vgs
-        vg_obj = list(vgs.values())[0]
-        T_data = vg_obj.T_summed
-        K = wcop.K
-        station_names = wcop.station_names
-        n_stations = len(station_names)
-        varnames = wcop.varnames
-        primary_var = wcop.primary_var
-        wcop.usevine = usevine
-    if DEBUG:
-        print(current_process().name + " in simulate. released lock")
+
+    vg_obj = list(vgs.values())[0]
+    T_data = vg_obj.T_summed
+    K = wcop.K
+    station_names = wcop.station_names
+    n_stations = len(station_names)
+    varnames = wcop.varnames
+    primary_var = wcop.primary_var
+    wcop.usevine = usevine
 
     primary_var_sim = kwds.pop("primary_var", primary_var)
     if rphases is None:
