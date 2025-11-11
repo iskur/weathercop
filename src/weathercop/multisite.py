@@ -16,7 +16,7 @@ import dill
 from concurrent.futures import ThreadPoolExecutor
 import copy
 import threading
-from multiprocessing import current_process
+from multiprocessing import current_process  # For legacy debug output
 from tqdm import tqdm
 from matplotlib.transforms import offset_copy
 import cartopy.crs as ccrs
@@ -460,28 +460,26 @@ def _vg_ph(
 
     """
     if DEBUG:
-        print(current_process().name + " in _vg_ph. acquiring lock")
-    with lock:
-        station_name = vg_obj.station_name
-        primary_var = vg_obj.primary_var
-        primary_var_ii = vg_obj.primary_var_ii
-        T_sim = vg_obj.T_sim
-        sim_times = vg_obj.sim_times
-        # As = wcop.As.sel(station=station_name, drop=True)
-        As = wcop.As
-        fft_dist = wcop.fft_dists[station_name]
-        qq_dist = wcop.qq_dists[station_name]
-        data_trans_dist = wcop.data_trans_dists[station_name]
-        usevine = wcop.usevine
-        if usevine:
-            varnames_vine = wcop.vine.varnames
-            sim_dist = wcop.sim_dists[station_name]
-        zero_phases = wcop.zero_phases
-        vine = wcop.vine
-        varnames_wcop = wcop.varnames
-        heat_waves = wcop.heat_waves
-    if DEBUG:
-        print(current_process().name + " in _vg_ph. released lock")
+        print(threading.current_thread().name + " in _vg_ph")
+    # Each thread has its own VG copy via initializer, no lock needed
+    station_name = vg_obj.station_name
+    primary_var = vg_obj.primary_var
+    primary_var_ii = vg_obj.primary_var_ii
+    T_sim = vg_obj.T_sim
+    sim_times = vg_obj.sim_times
+    # As = wcop.As.sel(station=station_name, drop=True)
+    As = wcop.As
+    fft_dist = wcop.fft_dists[station_name]
+    qq_dist = wcop.qq_dists[station_name]
+    data_trans_dist = wcop.data_trans_dists[station_name]
+    usevine = wcop.usevine
+    if usevine:
+        varnames_vine = wcop.vine.varnames
+        sim_dist = wcop.sim_dists[station_name]
+    zero_phases = wcop.zero_phases
+    vine = wcop.vine
+    varnames_wcop = wcop.varnames
+    heat_waves = wcop.heat_waves
     As = As.sel(station=station_name, drop=True)
     if primary_var_sim is None:
         primary_var_sim = primary_var
