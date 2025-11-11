@@ -1728,10 +1728,14 @@ class Multisite:
                         filepaths_rphases_src[real_i] if name_derived else None
                     ]
             self.varnames_refit = []
-            with Pool(cop_conf.n_nodes) as pool:
+            with ThreadPoolExecutor(
+                max_workers=cop_conf.n_nodes,
+                initializer=_worker_initializer,
+                initargs=(self.vgs,)
+            ) as executor:
                 completed_reals = list(
                     tqdm(
-                        pool.imap(
+                        executor.map(
                             sim_one,
                             zip(
                                 realizations,
@@ -1753,12 +1757,9 @@ class Multisite:
                                 repeat(self.verbose),
                                 repeat(kwds.get("conversions", None)),
                             ),
-                            chunksize=max(
-                                1, n_realizations // cop_conf.n_nodes
-                            ),
+                            timeout=None
                         ),
-                        total=len(realizations) + 1,
-                        initial=1,
+                        total=len(realizations)
                     )
                 )
             assert len(completed_reals) == len(realizations)
