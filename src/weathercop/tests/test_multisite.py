@@ -1,5 +1,6 @@
 from pathlib import Path
 import gc
+import copy
 
 import numpy as np
 import numpy.testing as npt
@@ -39,6 +40,100 @@ def test_phase_randomization_corr(multisite_simulation_result):
             ax.scatter(obs_corr, sim_corr, marker="x")
             ax.set_xlim(0, 1)
             ax.set_ylim(0, 1)
+            plt.show()
+            raise
+
+
+def test_sim_rphases(multisite_simulation_result):
+    """Verify reproducibility when using saved random phases.
+
+    Tests that:
+    1. Saving rphases from initial simulation preserves them
+    2. Using saved rphases produces bit-identical results
+    3. All stations produce identical results when reusing phases
+
+    Note: rphases are modified in-place during simulate() in the _vg_ph method
+    (specifically at phase_[:, 0] = zero_phases[station_name]). To test
+    reproducibility with the exact same phases, we must deep copy before
+    second use.
+    """
+    wc, sim_result = multisite_simulation_result
+
+    rphases = wc._rphases
+    # Deep copy because simulate() modifies rphases in-place during _vg_ph
+    rphases_copy = copy.deepcopy(rphases)
+
+    sim_sea_new = wc.simulate(
+        rphases=rphases_copy, phase_randomize_vary_mean=False
+    ).sim_sea
+
+    # Use another deep copy for the second call
+    rphases_copy2 = copy.deepcopy(rphases)
+    sim_sea_new2 = wc.simulate(
+        rphases=rphases_copy2, phase_randomize_vary_mean=False
+    ).sim_sea
+
+    # Two simulations with identical input rphases should produce identical output
+    npt.assert_almost_equal(sim_sea_new2.values, sim_sea_new.values)
+
+    for station_i, station_name in enumerate(wc.station_names):
+        print(f"{station_name=}")
+        actual = sim_result.sim_sea.sel(station=station_name)
+        expected = sim_sea_new.sel(station=station_name)
+        try:
+            npt.assert_almost_equal(
+                actual.values, expected.values, decimal=3
+            )
+        except AssertionError:
+            fig, axs = plt.subplots(
+                nrows=wc.K,
+                ncols=1,
+                sharex=True,
+                constrained_layout=True,
+            )
+            for ax, varname in zip(axs, wc.varnames):
+                ax.plot(
+                    expected.time,
+                    expected.sel(variable=varname).values,
+                    label="sim1",
+                    color="k",
+                )
+                ax.plot(
+                    actual.time,
+                    actual.sel(variable=varname).values,
+                    label="sim2",
+                    color="b",
+                    linestyle="--",
+                )
+                ax.set_title(varname)
+            axs[0].legend(loc="best")
+            fig.suptitle(f"{station_i=}: {station_name}")
+
+            fig, axs = plt.subplots(
+                nrows=1,
+                ncols=wc.K,
+                subplot_kw=dict(aspect="equal"),
+                constrained_layout=True,
+                figsize=(wc.K * 4, 4),
+            )
+            for ax, varname in zip(axs, wc.varnames):
+                expected_var = expected.sel(variable=varname).values
+                actual_var = actual.sel(variable=varname).values
+                ax.scatter(
+                    expected_var, actual_var, s=1, marker="x", color="b"
+                )
+                min_ = min(expected_var.min(), actual_var.min())
+                max_ = max(expected_var.max(), actual_var.max())
+                ax.plot(
+                    [min_, max_],
+                    [min_, max_],
+                    linestyle="--",
+                    color="k",
+                    linewidth=1,
+                )
+                ax.grid(True)
+                ax.set_title(varname)
+
             plt.show()
             raise
 
