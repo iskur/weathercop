@@ -13,7 +13,10 @@ import matplotlib.pyplot as plt
 from scipy import stats, interpolate
 import xarray as xr
 import dill
-from multiprocessing import Pool, Lock, current_process
+from concurrent.futures import ThreadPoolExecutor
+import copy
+import threading
+from multiprocessing import current_process
 from tqdm import tqdm
 from matplotlib.transforms import offset_copy
 import cartopy.crs as ccrs
@@ -36,7 +39,14 @@ from weathercop import cop_conf, plotting as wplt, tools, copulae as cops
 from weathercop.vine import CVine, MultiStationVine
 
 DEBUG = cop_conf.DEBUG
-lock = Lock()
+
+_thread_local = threading.local()
+
+
+def _worker_initializer(wcop_vgs):
+    """Called once per worker thread at startup.
+    Creates thread-local copy of VG objects."""
+    _thread_local.vgs = copy.deepcopy(wcop_vgs)
 # from dask.distributed import Client
 
 # client = Client(
