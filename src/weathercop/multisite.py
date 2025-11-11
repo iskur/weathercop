@@ -167,6 +167,7 @@ def sim_one(args):
         wcop,
         sim_times,
         rphases=rphases,
+        vgs=_thread_local.vgs,
         *sim_args,
         **sim_kwds,
     )
