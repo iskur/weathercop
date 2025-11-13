@@ -208,6 +208,36 @@ def test_sim_mean_increase(multisite_simulation_result):
     )
 
 
+def test_sim_resample(multisite_simulation_result):
+    """Verify simulated mean with resampling workflow.
+
+    Tests simulation with resampling parameters including candidate selection
+    and recalibration, verifying zero mean offset.
+    """
+    wc, sim_result = multisite_simulation_result
+
+    theta_incr = None
+    varwg.reseed(0)
+    wc.reset_sim()
+    sim_result_resample = wc.simulate(
+        theta_incr=theta_incr,
+        phase_randomize_vary_mean=False,
+        usevg=True,
+        res_kwds=dict(
+            n_candidates=None,
+            recalibrate=True,
+            doy_tolerance=20,
+            verbse=True,
+            resample_raw=True,
+        ),
+    )
+    sim = sim_result_resample.sim_sea.sel(variable="theta", drop=True).mean()
+    obs = wc.data_daily.sel(variable="theta", drop=True).mean()
+    npt.assert_almost_equal(
+        sim - obs, theta_incr if theta_incr else 0, decimal=2
+    )
+
+
 class Test(npt.TestCase):
     def setUp(self):
         self.verbose = True
