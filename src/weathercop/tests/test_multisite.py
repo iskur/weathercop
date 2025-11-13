@@ -139,6 +139,37 @@ def test_sim_rphases(multisite_simulation_result):
             raise
 
 
+def test_sim_mean(multisite_simulation_result):
+    """Verify simulated mean values match observed data.
+
+    Compares correlations and means of simulated vs observed data,
+    using 1 decimal place tolerance for spatial correlations.
+    """
+    wc, sim_result = multisite_simulation_result
+
+    sim_sea = sim_result.sim_sea
+    sim_stacked = sim_sea.stack(stacked=("variable", "time")).T
+    obs_stacked = wc.data_daily.stack(stacked=("variable", "time")).T
+    corr_sim = nan_corrcoef(sim_stacked.T)
+    corr_obs = nan_corrcoef(obs_stacked.T)
+    try:
+        npt.assert_almost_equal(corr_sim, corr_obs, decimal=1)
+    except AssertionError:
+        wc.plot_corr()
+        fig, ax = plt.subplots(
+            nrows=1, ncols=1, subplot_kw=dict(aspect="equal")
+        )
+        ax.scatter(corr_obs, corr_sim, marker="x")
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        plt.show()
+        raise
+
+    sim_means = sim_sea.mean("time")
+    obs_means = wc.data_daily.mean("time")
+    npt.assert_almost_equal(sim_means.data, obs_means.data, decimal=1)
+
+
 class Test(npt.TestCase):
     def setUp(self):
         self.verbose = True
