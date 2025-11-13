@@ -170,6 +170,44 @@ def test_sim_mean(multisite_simulation_result):
     npt.assert_almost_equal(sim_means.data, obs_means.data, decimal=1)
 
 
+def test_sim_mean_increase(multisite_simulation_result):
+    """Verify simulated mean increase with theta_incr parameter.
+
+    Tests two scenarios:
+    1. theta_incr=4: Verify constant offset in theta variable
+    2. theta_incr=None with usevg=True: Verify zero offset
+    """
+    wc, sim_result = multisite_simulation_result
+
+    # Test 1: theta_incr = 4
+    theta_incr = 4
+    varwg.reseed(0)
+    wc.reset_sim()
+    sim_result_incr = wc.simulate(
+        theta_incr=theta_incr,
+        phase_randomize_vary_mean=False,
+        phase_randomize=False,
+    )
+    sim = sim_result_incr.sim_sea.sel(variable="theta", drop=True).mean()
+    obs = wc.data_daily.sel(variable="theta", drop=True).mean()
+    npt.assert_almost_equal(sim - obs, theta_incr, decimal=2)
+
+    # Test 2: theta_incr = None with usevg=True
+    theta_incr = None
+    varwg.reseed(0)
+    wc.reset_sim()
+    sim_result_vg = wc.simulate(
+        theta_incr=theta_incr,
+        phase_randomize_vary_mean=False,
+        usevg=True,
+    )
+    sim = sim_result_vg.sim_sea.sel(variable="theta", drop=True).mean()
+    obs = wc.data_daily.sel(variable="theta", drop=True).mean()
+    npt.assert_almost_equal(
+        sim - obs, theta_incr if theta_incr else 0, decimal=2
+    )
+
+
 class Test(npt.TestCase):
     def setUp(self):
         self.verbose = True
