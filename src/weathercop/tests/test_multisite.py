@@ -238,6 +238,38 @@ def test_sim_resample(multisite_simulation_result):
     )
 
 
+@pytest.mark.xfail(
+    reason="Known failure - issue with non-gaussian marginals"
+)
+def test_sim_gradual(multisite_simulation_result):
+    """Verify simulated temperature gradient.
+
+    Tests that applying a theta_grad parameter produces the expected
+    linear trend in temperature over time. Marked as xfail due to known
+    issues with non-gaussian marginals.
+    """
+    wc, sim_result = multisite_simulation_result
+
+    theta_grad = 1.5
+    decimal = 1
+    wc.reset_sim()
+    varwg.reseed(1)
+    sim_result_grad = wc.simulate(
+        theta_grad=theta_grad,
+        phase_randomize_vary_mean=False,
+        rphases=sim_result.rphases,
+    )
+    for station_name in wc.station_names:
+        sim_station = sim_result_grad.sim_sea.sel(
+            variable="theta", station=station_name, drop=True
+        )
+        lr_result = stats.linregress(
+            np.arange(wc.T_sim), sim_station.values
+        )
+        gradient = lr_result.slope * wc.T_sim
+        npt.assert_almost_equal(theta_grad, gradient, decimal=decimal)
+
+
 class Test(npt.TestCase):
     def setUp(self):
         self.verbose = True
