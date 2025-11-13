@@ -41,12 +41,15 @@ from weathercop.vine import CVine, MultiStationVine
 DEBUG = cop_conf.DEBUG
 
 _thread_local = threading.local()
+_netcdf_lock = threading.Lock()  # Protects HDF5/NetCDF4 I/O (not thread-safe)
 
 
 def _worker_initializer(wcop_vgs):
     """Called once per worker thread at startup.
     Creates thread-local copy of VG objects."""
     _thread_local.vgs = copy.deepcopy(wcop_vgs)
+
+
 # from dask.distributed import Client
 
 # client = Client(
@@ -174,7 +177,8 @@ def sim_one(args):
     sim_sea = sim_result.sim_sea
     if dis_kwds is not None:
         if write_to_disk:
-            sim_result.sim_sea.to_netcdf(filepath_daily)
+            with _netcdf_lock:
+                sim_result.sim_sea.to_netcdf(filepath_daily)
         varwg.reseed((1000 * real_i))
         if DEBUG:
             print(current_process().name + " in sim_one. before disagg")
@@ -190,7 +194,10 @@ def sim_one(args):
     if write_to_disk:
         if DEBUG:
             print(current_process().name + " in sim_one. before to_netcdf")
-        sim_sea.to_netcdf(filepath)
+        with _netcdf_lock:
+            sim_sea.to_netcdf(filepath)
+            if return_trans and sim_result.sim_trans is not None:
+                sim_result.sim_trans.to_netcdf(filepath_trans)
         if DEBUG:
             print(current_process().name + " in sim_one. after to_netcdf")
         if csv:
@@ -199,8 +206,6 @@ def sim_one(args):
             wcop.to_csv(
                 csv_path, sim_result.sim_sea, filename_prefix=f"{real_str}_"
             )
-        if return_trans and sim_result.sim_trans is not None:
-            sim_result.sim_trans.to_netcdf(filepath_trans)
         np.save(filepath_rphases, wcop._rphases)
     return real_i
 
@@ -1729,7 +1734,7 @@ class Multisite:
             with ThreadPoolExecutor(
                 max_workers=cop_conf.n_nodes,
                 initializer=_worker_initializer,
-                initargs=(self.vgs,)
+                initargs=(self.vgs,),
             ) as executor:
                 completed_reals = list(
                     tqdm(
@@ -1755,9 +1760,9 @@ class Multisite:
                                 repeat(self.verbose),
                                 repeat(kwds.get("conversions", None)),
                             ),
-                            timeout=None
+                            timeout=None,
                         ),
-                        total=len(realizations)
+                        total=len(realizations),
                     )
                 )
             assert len(completed_reals) == len(realizations)
