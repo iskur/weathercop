@@ -42,6 +42,7 @@ DEBUG = cop_conf.DEBUG
 
 _thread_local = threading.local()
 _netcdf_lock = threading.Lock()  # Protects HDF5/NetCDF4 I/O (not thread-safe)
+_wcop_lock = threading.Lock()  # Protects shared wcop object mutations
 
 
 def _worker_initializer(wcop_vgs):
@@ -355,7 +356,8 @@ def simulate(
     n_stations = len(station_names)
     varnames = wcop.varnames
     primary_var = wcop.primary_var
-    wcop.usevine = usevine
+    with _wcop_lock:
+        wcop.usevine = usevine
 
     primary_var_sim = kwds.pop("primary_var", primary_var)
     if rphases is None:
@@ -1731,10 +1733,13 @@ class Multisite:
                         filepaths_rphases_src[real_i] if name_derived else None
                     ]
             self.varnames_refit = []
+            # Deep copy VGs after first realization to capture all initialized state
+            # (e.g., fitted models, caches) before distributing to worker threads
+            vgs_for_workers = copy.deepcopy(self.vgs)
             with ThreadPoolExecutor(
                 max_workers=cop_conf.n_nodes,
                 initializer=_worker_initializer,
-                initargs=(self.vgs,),
+                initargs=(vgs_for_workers,),
             ) as executor:
                 completed_reals = list(
                     tqdm(
