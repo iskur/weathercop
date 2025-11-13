@@ -1665,7 +1665,7 @@ class Multisite:
         else:
             # this means we do parallel computation
             # do one simulation in the main loop to set up attributes
-            # varwg.reseed((0))
+            varwg.reseed((0))
             if (
                 name_derived
                 and filepaths_rphases_src[0].with_suffix(".npy").exists()
