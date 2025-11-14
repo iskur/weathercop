@@ -14,6 +14,7 @@ from scipy import stats, interpolate
 import xarray as xr
 import dill
 from multiprocessing import Pool, Lock, current_process
+from multiprocessing.pool import ThreadPool
 from tqdm import tqdm
 from matplotlib.transforms import offset_copy
 import cartopy.crs as ccrs
@@ -1655,7 +1656,8 @@ class Multisite:
                         filepaths_rphases_src[real_i] if name_derived else None
                     ]
             self.varnames_refit = []
-            with Pool(cop_conf.n_nodes) as pool:
+            PoolClass = ThreadPool if cop_conf.USE_THREADING else Pool
+            with PoolClass(cop_conf.n_nodes) as pool:
                 completed_reals = list(
                     tqdm(
                         pool.imap(

@@ -9,6 +9,11 @@ import os
 PROFILE = False
 DEBUG = False
 
+# Use threading instead of multiprocessing for parallel computation
+# Threading can be more efficient for NumPy/Cython operations that release
+# the GIL, and avoids the overhead of pickling large objects
+USE_THREADING = True
+
 # Memory optimization for testing
 # When True, skip storing intermediate results like transformed data
 # in ensemble simulations to reduce memory footprint

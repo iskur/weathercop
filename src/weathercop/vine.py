@@ -84,6 +84,7 @@ networkx, and tqdm for progress tracking.
 
 import itertools
 import multiprocessing
+from multiprocessing.pool import ThreadPool
 import re
 from collections.abc import Iterable
 from contextlib import suppress
@@ -1483,21 +1484,36 @@ class RVine(Vine):
             Us = [
                 rsim_one((t, Ps[:, t], self, zero, Q, V, Z)) for t in range(T)
             ]
-
-        with multiprocessing.Pool(cop_conf.n_nodes) as pool:
-            Us = pool.map(
-                rsim_one,
-                zip(
-                    range(T),
-                    Ps.T,
-                    repeat(self),
-                    repeat(zero),
-                    repeat(Q),
-                    repeat(V),
-                    repeat(Z),
-                ),
-                chunksize=int(T / cop_conf.n_nodes),
-            )
+        elif cop_conf.USE_THREADING:
+            with ThreadPool(cop_conf.n_nodes) as pool:
+                Us = pool.map(
+                    rsim_one,
+                    zip(
+                        range(T),
+                        Ps.T,
+                        repeat(self),
+                        repeat(zero),
+                        repeat(Q),
+                        repeat(V),
+                        repeat(Z),
+                    ),
+                    chunksize=int(T / cop_conf.n_nodes),
+                )
+        else:
+            with multiprocessing.Pool(cop_conf.n_nodes) as pool:
+                Us = pool.map(
+                    rsim_one,
+                    zip(
+                        range(T),
+                        Ps.T,
+                        repeat(self),
+                        repeat(zero),
+                        repeat(Q),
+                        repeat(V),
+                        repeat(Z),
+                    ),
+                    chunksize=int(T / cop_conf.n_nodes),
+                )
         return np.array(Us).T
 
 

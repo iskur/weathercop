@@ -1,6 +1,7 @@
 import functools
 from itertools import repeat
 import multiprocessing
+from multiprocessing.pool import ThreadPool
 import time
 
 import matplotlib.pyplot as plt
@@ -72,6 +73,21 @@ class SeasonalCop:
                     )
                     for cop in cop_candidates
                 ]
+            elif cop_conf.USE_THREADING:
+                with ThreadPool(cop_conf.n_nodes) as pool:
+                    scops = pool.map(
+                        SeasonalCop._unpack,
+                        zip(
+                            cop_candidates,
+                            repeat(dtimes),
+                            repeat(ranks_u),
+                            repeat(ranks_v),
+                            repeat(window_len),
+                            repeat(verbose),
+                            repeat(asymmetry),
+                            repeat(fit_mask),
+                        ),
+                    )
             else:
                 with multiprocessing.Pool(cop_conf.n_nodes) as pool:
                     scops = pool.map(

@@ -5,7 +5,7 @@ cy_opts = {'compiler_directives': {'language_level': '3'}}
 import numpy as np
 
 ext_mods = [Extension(
-    'clayton_density_0ccbf408edbc25d3ce8c0d9fb254a967_0', ['clayton_density_0ccbf408edbc25d3ce8c0d9fb254a967_0.pyx', 'clayton_density_0ccbf408edbc25d3ce8c0d9fb254a967_code_0.c'],
+    'clayton_270_copula_6d14caa44eb5a3a6bb223115c939da1b_0', ['clayton_270_copula_6d14caa44eb5a3a6bb223115c939da1b_0.pyx', 'clayton_270_copula_6d14caa44eb5a3a6bb223115c939da1b_code_0.c'],
     include_dirs=[np.get_include()],
     library_dirs=[],
     libraries=[],
