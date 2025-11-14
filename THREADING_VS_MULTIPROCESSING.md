@@ -106,6 +106,14 @@ Threading will likely be faster when:
 - System has limited RAM (shared memory is more efficient)
 - Copula operations dominate (Cython code releases GIL)
 
+**Note**: RVine uses parallel simulation across timesteps, which is NOT the primary use case.
+**CVine** (which you actually use) does NOT currently parallelize simulation - it's already fast enough with Cython.
+The main performance benefit for CVine comes from:
+1. **SeasonalCop fitting** - Parallelizes across copula candidates
+2. **Ensemble generation** - Parallelizes across realizations in `Multisite.generate_ensemble()`
+
+These are the operations that benefit most from threading.
+
 ### When Multiprocessing May Still Be Better
 
 Multiprocessing might be preferred when:
