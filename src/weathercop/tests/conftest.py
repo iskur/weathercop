@@ -84,6 +84,7 @@ def multisite_instance(test_dataset, vg_config):
         refit=True,
         refit_vine=False,
         reinitialize_vgs=True,
+        inifilling="vg",
         fit_kwds=dict(seasonal=True),
     )
     yield wc
