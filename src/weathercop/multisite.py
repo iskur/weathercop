@@ -206,7 +206,8 @@ def sim_one(args):
             wcop.to_csv(
                 csv_path, sim_result.sim_sea, filename_prefix=f"{real_str}_"
             )
-        np.save(filepath_rphases, wcop._rphases)
+        # Use rphases from sim_result instead of reading from shared wcop._rphases
+        np.save(filepath_rphases, sim_result.rphases)
     return real_i
 
 
@@ -233,7 +234,7 @@ def _adjust_fft_sim(
         K = fft_sim.shape[0]
         mean_eps = np.zeros(K)[:, None]
         mean_eps[primary_var_ii[0], 0] = (
-            phase_randomize_vary_mean * varwg.rng.normal()
+            phase_randomize_vary_mean * varwg.get_rng().normal()
         )
         fft_sim += mean_eps
 
@@ -356,8 +357,9 @@ def simulate(
     n_stations = len(station_names)
     varnames = wcop.varnames
     primary_var = wcop.primary_var
-    with _wcop_lock:
-        wcop.usevine = usevine
+    # Don't write to shared wcop.usevine - pass as parameter instead to avoid race condition
+    # with _wcop_lock:
+    #     wcop.usevine = usevine
 
     primary_var_sim = kwds.pop("primary_var", primary_var)
     if rphases is None:
@@ -397,10 +399,12 @@ def simulate(
     #         **heat_wave_kwds,
     #     )
 
+    # Capture usevine in partial to avoid race condition
     vg_ph = partial(
         _vg_ph,
         rphases=rphases,
         wcop=wcop,
+        usevine=usevine,  # Pass usevine as parameter, not via shared wcop
         # phase_randomize=phase_randomize,
         phase_randomize_vary_mean=phase_randomize_vary_mean,
     )
@@ -461,12 +465,19 @@ def _vg_ph(
     return_rphases=False,
     primary_var_sim=None,
     heat_wave_kwds=None,
+    usevine=True,  # Pass as parameter to avoid race condition
 ):
     """Call-back function for VG.simulate. Replaces a time_series_analysis
     model.
 
     Simlified version of Multisite._vg_ph for multiprocessing
 
+    Parameters
+    ----------
+    usevine : bool
+        Whether to use vine copulas. This is passed as a parameter (captured
+        in the partial function) instead of reading from wcop.usevine to
+        avoid race conditions in threaded execution.
     """
     # Each thread has its own VG copy via initializer, no lock needed
     station_name = vg_obj.station_name
@@ -479,13 +490,14 @@ def _vg_ph(
     fft_dist = wcop.fft_dists[station_name]
     qq_dist = wcop.qq_dists[station_name]
     data_trans_dist = wcop.data_trans_dists[station_name]
-    usevine = wcop.usevine
+    # Use parameter instead of reading from shared wcop to avoid race condition
+    # usevine = wcop.usevine
+    varnames_wcop = wcop.varnames  # Read wcop attributes at start to minimize shared access
     if usevine:
         varnames_vine = wcop.vine.varnames
         sim_dist = wcop.sim_dists[station_name]
     zero_phases = wcop.zero_phases
     vine = wcop.vine
-    varnames_wcop = wcop.varnames
     heat_waves = wcop.heat_waves
     As = As.sel(station=station_name, drop=True)
     if primary_var_sim is None:
@@ -599,6 +611,7 @@ def _vg_ph(
                 stop_at=stop_at,
             )
             ranks_sim = _debias_ranks_sim(ranks_sim, sim_dist)
+
         # sim = dists.norm.ppf(ranks_sim)
         sim_trans = _retransform_sim(ranks_sim, data_trans_dist)
         # Transform from transformed space to seasonal space
@@ -1266,7 +1279,7 @@ class Multisite:
         # ii = np.argsort(np.sum(As_stacked * (1 - missing_mean[:, None]),
         #                        axis=0)
         #                 - As_stacked[fullest_var_i])
-        phases[ii] = varwg.rng.uniform(0, np.pi, len(ii))
+        phases[ii] = varwg.get_rng().uniform(0, np.pi, len(ii))
 
         # def opt_func(phase, phases, i):
         #     phases[i] = phase
@@ -3877,6 +3890,7 @@ if __name__ == "__main__":
         # rain_method="regression",
         # rain_method="distance",
         rain_method="simulation",
+        infilling="vg",
         # debias=True,
         # cop_candidates=dict(gaussian=cops.gaussian),
         scop_kwds=dict(window_len=30, fft_order=3),

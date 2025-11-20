@@ -310,7 +310,7 @@ def swap_symbols(expr, symbol1, symbol2):
 
 def random_sample(size, bound=1e-9):
     """Sample in the closed interval (bound, 1 - bound)."""
-    return (1 - 2 * bound) * varwg.rng.random(size) + bound
+    return (1 - 2 * bound) * varwg.get_rng().random(size) + bound
 
 
 def positive(func):
