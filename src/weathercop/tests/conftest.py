@@ -141,6 +141,7 @@ def multisite_instance(test_dataset, vg_config, vg_cache_dir):
         refit=False,
         refit_vine=False,
         reinitialize_vgs=reinit_vgs,
+        inifilling="vg",
         fit_kwds=dict(seasonal=True),
         vgs_cache_dir=cache_dir,
     )
