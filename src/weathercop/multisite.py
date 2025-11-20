@@ -24,7 +24,6 @@ import cartopy.io.img_tiles as cimgt
 import cartopy.feature as cfeature
 
 import varwg
-from varwg import helpers as my
 from varwg.core.core import seasonal_back
 from varwg import core as vg_core
 from varwg import base as vg_base
@@ -219,6 +218,7 @@ def _adjust_fft_sim(
     primary_var_ii,
     phase_randomize_vary_mean,
     adjust_prim=True,
+    usevine=False,
 ):
 
     # fft_sim *= (qq_std / fft_sim.std(axis=1))[:, None]
@@ -411,6 +411,8 @@ def simulate(
             theta_incr = theta_incrs
         if DEBUG:
             print("in sim_one ", heat_wave_kwds)
+        # When usevine=True, theta_incr is applied directly by VarWG after callback,
+        # so we pass it to VarWG but don't apply it through sc_pars.m in _adjust_fft_sim
         sim_returned = svg.simulate(
             sim_func=None if usevg else vg_ph,
             primary_var=primary_var,
@@ -466,8 +468,6 @@ def _vg_ph(
     Simlified version of Multisite._vg_ph for multiprocessing
 
     """
-    if DEBUG:
-        print(threading.current_thread().name + " in _vg_ph")
     # Each thread has its own VG copy via initializer, no lock needed
     station_name = vg_obj.station_name
     primary_var = vg_obj.primary_var
@@ -515,6 +515,7 @@ def _vg_ph(
         primary_var_ii,
         phase_randomize_vary_mean,
         adjust_prim=(primary_var_sim == primary_var),
+        usevine=usevine,
     )
 
     if usevine:
@@ -1405,6 +1406,9 @@ class Multisite:
                 theta_incr = theta_incrs[station_name]
             else:
                 theta_incr = theta_incrs
+            # When usevine=True, theta_incr is applied directly by VarWG after callback,
+            # so we pass it to VarWG but don't apply it through sc_pars.m in _adjust_fft_sim
+
             sim_returned = svg.simulate(
                 sim_func=None if usevg else self._vg_ph,
                 primary_var=self.primary_var,
@@ -2330,6 +2334,7 @@ class Multisite:
                     vg_obj.primary_var_ii,
                     self.phase_randomize_vary_mean,
                     adjust_prim=(primary_var_sim == self.primary_var),
+                    usevine=self.usevine,
                 )
                 self.fft_sim.loc[dict(station=station_name_)] = fft_sim
             if heat_wave_kwds is not None:
@@ -3900,8 +3905,8 @@ if __name__ == "__main__":
     # wc.plot_ccplom_seasonal(alpha=0.01)
     # wc.plot_meteogram_trans()
     # wc.vine.plot()
-    wc["Weinbiet"].plot_daily_fit("rh")
-    wc["Weinbiet"].plot_monthly_hists("rh")
+    # wc["Weinbiet"].plot_daily_fit("rh")
+    # wc["Weinbiet"].plot_monthly_hists("rh")
     print(wc.vine)
     plt.show()
 
