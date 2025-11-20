@@ -94,7 +94,8 @@ par_known.update(
         },
         "rh": {
             "lc": lambda tt: 0 * tt,  # Lower clipping: 0%
-            "uc": lambda tt: 24 * 1.0 + 0 * tt,  # Upper clipping: 24 (daily aggregation)
+            "uc": lambda tt: 24 * 1.0
+            + 0 * tt,  # Upper clipping: 24 (daily aggregation)
         },
         "sun": {
             "l": lambda tt: 0 * tt,  # Lower bound: no negative sunshine
@@ -118,6 +119,27 @@ units = {
     "sun": "[h]",
     "rh": "[%]",
 }
+
+ygreek = collections.defaultdict(lambda: r"-")
+ygreek.update(
+    {
+        "R": r"$R$",
+        "theta": r"$\theta$",
+        "rh": r"$\phi$",
+        "Qsw": r"$Q_{sw}$",
+        "sun": r"sun",
+        "ILWR": r"$Q_{lw(inc.)}$",
+        "u": r"$u$",
+        "v": r"$v$",
+        "pressure": r"$atm$",
+        "U": "U",
+    }
+)
+
+
+def var_names_greek(var_names):
+    return [ygreek[var_name] for var_name in var_names]
+
 
 # Post-simulation conversions (none needed for DWD data)
 conversions = []
