@@ -20,14 +20,10 @@ AGGRESSIVE_CLEANUP = False
 
 # Use environment variables or fallback to reasonable defaults
 home = Path.home()
-weathercop_dir = Path(os.environ.get(
-    'WEATHERCOP_DIR',
-    home / '.weathercop'
-))
-ensemble_root = Path(os.environ.get(
-    'WEATHERCOP_ENSEMBLE_ROOT',
-    weathercop_dir / "ensembles"
-))
+weathercop_dir = Path(os.environ.get("WEATHERCOP_DIR", home / ".weathercop"))
+ensemble_root = Path(
+    os.environ.get("WEATHERCOP_ENSEMBLE_ROOT", weathercop_dir / "ensembles")
+)
 
 # Ensure directories exist
 weathercop_dir.mkdir(exist_ok=True, parents=True)
