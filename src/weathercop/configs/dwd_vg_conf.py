@@ -11,6 +11,8 @@ Variables covered:
 - rh: Relative humidity (%)
 """
 
+import collections
+
 from varwg.time_series_analysis import distributions
 from varwg.time_series_analysis import seasonal_distributions as sd
 from varwg.time_series_analysis import seasonal_kde as skde
