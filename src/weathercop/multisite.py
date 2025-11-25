@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from scipy import stats, interpolate
 import xarray as xr
 import dill
-from concurrent.futures import ThreadPoolExecutor
+from multiprocessing import Pool
 import copy
 import threading
 from multiprocessing import current_process  # For legacy debug output
@@ -39,15 +39,8 @@ from weathercop.vine import CVine, MultiStationVine
 
 DEBUG = cop_conf.DEBUG
 
-_thread_local = threading.local()
+# Locks for multiprocessing worker I/O synchronization
 _netcdf_lock = threading.Lock()  # Protects HDF5/NetCDF4 I/O (not thread-safe)
-_wcop_lock = threading.Lock()  # Protects shared wcop object mutations
-
-
-def _worker_initializer(wcop_vgs):
-    """Called once per worker thread at startup.
-    Creates thread-local copy of VG objects."""
-    _thread_local.vgs = copy.deepcopy(wcop_vgs)
 
 
 # from dask.distributed import Client
@@ -170,7 +163,7 @@ def sim_one(args):
         wcop,
         sim_times,
         rphases=rphases,
-        vgs=_thread_local.vgs,
+        vgs=wcop.vgs,
         *sim_args,
         **sim_kwds,
     )
@@ -1750,22 +1743,34 @@ class Multisite:
                         filepaths_rphases_src[real_i] if name_derived else None
                     ]
             self.varnames_refit = []
-            # Deep copy VGs after first realization to capture all initialized state
-            # (e.g., fitted models, caches) before distributing to worker threads
-            vgs_for_workers = copy.deepcopy(self.vgs)
-            with ThreadPoolExecutor(
-                max_workers=cop_conf.n_nodes,
-                initializer=_worker_initializer,
-                initargs=(vgs_for_workers,),
-            ) as executor:
+            # Create lightweight Multisite copy for workers by excluding large unneeded attributes
+            # This reduces pickle size and memory footprint when serializing to worker processes
+            wcop_for_workers = copy.deepcopy(self)
+
+            # Drop attributes not needed for simulation (large calibration/intermediate data)
+            unneeded_attrs = [
+                'xds', 'xar',  # Original input datasets (85% of memory)
+                'data_trans', 'ranks',  # Transformed training data
+                'data_daily', 'times_daily',  # Daily aggregations
+                'ensemble', 'ensemble_trans', 'ensemble_daily',  # Ensemble results
+                'sim_sea', 'sim_trans',  # Simulation results from realization 0
+                'cop_quantiles', 'As', 'fft_sim',  # Intermediate fitting artifacts
+                'rain_mask',  # Intermediate mask data
+            ]
+            for attr in unneeded_attrs:
+                if hasattr(wcop_for_workers, attr):
+                    setattr(wcop_for_workers, attr, None)
+
+            # Use multiprocessing for worker isolation (avoids C-library race conditions)
+            with Pool(cop_conf.n_nodes) as pool:
                 completed_reals = list(
                     tqdm(
-                        executor.map(
+                        pool.imap(
                             sim_one,
                             zip(
                                 realizations,
                                 repeat(len(realizations)),
-                                repeat(self),
+                                repeat(wcop_for_workers),
                                 filepaths_multi,
                                 filepaths_multi_daily,
                                 filepaths_trans_multi,
@@ -1782,7 +1787,7 @@ class Multisite:
                                 repeat(self.verbose),
                                 repeat(kwds.get("conversions", None)),
                             ),
-                            timeout=None,
+                            chunksize=max(1, len(realizations) // cop_conf.n_nodes),
                         ),
                         total=len(realizations),
                     )
