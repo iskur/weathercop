@@ -17,12 +17,14 @@ def assert_valid_ensemble_structure(ensemble):
     AssertionError
         If dataset is not an xarray Dataset or missing required dimensions.
     """
-    assert isinstance(ensemble, xr.Dataset), \
-        f"Expected xr.Dataset, got {type(ensemble)}"
+    assert isinstance(
+        ensemble, xr.DataArray
+    ), f"Expected xr.Dataset, got {type(ensemble)}"
 
     required_dims = {"station", "variable", "time"}
-    assert required_dims.issubset(ensemble.dims), \
-        f"Missing dimensions. Has: {set(ensemble.dims)}, need: {required_dims}"
+    assert required_dims.issubset(
+        ensemble.dims
+    ), f"Missing dimensions. Has: {set(ensemble.dims)}, need: {required_dims}"
 
 
 def assert_mean_preservation(
@@ -50,13 +52,15 @@ def assert_mean_preservation(
     obs_mean = float(observed_data.mean())
 
     if obs_mean == 0:
-        assert sim_mean == obs_mean, \
-            f"{variable_name}: simulated mean {sim_mean} != observed {obs_mean} (obs is zero)"
+        assert (
+            sim_mean == obs_mean
+        ), f"{variable_name}: simulated mean {sim_mean} != observed {obs_mean} (obs is zero)"
     else:
         relative_diff = abs(sim_mean - obs_mean) / abs(obs_mean)
-        assert relative_diff <= tolerance, \
-            f"{variable_name}: simulated mean {sim_mean:.3f} differs from " \
+        assert relative_diff <= tolerance, (
+            f"{variable_name}: simulated mean {sim_mean:.3f} differs from "
             f"observed {obs_mean:.3f} by {relative_diff:.1%} (tolerance: {tolerance:.1%})"
+        )
 
 
 def assert_correlation_preservation(
@@ -82,7 +86,8 @@ def assert_correlation_preservation(
     """
     # Extract variables that exist in both datasets
     available_vars = [
-        var for var in variable_names
+        var
+        for var in variable_names
         if var in simulated_data and var in observed_data
     ]
 
@@ -90,12 +95,12 @@ def assert_correlation_preservation(
     if len(available_vars) < 2:
         return
 
-    sim_values = np.column_stack([
-        simulated_data[var].values.ravel() for var in available_vars
-    ])
-    obs_values = np.column_stack([
-        observed_data[var].values.ravel() for var in available_vars
-    ])
+    sim_values = np.column_stack(
+        [simulated_data[var].values.ravel() for var in available_vars]
+    )
+    obs_values = np.column_stack(
+        [observed_data[var].values.ravel() for var in available_vars]
+    )
 
     # Compute correlations
     sim_corr = np.corrcoef(sim_values.T)
@@ -112,7 +117,8 @@ def assert_correlation_preservation(
             sim_r = sim_corr[i, j]
             obs_r = obs_corr[i, j]
             relative_diff = abs(sim_r - obs_r)
-            assert relative_diff <= tolerance, \
-                f"Correlation {available_vars[i]}-{available_vars[j]}: " \
-                f"simulated {sim_r:.3f} differs from observed {obs_r:.3f} " \
+            assert relative_diff <= tolerance, (
+                f"Correlation {available_vars[i]}-{available_vars[j]}: "
+                f"simulated {sim_r:.3f} differs from observed {obs_r:.3f} "
                 f"by {relative_diff:.3f} (tolerance: {tolerance:.3f})"
+            )
