@@ -7,6 +7,7 @@ from functools import wraps, partial
 from itertools import repeat
 from pathlib import Path
 import warnings
+import logging
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -18,6 +19,14 @@ import copy
 import threading
 from multiprocessing import current_process  # For legacy debug output
 from tqdm import tqdm
+
+# Configure logging for memory optimization diagnostics
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter('[%(name)s] %(levelname)s: %(message)s'))
+    logger.addHandler(handler)
+    logger.setLevel(logging.WARNING)
 from matplotlib.transforms import offset_copy
 import cartopy.crs as ccrs
 import cartopy.io.img_tiles as cimgt
@@ -41,6 +50,18 @@ DEBUG = cop_conf.DEBUG
 
 # Locks for multiprocessing worker I/O synchronization
 _netcdf_lock = threading.Lock()  # Protects HDF5/NetCDF4 I/O (not thread-safe)
+
+
+def _log_none_access(attr_name, wcop_desc="Multisite"):
+    """Log when a None-check block is entered for a surgical-exclusion attribute.
+
+    This helps identify if excluded attributes are unexpectedly needed during simulation.
+    """
+    logger.warning(
+        f"{wcop_desc} attribute '{attr_name}' is None. "
+        f"This was excluded during worker serialization for memory optimization. "
+        f"If this breaks simulation, the attribute must be retained."
+    )
 
 
 # from dask.distributed import Client
@@ -2318,6 +2339,8 @@ class Multisite:
         #     self.fft_sim = None
 
         if self.fft_sim is None or self.fft_sim.time.size != vg_obj.T_sim:
+            if self.fft_sim is None:
+                _log_none_access('fft_sim')
             self.fft_sim = xr.DataArray(
                 np.full((self.n_stations, self.K, vg_obj.T_sim), 0.5),
                 coords=[
