@@ -24,7 +24,9 @@ from tqdm import tqdm
 logger = logging.getLogger(__name__)
 if not logger.handlers:
     handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter('[%(name)s] %(levelname)s: %(message)s'))
+    handler.setFormatter(
+        logging.Formatter("[%(name)s] %(levelname)s: %(message)s")
+    )
     logger.addHandler(handler)
     logger.setLevel(logging.WARNING)
 from matplotlib.transforms import offset_copy
@@ -506,7 +508,9 @@ def _vg_ph(
     data_trans_dist = wcop.data_trans_dists[station_name]
     # Use parameter instead of reading from shared wcop to avoid race condition
     # usevine = wcop.usevine
-    varnames_wcop = wcop.varnames  # Read wcop attributes at start to minimize shared access
+    varnames_wcop = (
+        wcop.varnames
+    )  # Read wcop attributes at start to minimize shared access
     if usevine:
         varnames_vine = wcop.vine.varnames
         sim_dist = wcop.sim_dists[station_name]
@@ -880,6 +884,40 @@ class Multisite:
         dict_ = dict(self.__dict__)
         if "vgs" in dict_:
             del dict_["vgs"]
+
+        # If this instance is marked for worker serialization, exclude large attributes
+        # to reduce memory footprint when forking processes (avoids deadlock issues)
+        exclude_flag = getattr(self, "_exclude_large_attrs_for_workers", False)
+        if exclude_flag:
+            import sys
+
+            # Only exclude attributes that are NOT used during simulation in workers.
+            # Key insight: Workers need fitting results (As, vine, zero_phases, etc.)
+            # but not the raw training data or ensemble results.
+            excluded_attrs = [
+                "xds",  # Original input dataset - not needed by workers
+                "data_trans",  # Transformed training data - not needed after fitting
+                "ranks",  # Rank data - not needed after fitting
+                "data_daily",  # Daily aggregations - used for fitting, not simulation
+                "times_daily",  # Daily times - not needed by workers
+                "ensemble",  # Ensemble results from realization 0 - not needed
+                "ensemble_trans",  # Transformed ensemble results - not needed
+                "ensemble_daily",  # Daily ensemble results - not needed
+                "sim_sea",  # Simulation results from realization 0 - not needed
+                "sim_trans",  # Transformed simulation from realization 0 - not needed
+                "rain_mask",  # Intermediate mask - not needed by workers
+            ]
+            excluded_count = 0
+            for attr in excluded_attrs:
+                if attr in dict_:
+                    dict_.pop(attr)
+                    excluded_count += 1
+            print(
+                f"DEBUG: __getstate__ excluded {excluded_count} attributes",
+                file=sys.stderr,
+                flush=True,
+            )
+
         return dict_
 
     def __setstate__(self, dict_):
@@ -1764,23 +1802,9 @@ class Multisite:
                         filepaths_rphases_src[real_i] if name_derived else None
                     ]
             self.varnames_refit = []
-            # Create lightweight Multisite copy for workers by excluding large unneeded attributes
-            # This reduces pickle size and memory footprint when serializing to worker processes
-            wcop_for_workers = copy.deepcopy(self)
-
-            # Drop attributes not needed for simulation (large calibration/intermediate data)
-            unneeded_attrs = [
-                'xds', 'xar',  # Original input datasets (85% of memory)
-                'data_trans', 'ranks',  # Transformed training data
-                'data_daily', 'times_daily',  # Daily aggregations
-                'ensemble', 'ensemble_trans', 'ensemble_daily',  # Ensemble results
-                'sim_sea', 'sim_trans',  # Simulation results from realization 0
-                'cop_quantiles', 'As', 'fft_sim',  # Intermediate fitting artifacts
-                'rain_mask',  # Intermediate mask data
-            ]
-            for attr in unneeded_attrs:
-                if hasattr(wcop_for_workers, attr):
-                    setattr(wcop_for_workers, attr, None)
+            # Set a flag that the instance should exclude large attributes during pickling
+            # This reduces memory footprint when forking processes
+            self._exclude_large_attrs_for_workers = True
 
             # Use multiprocessing for worker isolation (avoids C-library race conditions)
             with Pool(cop_conf.n_nodes) as pool:
@@ -1791,7 +1815,7 @@ class Multisite:
                             zip(
                                 realizations,
                                 repeat(len(realizations)),
-                                repeat(wcop_for_workers),
+                                repeat(self),
                                 filepaths_multi,
                                 filepaths_multi_daily,
                                 filepaths_trans_multi,
@@ -1808,7 +1832,9 @@ class Multisite:
                                 repeat(self.verbose),
                                 repeat(kwds.get("conversions", None)),
                             ),
-                            chunksize=max(1, len(realizations) // cop_conf.n_nodes),
+                            chunksize=max(
+                                1, len(realizations) // cop_conf.n_nodes
+                            ),
                         ),
                         total=len(realizations),
                     )
@@ -2340,7 +2366,7 @@ class Multisite:
 
         if self.fft_sim is None or self.fft_sim.time.size != vg_obj.T_sim:
             if self.fft_sim is None:
-                _log_none_access('fft_sim')
+                _log_none_access("fft_sim")
             self.fft_sim = xr.DataArray(
                 np.full((self.n_stations, self.K, vg_obj.T_sim), 0.5),
                 coords=[
@@ -3907,7 +3933,7 @@ if __name__ == "__main__":
     wc = Multisite(
         xds,
         verbose=True,
-        # refit=True,
+        refit=True,
         # reinitialize_vgs=True,
         # refit_vine=True,
         # refit=True,
