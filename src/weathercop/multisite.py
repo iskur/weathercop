@@ -902,16 +902,17 @@ class Multisite:
                 "sim_trans",  # Transformed simulation from realization 0 - not needed
                 "rain_mask",  # Intermediate mask - not needed by workers
             ]
-            excluded_count = 0
-            for attr in excluded_attrs:
-                if attr in dict_:
-                    dict_.pop(attr)
-                    excluded_count += 1
-            print(
-                f"DEBUG: __getstate__ excluded {excluded_count} attributes",
-                file=sys.stderr,
-                flush=True,
-            )
+            if DEBUG:
+                excluded_count = 0
+                for attr in excluded_attrs:
+                    if attr in dict_:
+                        dict_.pop(attr)
+                        excluded_count += 1
+                print(
+                    f"DEBUG: __getstate__ excluded {excluded_count} attributes",
+                    file=sys.stderr,
+                    flush=True,
+                )
 
         return dict_
 
