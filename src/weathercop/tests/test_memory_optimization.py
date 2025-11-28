@@ -47,7 +47,7 @@ def test_simulate_ensemble_with_memory_optimization(
     """
     # Capture warnings from memory optimization logging
     logging.basicConfig(level=logging.WARNING)
-    logger = logging.getLogger('weathercop.multisite')
+    logger = logging.getLogger("weathercop.multisite")
 
     # Collect warning messages
     warning_messages = []
@@ -71,25 +71,32 @@ def test_simulate_ensemble_with_memory_optimization(
 
         # Verify ensemble was created and is valid
         assert ensemble is not None, "Ensemble should be created"
-        assert 'realization' in ensemble.dims, "Ensemble should have realization dimension"
+        assert (
+            "realization" in ensemble.dims
+        ), "Ensemble should have realization dimension"
         assert ensemble.realization.size == 2, "Should have 2 realizations"
 
         # Check that results are not all-NaN
         for var in ensemble.keys():
             data = ensemble[var].values
-            valid_count = (~(float('nan') if isinstance(data.flat[0], float) else False)).sum()
-            assert valid_count > 0, f"Variable {var} should have valid (non-NaN) data"
+            valid_count = (
+                ~(float("nan") if isinstance(data.flat[0], float) else False)
+            ).sum()
+            assert (
+                valid_count > 0
+            ), f"Variable {var} should have valid (non-NaN) data"
 
         # Check for unexpected None-access warnings
         # Some warnings are expected (e.g., fft_sim being None initially)
         # But we shouldn't have warnings about critical attributes like vine
         unexpected_warnings = [
-            w for w in warning_messages
+            w
+            for w in warning_messages
             if "vine" in w.lower() and "is None" in w
         ]
-        assert len(unexpected_warnings) == 0, (
-            f"Unexpected None-access for critical attributes: {unexpected_warnings}"
-        )
+        assert (
+            len(unexpected_warnings) == 0
+        ), f"Unexpected None-access for critical attributes: {unexpected_warnings}"
 
     finally:
         logger.removeHandler(handler)
@@ -125,6 +132,6 @@ def test_surgical_exclusion_reduces_pickle_size():
         f"Full: {full_size}, Light: {light_size}"
     )
     # With dummy data, should see significant reduction
-    assert reduction_percent > 50, (
-        f"Should see at least 50% reduction, got {reduction_percent:.1f}%"
-    )
+    assert (
+        reduction_percent > 50
+    ), f"Should see at least 50% reduction, got {reduction_percent:.1f}%"
