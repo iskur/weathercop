@@ -59,7 +59,7 @@ def _log_none_access(attr_name, wcop_desc="Multisite"):
 
     This helps identify if excluded attributes are unexpectedly needed during simulation.
     """
-    logger.warning(
+    logger.debug(
         f"{wcop_desc} attribute '{attr_name}' is None. "
         f"This was excluded during worker serialization for memory optimization. "
         f"If this breaks simulation, the attribute must be retained."
