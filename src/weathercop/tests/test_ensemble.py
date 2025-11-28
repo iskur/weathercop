@@ -9,7 +9,6 @@ from weathercop.tests.assertion_utils import assert_valid_ensemble_structure
 
 
 @pytest.fixture
-@pytest.mark.slow
 def ensemble_with_disk_output(multisite_instance):
     """Simulate ensemble once with disk output for multiple test assertions.
 
