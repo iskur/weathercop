@@ -22,7 +22,7 @@ dependencies = [
     "sympy>=1.14.0",
     "timezonefinder>=6.5.9",
     "tqdm>=4.67.1",
-    "varwg>=1.4.1",
+    "varwg>=1.4.2",
     "xarray>=2025.6.1",
 ]
 
