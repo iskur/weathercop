@@ -631,14 +631,9 @@ def _vg_ph(
             ranks_sim = _debias_ranks_sim(ranks_sim, sim_dist)
 
         # sim = dists.norm.ppf(ranks_sim)
-        sim_trans = _retransform_sim(ranks_sim, data_trans_dist)
-        # Transform from transformed space to seasonal space
-        # This is necessary because VG's simulate() expects sim_func to return
-        # seasonal space data when a custom sim_func is provided
-        sim = seasonal_back(
-            vg_obj.dist_sol, sim_trans, varnames_wcop, doys=vg_obj.sim_doys
-        )
-        sim /= vg_obj.sum_interval
+        # sim_trans = _retransform_sim(ranks_sim, data_trans_dist)
+        sim = _retransform_sim(ranks_sim, data_trans_dist)
+
         if stop_at is None:
             assert np.all(np.isfinite(sim))
         else:
