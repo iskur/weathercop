@@ -75,7 +75,7 @@ def test_simulate_ensemble_with_memory_optimization(
         assert ensemble.realization.size == 2, "Should have 2 realizations"
 
         # Check that results are not all-NaN
-        for var in ensemble.data_vars:
+        for var in ensemble.keys():
             data = ensemble[var].values
             valid_count = (~(float('nan') if isinstance(data.flat[0], float) else False)).sum()
             assert valid_count > 0, f"Variable {var} should have valid (non-NaN) data"
