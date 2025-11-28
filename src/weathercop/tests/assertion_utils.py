@@ -18,7 +18,7 @@ def assert_valid_ensemble_structure(ensemble):
         If dataset is not an xarray Dataset or missing required dimensions.
     """
     assert isinstance(
-        ensemble, xr.DataArray
+        ensemble, xr.core.dataset.Dataset
     ), f"Expected xr.Dataset, got {type(ensemble)}"
 
     required_dims = {"station", "variable", "time"}
