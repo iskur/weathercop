@@ -145,6 +145,9 @@ profile.json
 # direnv
 .envrc
 
+# Git worktrees
+.worktrees/
+
 # Syncthing
 .stfolder/
 .stignore

@@ -7,21 +7,34 @@ from functools import wraps, partial
 from itertools import repeat
 from pathlib import Path
 import warnings
+import logging
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from scipy import stats, interpolate
 import xarray as xr
 import dill
-from multiprocessing import Pool, Lock, current_process
+from multiprocessing import Pool
+import copy
+import threading
+from multiprocessing import current_process  # For legacy debug output
 from tqdm import tqdm
+
+# Configure logging for memory optimization diagnostics
+logger = logging.getLogger(__name__)
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        logging.Formatter("[%(name)s] %(levelname)s: %(message)s")
+    )
+    logger.addHandler(handler)
+    logger.setLevel(logging.WARNING)
 from matplotlib.transforms import offset_copy
 import cartopy.crs as ccrs
 import cartopy.io.img_tiles as cimgt
 import cartopy.feature as cfeature
 
 import varwg
-from varwg import helpers as my
 from varwg.core.core import seasonal_back
 from varwg import core as vg_core
 from varwg import base as vg_base
@@ -36,7 +49,23 @@ from weathercop import cop_conf, plotting as wplt, tools, copulae as cops
 from weathercop.vine import CVine, MultiStationVine
 
 DEBUG = cop_conf.DEBUG
-lock = Lock()
+
+# Locks for multiprocessing worker I/O synchronization
+_netcdf_lock = threading.Lock()  # Protects HDF5/NetCDF4 I/O (not thread-safe)
+
+
+def _log_none_access(attr_name, wcop_desc="Multisite"):
+    """Log when a None-check block is entered for a surgical-exclusion attribute.
+
+    This helps identify if excluded attributes are unexpectedly needed during simulation.
+    """
+    logger.debug(
+        f"{wcop_desc} attribute '{attr_name}' is None. "
+        f"This was excluded during worker serialization for memory optimization. "
+        f"If this breaks simulation, the attribute must be retained."
+    )
+
+
 # from dask.distributed import Client
 
 # client = Client(
@@ -70,11 +99,24 @@ if parallel_loading:
 
 
 def set_conf(conf_obj, **kwds):
+    """Apply DWD configuration to VarWG modules.
+
+    Validates that the configuration is properly applied to all VarWG
+    modules that cache it. This is critical for tox and other contexts
+    where import order may vary.
+    """
     objs = (varwg, vg_core, vg_base, vg_plotting)
     for obj in objs:
         obj.conf = conf_obj
         for key, value in kwds.items():
             setattr(obj.conf, key, value)
+
+    # Defensive check: verify config was actually set
+    if varwg.conf is not conf_obj:
+        warnings.warn(
+            f"VarWG configuration may not be properly applied. "
+            f"Expected {conf_obj}, got {varwg.conf}"
+        )
 
 
 def pickle_filepath(xds, rain_method="simulation", warn=True):
@@ -144,13 +186,15 @@ def sim_one(args):
         wcop,
         sim_times,
         rphases=rphases,
+        vgs=wcop.vgs,
         *sim_args,
         **sim_kwds,
     )
     sim_sea = sim_result.sim_sea
     if dis_kwds is not None:
         if write_to_disk:
-            sim_result.sim_sea.to_netcdf(filepath_daily)
+            with _netcdf_lock:
+                sim_result.sim_sea.to_netcdf(filepath_daily)
         varwg.reseed((1000 * real_i))
         if DEBUG:
             print(current_process().name + " in sim_one. before disagg")
@@ -166,7 +210,10 @@ def sim_one(args):
     if write_to_disk:
         if DEBUG:
             print(current_process().name + " in sim_one. before to_netcdf")
-        sim_sea.to_netcdf(filepath)
+        with _netcdf_lock:
+            sim_sea.to_netcdf(filepath)
+            if return_trans and sim_result.sim_trans is not None:
+                sim_result.sim_trans.to_netcdf(filepath_trans)
         if DEBUG:
             print(current_process().name + " in sim_one. after to_netcdf")
         if csv:
@@ -175,9 +222,8 @@ def sim_one(args):
             wcop.to_csv(
                 csv_path, sim_result.sim_sea, filename_prefix=f"{real_str}_"
             )
-        if return_trans and sim_result.sim_trans is not None:
-            sim_result.sim_trans.to_netcdf(filepath_trans)
-        np.save(filepath_rphases, wcop._rphases)
+        # Use rphases from sim_result instead of reading from shared wcop._rphases
+        np.save(filepath_rphases, sim_result.rphases)
     return real_i
 
 
@@ -189,6 +235,7 @@ def _adjust_fft_sim(
     primary_var_ii,
     phase_randomize_vary_mean,
     adjust_prim=True,
+    usevine=False,
 ):
 
     # fft_sim *= (qq_std / fft_sim.std(axis=1))[:, None]
@@ -203,7 +250,7 @@ def _adjust_fft_sim(
         K = fft_sim.shape[0]
         mean_eps = np.zeros(K)[:, None]
         mean_eps[primary_var_ii[0], 0] = (
-            phase_randomize_vary_mean * varwg.rng.normal()
+            phase_randomize_vary_mean * varwg.get_rng().normal()
         )
         fft_sim += mean_eps
 
@@ -297,29 +344,38 @@ def simulate(
     usevg=False,
     usevine=True,
     conversions=None,
+    vgs=None,
     **kwds,
 ):
-    """this is like Multisite.simulate, but simplified for multiprocessing."""
+    """this is like Multisite.simulate, but simplified for multiprocessing.
+
+    Parameters
+    ----------
+    vgs : dict, optional
+        Thread-local VG objects. If None, uses wcop.vgs (default behavior).
+        When called from worker threads, this should be the thread-local copy
+        to avoid shared state issues.
+    """
     # allow for site-specific theta_incr
     theta_incrs = kwds.pop("theta_incr", None)
     sim_sea = sim_trans = None
     # sim_sea = None
     T_sim = len(sim_times)
 
-    if DEBUG:
-        print(current_process().name + " in simulate. aquiring lock")
-    with lock:
+    # Use passed-in vgs if available, otherwise fall back to wcop.vgs
+    if vgs is None:
         vgs = wcop.vgs
-        vg_obj = list(vgs.values())[0]
-        T_data = vg_obj.T_summed
-        K = wcop.K
-        station_names = wcop.station_names
-        n_stations = len(station_names)
-        varnames = wcop.varnames
-        primary_var = wcop.primary_var
-        wcop.usevine = usevine
-    if DEBUG:
-        print(current_process().name + " in simulate. released lock")
+
+    vg_obj = list(vgs.values())[0]
+    T_data = vg_obj.T_summed
+    K = wcop.K
+    station_names = wcop.station_names
+    n_stations = len(station_names)
+    varnames = wcop.varnames
+    primary_var = wcop.primary_var
+    # Don't write to shared wcop.usevine - pass as parameter instead to avoid race condition
+    # with _wcop_lock:
+    #     wcop.usevine = usevine
 
     primary_var_sim = kwds.pop("primary_var", primary_var)
     if rphases is None:
@@ -359,10 +415,12 @@ def simulate(
     #         **heat_wave_kwds,
     #     )
 
+    # Capture usevine in partial to avoid race condition
     vg_ph = partial(
         _vg_ph,
         rphases=rphases,
         wcop=wcop,
+        usevine=usevine,  # Pass usevine as parameter, not via shared wcop
         # phase_randomize=phase_randomize,
         phase_randomize_vary_mean=phase_randomize_vary_mean,
     )
@@ -373,6 +431,8 @@ def simulate(
             theta_incr = theta_incrs
         if DEBUG:
             print("in sim_one ", heat_wave_kwds)
+        # When usevine=True, theta_incr is applied directly by VarWG after callback,
+        # so we pass it to VarWG but don't apply it through sc_pars.m in _adjust_fft_sim
         sim_returned = svg.simulate(
             sim_func=None if usevg else vg_ph,
             primary_var=primary_var,
@@ -421,36 +481,42 @@ def _vg_ph(
     return_rphases=False,
     primary_var_sim=None,
     heat_wave_kwds=None,
+    usevine=True,  # Pass as parameter to avoid race condition
 ):
     """Call-back function for VG.simulate. Replaces a time_series_analysis
     model.
 
     Simlified version of Multisite._vg_ph for multiprocessing
 
+    Parameters
+    ----------
+    usevine : bool
+        Whether to use vine copulas. This is passed as a parameter (captured
+        in the partial function) instead of reading from wcop.usevine to
+        avoid race conditions in threaded execution.
     """
-    if DEBUG:
-        print(current_process().name + " in _vg_ph. acquiring lock")
-    with lock:
-        station_name = vg_obj.station_name
-        primary_var = vg_obj.primary_var
-        primary_var_ii = vg_obj.primary_var_ii
-        T_sim = vg_obj.T_sim
-        sim_times = vg_obj.sim_times
-        # As = wcop.As.sel(station=station_name, drop=True)
-        As = wcop.As
-        fft_dist = wcop.fft_dists[station_name]
-        qq_dist = wcop.qq_dists[station_name]
-        data_trans_dist = wcop.data_trans_dists[station_name]
-        usevine = wcop.usevine
-        if usevine:
-            varnames_vine = wcop.vine.varnames
-            sim_dist = wcop.sim_dists[station_name]
-        zero_phases = wcop.zero_phases
-        vine = wcop.vine
-        varnames_wcop = wcop.varnames
-        heat_waves = wcop.heat_waves
-    if DEBUG:
-        print(current_process().name + " in _vg_ph. released lock")
+    # Each thread has its own VG copy via initializer, no lock needed
+    station_name = vg_obj.station_name
+    primary_var = vg_obj.primary_var
+    primary_var_ii = vg_obj.primary_var_ii
+    T_sim = vg_obj.T_sim
+    sim_times = vg_obj.sim_times
+    # As = wcop.As.sel(station=station_name, drop=True)
+    As = wcop.As
+    fft_dist = wcop.fft_dists[station_name]
+    qq_dist = wcop.qq_dists[station_name]
+    data_trans_dist = wcop.data_trans_dists[station_name]
+    # Use parameter instead of reading from shared wcop to avoid race condition
+    # usevine = wcop.usevine
+    varnames_wcop = (
+        wcop.varnames
+    )  # Read wcop attributes at start to minimize shared access
+    if usevine:
+        varnames_vine = wcop.vine.varnames
+        sim_dist = wcop.sim_dists[station_name]
+    zero_phases = wcop.zero_phases
+    vine = wcop.vine
+    heat_waves = wcop.heat_waves
     As = As.sel(station=station_name, drop=True)
     if primary_var_sim is None:
         primary_var_sim = primary_var
@@ -479,6 +545,7 @@ def _vg_ph(
         primary_var_ii,
         phase_randomize_vary_mean,
         adjust_prim=(primary_var_sim == primary_var),
+        usevine=usevine,
     )
 
     if usevine:
@@ -562,15 +629,11 @@ def _vg_ph(
                 stop_at=stop_at,
             )
             ranks_sim = _debias_ranks_sim(ranks_sim, sim_dist)
+
         # sim = dists.norm.ppf(ranks_sim)
-        sim_trans = _retransform_sim(ranks_sim, data_trans_dist)
-        # Transform from transformed space to seasonal space
-        # This is necessary because VG's simulate() expects sim_func to return
-        # seasonal space data when a custom sim_func is provided
-        sim = seasonal_back(
-            vg_obj.dist_sol, sim_trans, varnames_wcop, doys=vg_obj.sim_doys
-        )
-        sim /= vg_obj.sum_interval
+        # sim_trans = _retransform_sim(ranks_sim, data_trans_dist)
+        sim = _retransform_sim(ranks_sim, data_trans_dist)
+
         if stop_at is None:
             assert np.all(np.isfinite(sim))
         else:
@@ -816,6 +879,41 @@ class Multisite:
         dict_ = dict(self.__dict__)
         if "vgs" in dict_:
             del dict_["vgs"]
+
+        # If this instance is marked for worker serialization, exclude large attributes
+        # to reduce memory footprint when forking processes (avoids deadlock issues)
+        exclude_flag = getattr(self, "_exclude_large_attrs_for_workers", False)
+        if exclude_flag:
+            import sys
+
+            # Only exclude attributes that are NOT used during simulation in workers.
+            # Key insight: Workers need fitting results (As, vine, zero_phases, etc.)
+            # but not the raw training data or ensemble results.
+            excluded_attrs = [
+                "xds",  # Original input dataset - not needed by workers
+                "data_trans",  # Transformed training data - not needed after fitting
+                "ranks",  # Rank data - not needed after fitting
+                "data_daily",  # Daily aggregations - used for fitting, not simulation
+                "times_daily",  # Daily times - not needed by workers
+                "ensemble",  # Ensemble results from realization 0 - not needed
+                "ensemble_trans",  # Transformed ensemble results - not needed
+                "ensemble_daily",  # Daily ensemble results - not needed
+                "sim_sea",  # Simulation results from realization 0 - not needed
+                "sim_trans",  # Transformed simulation from realization 0 - not needed
+                "rain_mask",  # Intermediate mask - not needed by workers
+            ]
+            if DEBUG:
+                excluded_count = 0
+                for attr in excluded_attrs:
+                    if attr in dict_:
+                        dict_.pop(attr)
+                        excluded_count += 1
+                print(
+                    f"DEBUG: __getstate__ excluded {excluded_count} attributes",
+                    file=sys.stderr,
+                    flush=True,
+                )
+
         return dict_
 
     def __setstate__(self, dict_):
@@ -842,12 +940,12 @@ class Multisite:
         """
         closed_ids = set()
 
-        for attr_name in ['ensemble_trans', 'ensemble_daily', 'ensemble']:
+        for attr_name in ["ensemble_trans", "ensemble_daily", "ensemble"]:
             if (obj := getattr(self, attr_name, None)) is None:
                 continue
 
             obj_id = id(obj)
-            if obj_id in closed_ids or not hasattr(obj, 'close'):
+            if obj_id in closed_ids or not hasattr(obj, "close"):
                 continue
 
             try:
@@ -855,6 +953,7 @@ class Multisite:
                 closed_ids.add(obj_id)
             except Exception as e:
                 import warnings
+
                 warnings.warn(f"Failed to close {attr_name}: {e}")
 
     def __eq__(self, other):
@@ -1123,6 +1222,34 @@ class Multisite:
             data_trans = data_trans.interpolate_na("time")
         self.data_trans = data_trans
         self.data_daily = data_daily
+
+        # Check for all-NaN station-variable pairs (indicator of VarWG failures)
+        all_nan_pairs = []
+        for station_name in self.station_names:
+            for var_i, varname in enumerate(self.varnames):
+                data = self.data_trans.sel(
+                    station=station_name, variable=varname
+                ).values
+                if np.isnan(data).all():
+                    all_nan_pairs.append((station_name, varname))
+
+        if all_nan_pairs:
+            error_msg = (
+                "Found all-NaN transformed data (data_trans) for the following "
+                "station/variable pairs. This indicates a VarWG marginal "
+                "transformation failure and needs investigation:\n"
+            )
+            for station_name, varname in all_nan_pairs:
+                error_msg += (
+                    f"  - Station: {station_name}, Variable: {varname}\n"
+                )
+            error_msg += (
+                "\nThis is a serious error that requires fixing in VarWG, not "
+                "masking in WeatherCop. Please investigate the VarWG "
+                "transformation for these variables."
+            )
+            raise RuntimeError(error_msg)
+
         # ranks = dists.norm.cdf(self.data_trans)
         ranks = xr.full_like(self.data_trans, np.nan)
         for station_name in self.station_names:
@@ -1131,9 +1258,17 @@ class Multisite:
                 self.data_trans_dists[station_name],
             )
         ranks.data[(ranks.data <= 0) | (ranks.data >= 1)] = np.nan
+
         self.ranks.values = ranks
         self.ranks = self.ranks.interpolate_na(dim="time")
-        assert np.all(np.isfinite(self.ranks.values))
+
+        # Fallback for boundary/sparse NaNs
+        if np.isnan(self.ranks.values).any():
+            self.ranks = self.ranks.bfill(dim="time").ffill(dim="time")
+
+        assert np.all(
+            np.isfinite(self.ranks.values)
+        ), f"Ranks contain NaN values: {np.isnan(self.ranks.values).sum()} NaNs"
         if not self.station_vines:
             # reorganize so that variable dependence does not consider
             # inter-site relationships
@@ -1192,7 +1327,7 @@ class Multisite:
         # ii = np.argsort(np.sum(As_stacked * (1 - missing_mean[:, None]),
         #                        axis=0)
         #                 - As_stacked[fullest_var_i])
-        phases[ii] = varwg.rng.uniform(0, np.pi, len(ii))
+        phases[ii] = varwg.get_rng().uniform(0, np.pi, len(ii))
 
         # def opt_func(phase, phases, i):
         #     phases[i] = phase
@@ -1332,6 +1467,9 @@ class Multisite:
                 theta_incr = theta_incrs[station_name]
             else:
                 theta_incr = theta_incrs
+            # When usevine=True, theta_incr is applied directly by VarWG after callback,
+            # so we pass it to VarWG but don't apply it through sc_pars.m in _adjust_fft_sim
+
             sim_returned = svg.simulate(
                 sim_func=None if usevg else self._vg_ph,
                 primary_var=self.primary_var,
@@ -1471,10 +1609,10 @@ class Multisite:
         *args,
         **kwds,
     ):
-        # If parallel loading is disabled (no dask), default to keeping ensemble in memory
-        # because reading chunked NetCDF files requires dask
-        if not parallel_loading and write_to_disk is True:
-            write_to_disk = False
+        # # If parallel loading is disabled (no dask), default to keeping ensemble in memory
+        # # because reading chunked NetCDF files requires dask
+        # if not parallel_loading and write_to_disk is True:
+        #     write_to_disk = False
 
         # TODO: the first realization is weird, so omit it for now
         n_realizations += 1
@@ -1584,13 +1722,15 @@ class Multisite:
                             csv_path, sim_sea, filename_prefix=f"{real_str}_"
                         )
                     np.save(filepaths_rphases[real_i], self.rphases)
-                    if (sim_result.sim_trans is not None
-                        and not cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING):
+                    if (
+                        sim_result.sim_trans is not None
+                        and not cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING
+                    ):
                         sim_result.sim_trans.to_netcdf(filepath_trans)
         else:
             # this means we do parallel computation
             # do one simulation in the main loop to set up attributes
-            # varwg.reseed((0))
+            varwg.reseed((0))
             if (
                 name_derived
                 and filepaths_rphases_src[0].with_suffix(".npy").exists()
@@ -1625,7 +1765,10 @@ class Multisite:
                     self.to_csv(
                         csv_path, sim_sea, filename_prefix=f"{real_str}_"
                     )
-                if write_to_disk and not cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING:
+                if (
+                    write_to_disk
+                    and not cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING
+                ):
                     if sim_result.sim_trans is not None:
                         sim_result.sim_trans.to_netcdf(filepaths_trans[0])
             # filter realizations in advance according to output file
@@ -1655,6 +1798,11 @@ class Multisite:
                         filepaths_rphases_src[real_i] if name_derived else None
                     ]
             self.varnames_refit = []
+            # Set a flag that the instance should exclude large attributes during pickling
+            # This reduces memory footprint when forking processes
+            self._exclude_large_attrs_for_workers = True
+
+            # Use multiprocessing for worker isolation (avoids C-library race conditions)
             with Pool(cop_conf.n_nodes) as pool:
                 completed_reals = list(
                     tqdm(
@@ -1681,11 +1829,10 @@ class Multisite:
                                 repeat(kwds.get("conversions", None)),
                             ),
                             chunksize=max(
-                                1, n_realizations // cop_conf.n_nodes
+                                1, len(realizations) // cop_conf.n_nodes
                             ),
                         ),
-                        total=len(realizations) + 1,
-                        initial=1,
+                        total=len(realizations),
                     )
                 )
             assert len(completed_reals) == len(realizations)
@@ -2214,6 +2361,8 @@ class Multisite:
         #     self.fft_sim = None
 
         if self.fft_sim is None or self.fft_sim.time.size != vg_obj.T_sim:
+            if self.fft_sim is None:
+                _log_none_access("fft_sim")
             self.fft_sim = xr.DataArray(
                 np.full((self.n_stations, self.K, vg_obj.T_sim), 0.5),
                 coords=[
@@ -2248,6 +2397,7 @@ class Multisite:
                     vg_obj.primary_var_ii,
                     self.phase_randomize_vary_mean,
                     adjust_prim=(primary_var_sim == self.primary_var),
+                    usevine=self.usevine,
                 )
                 self.fft_sim.loc[dict(station=station_name_)] = fft_sim
             if heat_wave_kwds is not None:
@@ -3763,8 +3913,9 @@ class Multisite:
 
 
 if __name__ == "__main__":
-    import opendata_vg_conf as vg_conf
+    from weathercop.configs import get_dwd_vg_config
 
+    vg_conf = get_dwd_vg_config()
     set_conf(vg_conf)
     # Example usage - replace with your own data path:
     # xds = xr.open_dataset("path/to/your/multisite_testdata.nc")
@@ -3778,7 +3929,7 @@ if __name__ == "__main__":
     wc = Multisite(
         xds,
         verbose=True,
-        # refit=True,
+        refit=True,
         # reinitialize_vgs=True,
         # refit_vine=True,
         # refit=True,
@@ -3789,6 +3940,7 @@ if __name__ == "__main__":
         # rain_method="regression",
         # rain_method="distance",
         rain_method="simulation",
+        infilling="vg",
         # debias=True,
         # cop_candidates=dict(gaussian=cops.gaussian),
         scop_kwds=dict(window_len=30, fft_order=3),
@@ -3817,8 +3969,8 @@ if __name__ == "__main__":
     # wc.plot_ccplom_seasonal(alpha=0.01)
     # wc.plot_meteogram_trans()
     # wc.vine.plot()
-    wc["Weinbiet"].plot_daily_fit("rh")
-    wc["Weinbiet"].plot_monthly_hists("rh")
+    # wc["Weinbiet"].plot_daily_fit("rh")
+    # wc["Weinbiet"].plot_monthly_hists("rh")
     print(wc.vine)
     plt.show()
 

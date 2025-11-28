@@ -3,7 +3,9 @@
 import xarray as xr
 from pathlib import Path
 from weathercop.multisite import Multisite, set_conf
-import opendata_vg_conf as vg_conf
+from weathercop.configs import get_dwd_vg_config
+
+vg_conf = get_dwd_vg_config()
 
 # Load test data
 set_conf(vg_conf)

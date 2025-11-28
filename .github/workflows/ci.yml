@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:  # Allow manual triggers
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v6
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+
+    - name: Create uv virtualenv
+      run: uv venv
+
+    - name: Install build dependencies
+      run: |
+        source .venv/bin/activate
+        uv pip install --system cython numpy setuptools build
+
+    - name: Build package
+      run: |
+        source .venv/bin/activate
+        uv build
+
+    - name: List built artifacts
+      run: ls -lh dist/
+
+    - name: Install package with test dependencies
+      run: |
+        source .venv/bin/activate
+        uv pip install --group test
+        uv pip install dist/*.whl
+
+    - name: Run tests
+      run: |
+        source .venv/bin/activate
+        pytest --pyargs weathercop -v
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: dist-packages
+        path: dist/

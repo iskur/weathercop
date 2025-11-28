@@ -1,5 +1,6 @@
 import time
 from collections import OrderedDict
+import string
 
 import numpy as np
 import xarray as xr
@@ -18,98 +19,115 @@ from weathercop.vine import CVine, RVine, vg_ph
 from weathercop.multisite import set_conf
 
 
-class Test(npt.TestCase):
-    def setUp(self):
-        varwg.reseed(0)
-        self.verbose = True
-        # self.cov = np.array([[ 1.3  , -0.045,  0.597,  0.669,  0.568,  0.507],
-        #                      [-0.045,  0.927,  0.576, -0.248,  0.072,  0.136],
-        #                      [ 0.597,  0.576,  0.963,  0.283,  0.288,  0.282],
-        #                      [ 0.669, -0.248,  0.283,  0.988,  0.129,  0.116],
-        #                      [ 0.568,  0.072,  0.288,  0.129,  0.91 ,  0.686],
-        #                      [ 0.507,  0.136,  0.282,  0.116,  0.686,  0.892]])
-        # self.cov = np.array([[ 1.3  , -0.045,  0.568,  0.597,  0.669,  0.507],
-        #                      [-0.045,  0.927,  0.072,  0.576, -0.248,  0.136],
-        #                      [ 0.568,  0.072,  0.91 ,  0.288,  0.129,  0.686],
-        #                      [ 0.597,  0.576,  0.288,  0.963,  0.283,  0.282],
-        #                      [ 0.669, -0.248,  0.129,  0.283,  0.988,  0.116],
-        #                      [ 0.507,  0.136,  0.686,  0.282,  0.116,  0.892]])
-        self.cov = np.array(
-            [
-                [1.3, 0.568, 0.597, 0.507, -0.045, 0.669],
-                [0.568, 0.91, 0.288, 0.686, 0.072, 0.129],
-                [0.597, 0.288, 0.963, 0.282, 0.576, 0.283],
-                [0.507, 0.686, 0.282, 0.892, 0.136, 0.116],
-                [-0.045, 0.072, 0.576, 0.136, 0.927, -0.248],
-                [0.669, 0.129, 0.283, 0.116, -0.248, 0.988],
-            ]
-        )
+@pytest.fixture(scope="class")
+def vine_test_data():
+    """Generate synthetic data for vine tests (class-scoped for speed).
 
-        self.K = len(self.cov)
-        self.K -= 1
-        T = 1000
-        self.data_normal = np.random.multivariate_normal(
-            len(self.cov) * [0], self.cov, T
-        ).T
-        self.data_normal = self.data_normal[: self.K]
-        self.data_ranks = np.array(
-            [
-                dists.norm.cdf(row, mu=row.mean(), sigma=row.std())
-                for row in self.data_normal
-            ]
-        )
-        import string
+    Creates covariance matrix, synthetic normal data, rank transformations,
+    and metadata for vine copula testing.
+    """
+    varwg.reseed(0)
 
-        self.varnames = list(string.ascii_lowercase[: self.K])
-        # self.varnames = list("".join("%d" % i for i in range(self.K)))
-        # self.varnames = "R", "theta", "ILWR", "u", "v"
-        # self.varnames = "R", "theta", "ILWR", "rh", "u", "v"
-        # self.varnames = 'R', 'theta', 'u', 'ILWR', 'rh', 'v'
+    cov = np.array(
+        [
+            [1.3, 0.568, 0.597, 0.507, -0.045, 0.669],
+            [0.568, 0.91, 0.288, 0.686, 0.072, 0.129],
+            [0.597, 0.288, 0.963, 0.282, 0.576, 0.283],
+            [0.507, 0.686, 0.282, 0.892, 0.136, 0.116],
+            [-0.045, 0.072, 0.576, 0.136, 0.927, -0.248],
+            [0.669, 0.129, 0.283, 0.116, -0.248, 0.988],
+        ]
+    )
 
-        # self.varnames = 'R', 'u', 'ILWR', 'v', 'theta', 'rh'
-        # weights = "likelihood"
-        weights = "tau"
+    K = len(cov) - 1
+    T = 1000
+    data_normal = np.random.multivariate_normal(
+        len(cov) * [0], cov, T
+    ).T[:K]
 
-        # self.rvine = RVine(self.data_ranks, varnames=self.varnames,
-        #                    weights=weights, verbose=self.verbose,
-        #                    debug=self.verbose)
-        # self.rsim = self.rvine.simulate(T=3 * T)
-        # self.rsim_normal = np.array([dists.norm.ppf(values,
-        #                                             mu=source.mean(),
-        #                                             sigma=source.std())
-        #                              for values, source
-        #                              in zip(self.rsim, self.data_normal)])
-        # self.rquantiles = self.rvine.quantiles()
+    data_ranks = np.array(
+        [
+            dists.norm.cdf(row, mu=row.mean(), sigma=row.std())
+            for row in data_normal
+        ]
+    )
 
-        # dtimes = None
-        dtimes = pd.date_range("2000-01-01", periods=T, freq="D")
-        # cop_candidates = dict(gaussian=copulae.gaussian)
-        cop_candidates = None
-        self.cvine = CVine(
-            self.data_ranks,
-            varnames=self.varnames,
-            dtimes=dtimes,
-            weights=weights,
-            verbose=self.verbose,
-            debug=self.verbose,
-            tau_min=0,
-            cop_candidates=cop_candidates,
-        )
-        self.csim = self.cvine.simulate()  # (T=3 * T)
-        self.csim_normal = np.array(
-            [
-                dists.norm.ppf(values, mu=source.mean(), sigma=source.std())
-                for values, source in zip(self.csim, self.data_normal)
-            ]
-        )
-        self.cquantiles = self.cvine.quantiles()
+    varnames = list(string.ascii_lowercase[:K])
+    dtimes = pd.date_range("2000-01-01", periods=T, freq="D")
 
-        self.vines = (self.cvine,)
+    return {
+        "cov": cov,
+        "K": K,
+        "T": T,
+        "data_normal": data_normal,
+        "data_ranks": data_ranks,
+        "varnames": varnames,
+        "dtimes": dtimes,
+    }
 
-    def test_serialize(self):
-        for vine in self.vines:
-            dill_str = dill.dumps(vine)
-            vine_recovered = dill.loads(dill_str)
+
+@pytest.fixture(scope="class")
+def cvine_fitted(vine_test_data):
+    """Fitted CVine instance (class-scoped, expensive to build).
+
+    Constructs a canonical vine copula from synthetic rank data with
+    tau-weighted tree construction.
+    """
+    data = vine_test_data
+    verbose = False  # Set to False for automated tests
+
+    cvine = CVine(
+        data["data_ranks"],
+        varnames=data["varnames"],
+        dtimes=data["dtimes"],
+        weights="tau",
+        verbose=verbose,
+        debug=verbose,
+        tau_min=0,
+        cop_candidates=None,
+    )
+    return cvine
+
+
+@pytest.fixture(scope="class")
+def cvine_simulation(cvine_fitted, vine_test_data):
+    """Simulation results from CVine (expensive, class-scoped).
+
+    Generates simulated data and quantiles from the fitted vine copula.
+    Returns both rank-space and normal-space simulations.
+    """
+    data_normal = vine_test_data["data_normal"]
+
+    # Simulate from vine
+    csim = cvine_fitted.simulate()
+
+    # Transform to normal space for comparison with original data
+    csim_normal = np.array(
+        [
+            dists.norm.ppf(values, mu=source.mean(), sigma=source.std())
+            for values, source in zip(csim, data_normal)
+        ]
+    )
+
+    # Compute quantiles for roundtrip testing
+    cquantiles = cvine_fitted.quantiles()
+
+    return {
+        "csim": csim,
+        "csim_normal": csim_normal,
+        "cquantiles": cquantiles,
+    }
+
+
+@pytest.mark.usefixtures("vine_test_data", "cvine_fitted", "cvine_simulation")
+class Test:
+    """Test suite for vine copula functionality using pytest fixtures."""
+
+    def test_serialize(self, cvine_fitted):
+        """Test that vine copulas can be serialized and deserialized with dill."""
+        dill_str = dill.dumps(cvine_fitted)
+        vine_recovered = dill.loads(dill_str)
+        assert vine_recovered is not None
 
     # def test_likelihood_tree(self):
     #     if self.verbose:
@@ -147,25 +165,25 @@ class Test(npt.TestCase):
     #         plt.show()
     #         raise
 
-    def test_csimulate(self):
-        if self.verbose:
-            print("Stats of CVine simulation")
+    def test_csimulate(self, vine_test_data, cvine_simulation):
+        """Test that CVine simulation preserves mean and covariance structure."""
+        data_normal = vine_test_data["data_normal"]
+        data_ranks = vine_test_data["data_ranks"]
+        csim_normal = cvine_simulation["csim_normal"]
+        cquantiles = cvine_simulation["cquantiles"]
+
         npt.assert_almost_equal(
-            self.csim_normal.mean(axis=1),
-            self.data_normal.mean(axis=1),
+            csim_normal.mean(axis=1),
+            data_normal.mean(axis=1),
             decimal=1,
         )
         try:
             npt.assert_almost_equal(
-                np.cov(self.csim_normal), np.cov(self.data_normal), decimal=1
+                np.cov(csim_normal), np.cov(data_normal), decimal=1
             )
         except AssertionError:
-            print("Obs \n", np.corrcoef(self.data_ranks).round(3))
-            print("Sim \n", np.corrcoef(self.cquantiles).round(3))
-            # plotting.ccplom(self.rsim, k=0, kind="img",
-            #                 title="simulated from CVine")
-            # plotting.ccplom(self.data_ranks, k=0, kind="img", title="observed")
-            # plt.show()
+            print("Obs \n", np.corrcoef(data_ranks).round(3))
+            print("Sim \n", np.corrcoef(cquantiles).round(3))
             raise
 
     # def test_rquantiles(self):
@@ -229,26 +247,34 @@ class Test(npt.TestCase):
     #         plt.show()
     #         raise
 
-    def test_cquantiles_hist(self):
-        if self.verbose:
-            print("Uniformity of quantiles' marginals")
-        for i, q in enumerate(self.cquantiles):
+    def test_cquantiles_hist(self, vine_test_data, cvine_simulation):
+        """Test that quantile marginals are uniformly distributed."""
+        cquantiles = cvine_simulation["cquantiles"]
+        varnames = vine_test_data["varnames"]
+
+        for i, q in enumerate(cquantiles):
             _, p_value = spstats.kstest(q, spstats.uniform.cdf)
             try:
                 assert p_value > 0.25
             except AssertionError:
-                label = self.varnames[i]
+                label = varnames[i]
                 uni = np.random.random(size=q.size)
                 fig, ax = my.hist([q, uni], 20, dist=spstats.uniform)
                 fig.suptitle("%s p-value: %.3f" % (label, p_value))
                 plt.show()
+                raise
 
-    def test_cquantiles(self):
-        if self.verbose:
-            print("Quantile simulation roundtrip of CVine")
-        corr_exp = np.zeros_like(self.cov)
-        corr_exp.ravel()[:: self.K + 1] = 1
-        sim = self.cvine.simulate(randomness=self.cquantiles)
+    def test_cquantiles(self, vine_test_data, cvine_fitted, cvine_simulation):
+        """Test quantile simulation roundtrip (quantiles → simulate → should match original ranks)."""
+        cov = vine_test_data["cov"]
+        K = vine_test_data["K"]
+        data_ranks = vine_test_data["data_ranks"]
+        varnames = vine_test_data["varnames"]
+        cquantiles = cvine_simulation["cquantiles"]
+
+        corr_exp = np.zeros_like(cov)
+        corr_exp.ravel()[:: K + 1] = 1
+        sim = cvine_fitted.simulate(randomness=cquantiles)
         # corr_act = np.corrcoef(self.cquantiles)
         # try:
         #     npt.assert_almost_equal(corr_act, corr_exp, decimal=2)
@@ -277,71 +303,63 @@ class Test(npt.TestCase):
         #     plt.show()
         #     raise
 
-        print(self.cvine)
-        print(self.cvine.varnames)
-        print(self.cvine.varnames_old)
+        print(cvine_fitted)
+        print(cvine_fitted.varnames)
+        print(cvine_fitted.varnames_old)
         try:
-            npt.assert_almost_equal(sim, self.data_ranks, decimal=2)
+            npt.assert_almost_equal(sim, data_ranks, decimal=2)
         except AssertionError:
             obs_corr = pd.DataFrame(
-                np.corrcoef(self.data_ranks).round(3),
-                index=self.varnames,
-                columns=self.varnames,
+                np.corrcoef(data_ranks).round(3),
+                index=varnames,
+                columns=varnames,
             )
             sim_corr = pd.DataFrame(
                 np.corrcoef(sim).round(3),
-                index=self.varnames,
-                columns=self.varnames,
+                index=varnames,
+                columns=varnames,
             )
             print("\nObs\n", obs_corr)
             print("\nSim\n", sim_corr)
             print("\nDiff\n", obs_corr - sim_corr)
-            fig, axs = plt.subplots(nrows=self.K, sharex=True)
+            fig, axs = plt.subplots(nrows=K, sharex=True)
             for i, ax in enumerate(axs):
-                ax.plot(self.data_ranks[i])
+                ax.plot(data_ranks[i])
                 ax.plot(sim[i], "--")
-                ax.set_title(self.varnames[i])
+                ax.set_title(varnames[i])
 
             fig, axs = plt.subplots(
-                nrows=int(np.sqrt(self.K) + 1),
-                ncols=int(np.sqrt(self.K)),
+                nrows=int(np.sqrt(K) + 1),
+                ncols=int(np.sqrt(K)),
                 sharex=True,
                 sharey=True,
                 subplot_kw=dict(aspect="equal"),
             )
             axs = np.ravel(axs)
-            for i, ax in enumerate(axs[: self.K]):
-                ax.scatter(self.data_ranks[i], sim[i], marker="x", s=2)
+            for i, ax in enumerate(axs[:K]):
+                ax.scatter(data_ranks[i], sim[i], marker="x", s=2)
                 ax.plot([0, 1], [0, 1], color="black")
                 ax.grid(True)
-                ax.set_title(self.varnames[i])
-            for ax in axs[self.K :]:
+                ax.set_title(varnames[i])
+            for ax in axs[K:]:
                 ax.set_axis_off()
 
-            self.cvine.plot(edge_labels="copulas")
+            cvine_fitted.plot(edge_labels="copulas")
             plt.show()
             raise
 
-    def test_cquantiles_corr(self):
-        if self.verbose:
-            print("Zero correlation matrix of CVine quantiles")
-        corr_exp = np.zeros((self.K, self.K), dtype=float)
-        corr_exp.ravel()[:: self.K + 1] = 1
-        corr_act = np.corrcoef(self.cquantiles)
+    def test_cquantiles_corr(self, vine_test_data, cvine_simulation):
+        """Test that quantiles have zero correlation (are independent)."""
+        K = vine_test_data["K"]
+        cquantiles = cvine_simulation["cquantiles"]
+
+        corr_exp = np.zeros((K, K), dtype=float)
+        corr_exp.ravel()[:: K + 1] = 1
+        corr_act = np.corrcoef(cquantiles)
         try:
             npt.assert_almost_equal(corr_act, corr_exp, decimal=1)
         except AssertionError:
             print("Quantiles corr \n", corr_act.round(3))
-            if self.verbose:
-                plotting.ccplom(
-                    self.cquantiles, k=0, kind="img", title="cquantiles"
-                )
-                plotting.ccplom(
-                    self.data_ranks, k=0, kind="img", title="copula_input"
-                )
-                self.cvine.plot_qqplom()
-                fig, axs = plt.subplots(nrows=self.K, ncols=1, sharex=True)
-                plt.show()
             raise
 
     # def test_seasonal_yearly(self):
@@ -378,9 +396,7 @@ class Test(npt.TestCase):
     #     plt.show()
 
     def test_seasonal(self):
-        if self.verbose:
-            print("Seasonal Vine with VG data")
-
+        """Test seasonal vine with real VG data (skipped if dependencies unavailable)."""
         # Try to import config_konstanz, skip if not available
         try:
             import config_konstanz as conf
