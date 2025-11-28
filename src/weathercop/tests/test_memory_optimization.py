@@ -5,12 +5,14 @@ Tests that simulate_ensemble with surgical attribute exclusion:
 2. Doesn't trigger unexpected None-check blocks
 3. Uses less memory (qualitatively, via pickle size)
 """
+
 import pytest
 import logging
 import pickle
 from pathlib import Path
 from weathercop.multisite import Multisite
 import xarray as xr
+import numpy as np
 
 
 # Mock Multisite for testing surgical exclusion principle
@@ -77,14 +79,13 @@ def test_simulate_ensemble_with_memory_optimization(
         assert ensemble.realization.size == 2, "Should have 2 realizations"
 
         # Check that results are not all-NaN
-        for var in ensemble.keys():
-            data = ensemble[var].values
-            valid_count = (
-                ~(float("nan") if isinstance(data.flat[0], float) else False)
-            ).sum()
-            assert (
-                valid_count > 0
-            ), f"Variable {var} should have valid (non-NaN) data"
+        for station_name in multisite_instance.station_names:
+            for varname in multisite_instance.varnames:
+                data = ensemble.sel(station=station_name, variable=varname)
+                invalid_count = np.isnan(data.values).sum()
+                assert (
+                    invalid_count == 0
+                ), f"{varname} for {station_name} should have valid (non-NaN) data"
 
         # Check for unexpected None-access warnings
         # Some warnings are expected (e.g., fft_sim being None initially)
