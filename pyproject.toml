@@ -39,6 +39,7 @@ dev = [
     "psutil>=7.1.2",
     "pyflakes>=3.4.0",
     "pytest>=8.4.1",
+    "pytest-xdist>=3.8.0",
     "setuptools>=80.9.0",
 ]
 optional = [
@@ -48,6 +49,7 @@ test = [
     "cython>=3.1.2",
     "psutil>=7.1.2",
     "pytest>=8.4.1",
+    "pytest-xdist>=3.8.0",
     "setuptools>=80.9.0",
     "tox>=4.24.2",
     "tox-uv>=1.20.0",
@@ -66,6 +68,9 @@ python_classes = ["Test"]
 python_functions = ["test_*"]
 # Use function scope for fixtures to maximize memory cleanup
 addopts = "-v --tb=short"
+markers = [
+    "memory_intensive: marks tests as memory-intensive (deselect with '-m \"not memory_intensive\"')",
+]
 
 [tool.mypy]
 disable_error_code = ["import-untyped"]

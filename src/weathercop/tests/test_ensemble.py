@@ -1,6 +1,9 @@
 """Tests for ensemble generation and memory efficiency."""
 
 import pytest
+
+# Mark entire module as memory-intensive
+pytestmark = pytest.mark.memory_intensive
 import tempfile
 from pathlib import Path
 import xarray as xr
