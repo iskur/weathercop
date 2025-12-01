@@ -37,6 +37,16 @@ jobs:
         source .venv/bin/activate
         uv pip install --system cython numpy setuptools build
 
+    - name: Install package dependencies for ufunc generation
+      run: |
+        source .venv/bin/activate
+        uv pip install scipy sympy networkx matplotlib varwg
+
+    - name: Pre-generate Cython ufuncs
+      run: |
+        source .venv/bin/activate
+        python scripts/generate_ufuncs.py
+
     - name: Build package
       run: |
         source .venv/bin/activate
