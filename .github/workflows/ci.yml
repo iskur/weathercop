@@ -70,7 +70,12 @@ jobs:
       timeout-minutes: 30
       run: |
         source .venv/bin/activate
-        pytest --pyargs weathercop -n auto -m "not memory_intensive" --durations=10 -v
+        echo "=== System resources before tests ==="
+        free -h
+        df -h
+        echo "==================================="
+        # Use -n 2 instead of auto to limit memory usage (auto spawns 4 workers on 4-core runner)
+        pytest --pyargs weathercop -n 2 -m "not memory_intensive" --durations=10 -v
 
     - name: Run memory-intensive tests (sequential)
       timeout-minutes: 30
