@@ -74,8 +74,8 @@ jobs:
         free -h
         df -h
         echo "==================================="
-        # Use -n 2 instead of auto to limit memory usage (auto spawns 4 workers on 4-core runner)
-        pytest --pyargs weathercop -n 2 -m "not memory_intensive" --durations=10 -v
+        # Use -n 1 (sequential) to prevent memory exhaustion - was failing at 72% with -n 2
+        pytest --pyargs weathercop -n 1 -m "not memory_intensive" --durations=10 -v
 
     - name: Run memory-intensive tests (sequential)
       timeout-minutes: 30
