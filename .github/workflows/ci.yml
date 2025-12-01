@@ -35,7 +35,7 @@ jobs:
     - name: Install build dependencies
       run: |
         source .venv/bin/activate
-        uv pip install --system cython numpy setuptools build
+        uv pip install cython numpy setuptools build
 
     - name: Install package dependencies for ufunc generation
       run: |
