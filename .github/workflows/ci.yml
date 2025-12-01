@@ -42,6 +42,11 @@ jobs:
         source .venv/bin/activate
         uv pip install scipy sympy networkx matplotlib varwg
 
+    - name: Build core Cython extensions in-place
+      run: |
+        source .venv/bin/activate
+        python setup.py build_ext --inplace
+
     - name: Pre-generate Cython ufuncs
       run: |
         source .venv/bin/activate
