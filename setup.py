@@ -47,7 +47,12 @@ def cythonize_extensions(force=True):
         ),
     ]
 
-    return cythonize(auto_exts + core_exts, force=force, language_level="3")
+    return cythonize(
+        auto_exts + core_exts,
+        force=force,
+        language_level="3",
+        nthreads=4,  # Parallelize compilation
+    )
 
 
 # Cythonize extensions immediately to ensure they're included in the build
