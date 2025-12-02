@@ -123,12 +123,14 @@ cdef double[::1] _newton(conditional_func,
             else:
                 rank_u_ar[0] = rank1
                 rank_v_ar[0] = zk
+            # Extract the current row of theta as a 1D array (avoids deprecation warnings)
+            theta_1d = np.ascontiguousarray(theta_ar[:, 0])
             gz = conditional_func(rank_u_ar,
                                   rank_v_ar,
-                                  *theta_ar)
+                                  theta_1d)
             gz_prime = conditional_func_prime(rank_u_ar,
                                               rank_v_ar,
-                                              *theta_ar)
+                                              theta_1d)
             if gz_prime == 0:
                 step = 0  # this will end the loop
             else:
