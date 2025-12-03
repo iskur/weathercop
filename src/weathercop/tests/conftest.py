@@ -80,8 +80,12 @@ def configure_for_testing(vg_config):
 
 @pytest.fixture(scope="session")
 def data_root():
-    """Return path to test data (session-scoped)."""
-    return Path().home() / "data/opendata_dwd"
+    """Return path to test data (session-scoped).
+
+    Uses local fixtures directory for test data files that are checked into
+    the repository, ensuring CI and local testing use the same data.
+    """
+    return Path(__file__).parent / "fixtures"
 
 
 @pytest.fixture(scope="session")
