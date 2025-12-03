@@ -70,6 +70,7 @@ python_functions = ["test_*"]
 addopts = "-v --tb=short"
 markers = [
     "memory_intensive: marks tests as memory-intensive (deselect with '-m \"not memory_intensive\"')",
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
 ]
 
 [tool.mypy]

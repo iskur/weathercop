@@ -106,8 +106,18 @@ def _vg_cache_exists():
 
 @pytest.fixture(scope="function")
 def test_dataset(data_root):
-    """Load test dataset fresh for each test (function-scoped)."""
-    xds = xr.open_dataset(data_root / "multisite_testdata.nc")
+    """Load test dataset fresh for each test (function-scoped).
+
+    Skips the test if the data file is not available.
+    """
+    data_file = data_root / "multisite_testdata.nc"
+    if not data_file.exists():
+        pytest.skip(
+            f"Test data not found at {data_file}. "
+            "Run: python src/weathercop/tests/generate_test_data.py"
+        )
+
+    xds = xr.open_dataset(data_file)
     yield xds
     # Cleanup after each test
     xds.close()
