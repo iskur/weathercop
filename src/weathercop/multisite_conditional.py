@@ -811,7 +811,9 @@ class YearlyRainMean(Condition, YearlyRain):
 
 if __name__ == "__main__":
     from pathlib import Path
-    import opendata_vg_conf as vg_conf
+    from weathercop.configs import get_dwd_vg_config
+
+    vg_conf = get_dwd_vg_config()
 
     # np.random.seed(1)
     # ms.set_conf(vg_conf)

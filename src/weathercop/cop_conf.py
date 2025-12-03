@@ -20,14 +20,10 @@ AGGRESSIVE_CLEANUP = False
 
 # Use environment variables or fallback to reasonable defaults
 home = Path.home()
-weathercop_dir = Path(os.environ.get(
-    'WEATHERCOP_DIR',
-    home / '.weathercop'
-))
-ensemble_root = Path(os.environ.get(
-    'WEATHERCOP_ENSEMBLE_ROOT',
-    weathercop_dir / "ensembles"
-))
+weathercop_dir = Path(os.environ.get("WEATHERCOP_DIR", home / ".weathercop"))
+ensemble_root = Path(
+    os.environ.get("WEATHERCOP_ENSEMBLE_ROOT", weathercop_dir / "ensembles")
+)
 
 # Ensure directories exist
 weathercop_dir.mkdir(exist_ok=True, parents=True)
@@ -35,7 +31,7 @@ ensemble_root.mkdir(exist_ok=True, parents=True)
 
 script_home = Path(__file__).parent
 ufunc_tmp_dir = script_home / "ufuncs"
-sympy_cache = ufunc_tmp_dir / "sympy_cache.she"
+sympy_cache = ufunc_tmp_dir / "sympy_cache.json"
 cache_dir = weathercop_dir / "cache"
 theano_cache = ufunc_tmp_dir / "theano_cache.she"
 vine_cache = cache_dir / "vine_cache.she"

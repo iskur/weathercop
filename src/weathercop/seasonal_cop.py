@@ -694,7 +694,7 @@ def phase_rand(*, ranks=None, data_stdn=None, T=None):
     middle_i = As.shape[1] // 2
     phase_first, phase_middle = np.angle(As[:, [0, middle_i]])
     # phase randomization with same random phases in both variables
-    phases_lh = varwg.rng.uniform(
+    phases_lh = varwg.get_rng().uniform(
         0, 2 * np.pi, T // 2 if T % 2 == 1 else T // 2 - 1
     )
     phases_lh = np.array(K * [phases_lh])

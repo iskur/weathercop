@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:  # Allow manual triggers
+
+jobs:
+  test-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v6
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+
+    - name: Create uv virtualenv
+      run: uv venv
+
+    - name: Install build dependencies
+      run: |
+        source .venv/bin/activate
+        uv pip install cython numpy setuptools build
+
+    - name: Install package dependencies for ufunc generation
+      run: |
+        source .venv/bin/activate
+        uv pip install scipy sympy networkx matplotlib varwg
+
+    - name: Build core Cython extensions in-place
+      run: |
+        source .venv/bin/activate
+        python setup.py build_ext --inplace
+
+    - name: Pre-generate Cython ufuncs
+      run: |
+        source .venv/bin/activate
+        python scripts/generate_ufuncs.py
+
+    - name: Build package
+      run: |
+        source .venv/bin/activate
+        uv build
+
+    - name: List built artifacts
+      run: ls -lh dist/
+
+    - name: Install package with test dependencies
+      run: |
+        source .venv/bin/activate
+        uv pip install --group test
+        uv pip install dist/*.whl
+
+    - name: Run CPU-intensive tests (parallel)
+      timeout-minutes: 60
+      run: |
+        source .venv/bin/activate
+        echo "=== System resources before tests ==="
+        free -h
+        df -h
+        echo "==================================="
+        # Use -n 1 (sequential) to prevent memory exhaustion - was failing at 72% with -n 2
+        pytest --pyargs weathercop -n 1 -m "not memory_intensive" --durations=10 -v
+
+    - name: Run memory-intensive tests (sequential)
+      timeout-minutes: 30
+      run: |
+        source .venv/bin/activate
+        pytest --pyargs weathercop -n 1 -m "memory_intensive" --durations=10 -v
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: dist-packages
+        path: dist/

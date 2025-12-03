@@ -1,54 +1,64 @@
 """Tests for ensemble generation and memory efficiency."""
+
 import pytest
+
+# Mark entire module as memory-intensive
+pytestmark = pytest.mark.memory_intensive
 import tempfile
 from pathlib import Path
 import xarray as xr
-import gc
+
+from weathercop.tests.assertion_utils import assert_valid_ensemble_structure
 
 
-@pytest.mark.slow
-def test_small_ensemble_generation(multisite_instance):
-    """Test that small ensemble can be generated without excessive memory use."""
+@pytest.fixture
+def ensemble_with_disk_output(multisite_instance):
+    """Simulate ensemble once with disk output for multiple test assertions.
+
+    This fixture runs the expensive clear_cache=True ensemble simulation
+    once and makes the result available to multiple focused tests.
+    """
     with tempfile.TemporaryDirectory() as tmpdir:
-        n_reals = 1  # Reduced from 2 to minimize memory usage
         multisite_instance.simulate_ensemble(
-            n_realizations=n_reals,
+            n_realizations=1,
             name="test_ensemble",
             clear_cache=True,
             write_to_disk=True,
             ensemble_root=Path(tmpdir),
         )
-
-        # Verify ensemble was created
-        assert multisite_instance.ensemble is not None
-
-        # Check that files were written
-        ensemble_dir = Path(tmpdir) / "test_ensemble"
-        nc_files = list(ensemble_dir.glob("*.nc"))
-        assert len(nc_files) > 0, "Ensemble files not written"
+        yield multisite_instance.ensemble, Path(tmpdir)
 
 
-def test_ensemble_returns_valid_data(multisite_instance):
-    """Test that ensemble returns valid xarray data."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        multisite_instance.simulate_ensemble(
-            n_realizations=1,
-            name="validity_test",
-            clear_cache=True,
-            write_to_disk=False,
-            ensemble_root=Path(tmpdir),
-        )
+def test_ensemble_generation_creates_dataset(ensemble_with_disk_output):
+    """Test that ensemble simulation creates a non-None dataset."""
+    ensemble, _ = ensemble_with_disk_output
+    assert ensemble is not None
 
-        assert multisite_instance.ensemble is not None
-        assert isinstance(multisite_instance.ensemble, (xr.Dataset, xr.DataArray))
 
-        # Check required dimensions
-        assert "station" in multisite_instance.ensemble.dims
-        assert "variable" in multisite_instance.ensemble.dims
-        assert "time" in multisite_instance.ensemble.dims
+def test_ensemble_is_valid_xarray(ensemble_with_disk_output):
+    """Test that ensemble is a valid xarray Dataset with required dimensions."""
+    ensemble, _ = ensemble_with_disk_output
+    assert_valid_ensemble_structure(ensemble)
+
+
+@pytest.mark.parametrize("dimension", ["station", "variable", "time"])
+def test_ensemble_has_required_dimension(ensemble_with_disk_output, dimension):
+    """Verify ensemble dataset has all required dimensions."""
+    ensemble, _ = ensemble_with_disk_output
+    assert dimension in ensemble.dims, \
+        f"Missing dimension '{dimension}'. Available: {list(ensemble.dims)}"
+
+
+def test_ensemble_writes_netcdf_files(ensemble_with_disk_output):
+    """Test that ensemble simulation writes NetCDF files to disk."""
+    _, tmpdir = ensemble_with_disk_output
+    ensemble_dir = tmpdir / "test_ensemble"
+    nc_files = list(ensemble_dir.glob("*.nc"))
+    assert len(nc_files) > 0, "Ensemble files not written to disk"
 
 
 def test_memory_optimization_flag_during_testing(configure_for_testing):
     """Verify memory optimization is active during test runs."""
     from weathercop import cop_conf
+
     assert cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING is True

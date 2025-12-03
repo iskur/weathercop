@@ -1,5 +1,4 @@
 include MANIFEST.in
-include distribute_setup.py
 include setup.py
 include src/weathercop/*.py
 include src/weathercop/ufuncs/sympy_cache*

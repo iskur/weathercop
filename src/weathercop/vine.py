@@ -1235,7 +1235,7 @@ class CVine(Vine):
         T = self.T if T is None else T
 
         if randomness is None:
-            Ps = varwg.rng.random((self.d, T))
+            Ps = varwg.get_rng().random((self.d, T))
         else:
             Ps = randomness
         if isinstance(T, int):
@@ -1471,7 +1471,7 @@ class RVine(Vine):
         # one = 1 - zero
 
         if randomness is None:
-            Ps = varwg.rng.random(self.d, T)
+            Ps = varwg.get_rng().random(self.d, T)
         else:
             Ps = randomness
 
@@ -1592,7 +1592,7 @@ def vg_ph(vg_obj, sc_pars, refit=False):
         vg_ph.phases = np.angle(vg_ph.As)
     T = vg_obj.T_sim
     # phase randomization with same random phases in all variables
-    phases_lh = varwg.rng.uniform(
+    phases_lh = varwg.get_rng().uniform(
         -np.pi, np.pi, T // 2 if T % 2 == 1 else T // 2 - 1
     )
     phases_lh = np.array(vg_obj.K * [phases_lh])

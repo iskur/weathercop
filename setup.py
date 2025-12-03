@@ -2,24 +2,7 @@ from pathlib import Path
 import sys
 import numpy as np
 from setuptools import setup, Extension
-from setuptools.command.build_ext import build_ext
 from Cython.Build import cythonize
-
-# Allow skipping Cython build via env var (optional)
-SKIP_CYTHON_BUILD = sys.argv[1:2] != ["build_ext"] and sys.argv[1:2] != [
-    "install"
-]
-
-
-class BuildExt(build_ext):
-    """Defer cythonization until build time."""
-
-    def finalize_options(self):
-        super().finalize_options()
-        if not SKIP_CYTHON_BUILD:
-            self.distribution.ext_modules = cythonize_extensions(
-                force=self.force
-            )
 
 
 def cythonize_extensions(force=True):
@@ -35,9 +18,7 @@ def cythonize_extensions(force=True):
             f"weathercop.ufuncs.{name.stem}",
             [
                 f"{name}",
-                "src/"
-                + str(name.parent / name.stem[: -len("0")])
-                + "code_0.c",
+                str(name.parent / name.stem[: -len("0")]) + "code_0.c",
             ],
             include_dirs=include_dirs + [str(ufuncs_path)],
             extra_compile_args=extra_compile_args,
@@ -66,11 +47,18 @@ def cythonize_extensions(force=True):
         ),
     ]
 
-    return cythonize(auto_exts + core_exts, force=force, language_level="3")
+    return cythonize(
+        auto_exts + core_exts,
+        force=force,
+        language_level="3",
+        nthreads=4,  # Parallelize compilation
+    )
 
+
+# Cythonize extensions immediately to ensure they're included in the build
+EXT_MODULES = cythonize_extensions(force=True)
 
 setup(
     name="weathercop",
-    ext_modules=[],  # ✅ ensures build_ext always runs
-    cmdclass={"build_ext": BuildExt},
+    ext_modules=EXT_MODULES,
 )

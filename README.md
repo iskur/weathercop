@@ -94,8 +94,10 @@ Generate a weather ensemble in 10 lines of code:
 ``` python
 import xarray as xr
 from weathercop.multisite import Multisite, set_conf
-import opendata_vg_conf as vg_conf
+from weathercop.configs import get_dwd_vg_config
 
+# Load bundled DWD configuration
+vg_conf = get_dwd_vg_config()
 set_conf(vg_conf)
 xds = xr.open_dataset("~/data/opendata_dwd/multisite_testdata.nc")
 multisite = Multisite(xds, verbose=True)
