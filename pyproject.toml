@@ -1,6 +1,6 @@
 [project]
 name = "weathercop"
-version = "0.1.0"
+version = "0.2.0"
 description = "A Copula-based Weather Generator"
 readme = "README.md"
 authors = [

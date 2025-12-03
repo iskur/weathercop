@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2025-12-03
+
 ### Added
 - DEPENDENCIES.md documenting all library dependencies and their purpose
 - REFERENCES.md with academic references for copula theory and vine copulas
@@ -17,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Troubleshooting section in README for common issues
 - Environment variable configuration (WEATHERCOP_DIR, WEATHERCOP_ENSEMBLE_ROOT)
 - Example configuration files in examples/configurations/
+- Test fixture data for portable CI testing across environments
+- pytest marker registration for `@pytest.mark.slow` tests
+- Pytest parallelization with memory-aware phased execution
+- Memory optimization tests with surgical attribute exclusion for multiprocessing
+- Logging support for debugging in multisite weather generation
+- Support for `xr.DataArray` in ensemble structure validation (in addition to `xr.Dataset`)
 
 ### Changed
 - Made all paths configurable via environment variables instead of hardcoded paths
@@ -26,17 +34,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moved personal configuration files to examples/configurations/
 - Improved .gitignore to exclude large binaries, cache files, and personal configs
 - Updated contact email to GitHub noreply address for privacy
+- Refactored test suite to use pytest fixtures and parametrization (test_vine.py, test_copulae.py)
+- Improved Cython compilation pipeline with parallel compilation (nthreads=4)
+- Enhanced test_density numerical integration to prevent CI timeouts
+- Updated varwg dependency to version 1.4.2
+- Reorganized configuration files for consistency
+- Eliminated NumPy deprecation warnings in Newton's method
+- Switched back to multiprocessing with surgical attribute exclusion for workers
+- Increased CI test timeouts to handle resource constraints
+- Made pytest execution sequential to prevent memory exhaustion in CI
+
+### Fixed
+- Code style issues (flake8 violations)
+- Hardcoded paths that prevented portability
+- Unused imports in multiple files
+- CI race conditions in Cython ufunc generation by pre-compiling core extensions
+- Memory exhaustion during parallel test execution in CI environments
+- All-NaN ensemble generation issues through improved data validation
+- Missing test data handling with graceful fallbacks
+- Multiprocessing pickle serialization issues via surgical attribute exclusion
+- CI build failures related to --system flag in uv pip install
+- Assertion type testing accuracy
 
 ### Removed
 - Third-party PDF files from docs/ (13MB) - now referenced in REFERENCES.md
 - Unused MKL dependency and implementation variants
 - Hardcoded personal paths from source code
 - Personal configuration files from source tree
-
-### Fixed
-- Code style issues (flake8 violations)
-- Hardcoded paths that prevented portability
-- Unused imports in multiple files
+- `@pytest.mark.slow` annotation from ensemble fixtures (now properly registered)
+- Test for non-primary variable simulation (behavior no longer supported)
 
 ## [0.1.0] - 2025-10-17
 
