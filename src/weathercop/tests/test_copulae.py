@@ -363,10 +363,16 @@ def test_density(copula_name, frozen_cop, eps, img_dir):
         def density(x, y):
             return frozen_cop.density(np.array([x]), np.array([y]))
 
-        one = integrate.nquad(
-            density,
-            ([eps, 1 - eps], [eps, 1 - eps]),
-        )[0]
+        with warnings.catch_warnings():
+            # Suppress scipy's internal deprecation warning about array-to-scalar
+            # conversion from _quadpack. This is scipy's implementation detail.
+            warnings.filterwarnings('ignore', category=DeprecationWarning,
+                                    message='.*Conversion of an array.*')
+            one = integrate.nquad(
+                density,
+                ([eps, 1 - eps], [eps, 1 - eps]),
+                opts={'epsabs': 1e-4, 'epsrel': 1e-4},
+            )[0]
     except integrate.IntegrationWarning:
         pytest.skip(f"Numerical integration of {copula_name} is problematic")
     else:
