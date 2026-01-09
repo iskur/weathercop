@@ -1,5 +1,3 @@
-import time
-from collections import OrderedDict
 import string
 
 import numpy as np
@@ -14,9 +12,7 @@ from scipy import stats as spstats
 from varwg import helpers as my
 import varwg
 from varwg.time_series_analysis import distributions as dists
-from weathercop import plotting, copulae
-from weathercop.vine import CVine, RVine, vg_ph
-from weathercop.multisite import set_conf
+from weathercop.vine import CVine
 
 
 @pytest.fixture(scope="class")
@@ -41,9 +37,7 @@ def vine_test_data():
 
     K = len(cov) - 1
     T = 1000
-    data_normal = np.random.multivariate_normal(
-        len(cov) * [0], cov, T
-    ).T[:K]
+    data_normal = np.random.multivariate_normal(len(cov) * [0], cov, T).T[:K]
 
     data_ranks = np.array(
         [
@@ -402,6 +396,7 @@ class Test:
             import config_konstanz as conf
             import varwg
             from varwg import plotting as vg_plotting, base as vg_base
+
             varwg.conf = vg_plotting.conf = vg_base.conf = conf
         except (ImportError, ModuleNotFoundError):
             pytest.skip("config_konstanz not available for test_seasonal")
