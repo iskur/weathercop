@@ -12,6 +12,7 @@ from scipy import stats as spstats
 from varwg import helpers as my
 import varwg
 from varwg.time_series_analysis import distributions as dists
+from weathercop import copulae  # noqa: F401 - needed for ufuncs initialization
 from weathercop.vine import CVine
 
 
