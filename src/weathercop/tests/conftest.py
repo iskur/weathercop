@@ -3,6 +3,7 @@
 import os
 import pytest
 from pathlib import Path
+import netCDF4  # Import netCDF4 before xarray to avoid lazy loading warning
 import xarray as xr
 import gc
 import shutil
