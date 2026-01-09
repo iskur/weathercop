@@ -210,3 +210,13 @@ src/weathercop/ufuncs/*.she
 /docs/*.aux
 /auto/
 /docs/auto/
+
+# Diagnostic and profiling scripts (investigation artifacts)
+diagnose_*.py
+compare_*.py
+profile_*.py
+test_threading_race.py
+
+# Auto-generated parser tables
+lextab.py
+yacctab.py
