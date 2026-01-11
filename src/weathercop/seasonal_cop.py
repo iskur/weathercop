@@ -148,8 +148,13 @@ class SeasonalCop:
         method = getattr(self.copula.__class__, method_name)
         try:
             return method(self.copula, conditioned, condition, theta)
-        except TypeError:
-            return method(conditioned, condition, theta)
+        except TypeError as e:
+            # Only catch TypeError related to method signature, not from within the method
+            if "missing" in str(e) or "takes" in str(e) or "positional argument" in str(e):
+                return method(conditioned, condition, theta)
+            else:
+                # Re-raise TypeError from within the method (e.g., from Newton solver)
+                raise
 
     def cdf_given_u(self, t=None, *, conditioned, condition):
         return self._call_cdf_func(
