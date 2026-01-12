@@ -146,16 +146,20 @@ class SeasonalCop:
         else:
             theta = self.thetas[t % self.n_doys]
         method = getattr(self.copula.__class__, method_name)
+
+        # Try calling with self.copula first (instance method form)
         try:
             return method(self.copula, conditioned, condition, theta)
         except TypeError as e:
-            # Only catch TypeError related to method signature, not from within the method
-            if "missing" in str(e) or "takes" in str(e) or "positional argument" in str(e):
+            # If it fails, try without self.copula (classmethod/staticmethod form)
+            # But only if the error is from the initial call, not from within the method
+            try:
                 return method(conditioned, condition, theta)
-            else:
-                # Re-raise TypeError from within the method (e.g., from Newton solver)
-                raise
-
+            except TypeError:
+                # If both forms fail, the original error was the real problem
+                # Re-raise the original exception with full context
+                raise e from None
+ 
     def cdf_given_u(self, t=None, *, conditioned, condition):
         return self._call_cdf_func(
             "cdf_given_u", t, conditioned=condition, condition=conditioned
