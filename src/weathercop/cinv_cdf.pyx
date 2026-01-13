@@ -125,12 +125,15 @@ cdef double[::1] _newton(conditional_func,
                 rank_v_ar[0] = zk
             # Extract the current row of theta as a 1D array (avoids deprecation warnings)
             theta_1d = np.ascontiguousarray(theta_ar[:, 0])
-            gz = conditional_func(rank_u_ar,
-                                  rank_v_ar,
-                                  theta_1d)
-            gz_prime = conditional_func_prime(rank_u_ar,
-                                              rank_v_ar,
-                                              theta_1d)
+            # ufuncs may return arrays; extract scalar values
+            gz_result = conditional_func(rank_u_ar,
+                                         rank_v_ar,
+                                         theta_1d)
+            gz = np.asarray(gz_result).flat[0]
+            gz_prime_result = conditional_func_prime(rank_u_ar,
+                                                     rank_v_ar,
+                                                     theta_1d)
+            gz_prime = np.asarray(gz_prime_result).flat[0]
             if gz_prime == 0:
                 step = 0  # this will end the loop
             else:
