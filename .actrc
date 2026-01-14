@@ -1,0 +1,11 @@
+# act configuration for weathercop project
+# Use GitHub-compatible Docker image for accurate CI simulation
+--platform ubuntu-latest=catthehacker/ubuntu:full-latest
+
+# Reuse containers between runs for faster iteration
+--reuse
+
+# Forward SSH agent for private repo access
+--container-options "-v $SSH_AUTH_SOCK:/ssh-agent -e SSH_AUTH_SOCK=/ssh-agent"
+
+--secret-file .secrets
