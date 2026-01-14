@@ -30,7 +30,7 @@ jobs:
         python-version: '3.13'
 
     - name: Create uv virtualenv
-      run: uv venv
+      run: uv venv --clear  # clear needed for act
 
     - name: Install build dependencies
       run: |
