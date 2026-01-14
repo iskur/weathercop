@@ -32,6 +32,16 @@ This separation of concerns enables realistic what-if scenarios: by conditioning
 
 * Installation
 
+** Using pip
+
+The simplest way to install WeatherCop from PyPI:
+
+#+begin_src bash
+pip install weathercop
+#+end_src
+
+This installs the package with all dependencies (including VarWG from PyPI).
+
 ** Using uv (recommended)
 
 WeatherCop uses [[https://docs.astral.sh/uv/][uv]] for dependency management. To install:
@@ -41,15 +51,18 @@ WeatherCop uses [[https://docs.astral.sh/uv/][uv]] for dependency management. To
    curl -LsSf https://astral.sh/uv/install.sh | sh
    #+end_src
 
-2. Clone the repository and install:
+2. Create a project with WeatherCop:
    #+begin_src bash
-   git clone <repository-url>
-   cd weathercop
-   uv sync
+   uv init my_project
+   cd my_project
+   uv add weathercop
    #+end_src
 
-3. Build Cython extensions:
+   Or to clone the repository for development:
    #+begin_src bash
+   git clone https://github.com/iskur/weathercop
+   cd weathercop
+   uv sync
    python setup.py build_ext --inplace
    #+end_src
 
@@ -58,13 +71,13 @@ WeatherCop uses [[https://docs.astral.sh/uv/][uv]] for dependency management. To
 For development with additional tools:
 
 #+begin_src bash
+git clone https://github.com/iskur/weathercop
+cd weathercop
 uv sync --group dev
 python setup.py build_ext --inplace
 #+end_src
 
 *Note*: The first import may take 5-10 minutes as Cython extensions compile. Pre-build them to avoid this delay.
-
-*Important*: WeatherCop depends on the VarWG library, currently installed from GitHub. For general availability, VarWG will be published to PyPI first.
 
 * Quick Start
 

@@ -1,9 +1,5 @@
 # What is WeatherCop?
 
-[![Python](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](https://opensource.org/licenses/MIT)
-[![Managed with uv](https://img.shields.io/badge/managed%20with-uv-blue)](https://docs.astral.sh/uv/)
-
 WeatherCop is a multisite weather generator based on vine copulas. It
 was developed to generate synthetic weather scenarios that preserve both
 spatial dependencies across weather stations and temporal structure
@@ -46,6 +42,17 @@ realistic distributions and seasonal patterns.
 
 # Installation
 
+## Using pip
+
+The simplest way to install WeatherCop from PyPI:
+
+``` bash
+pip install weathercop
+```
+
+This installs the package with all dependencies (including VarWG from
+PyPI).
+
 ## Using uv (recommended)
 
 WeatherCop uses [uv](https://docs.astral.sh/uv/) for dependency
@@ -57,17 +64,20 @@ management. To install:
     curl -LsSf https://astral.sh/uv/install.sh | sh
     ```
 
-2.  Clone the repository and install:
+2.  Create a project with WeatherCop:
 
     ``` bash
-    git clone <repository-url>
-    cd weathercop
-    uv sync
+    uv init my_project
+    cd my_project
+    uv add weathercop
     ```
 
-3.  Build Cython extensions:
+    Or to clone the repository for development:
 
     ``` bash
+    git clone https://github.com/iskur/weathercop
+    cd weathercop
+    uv sync
     python setup.py build_ext --inplace
     ```
 
@@ -76,6 +86,8 @@ management. To install:
 For development with additional tools:
 
 ``` bash
+git clone https://github.com/iskur/weathercop
+cd weathercop
 uv sync --group dev
 python setup.py build_ext --inplace
 ```
@@ -83,32 +95,41 @@ python setup.py build_ext --inplace
 **Note**: The first import may take 5-10 minutes as Cython extensions
 compile. Pre-build them to avoid this delay.
 
-**Important**: WeatherCop depends on the VarWG library, currently
-installed from GitHub. For general availability, VarWG will be published
-to PyPI first.
-
 # Quick Start
 
-Generate a weather ensemble in 10 lines of code:
+After installation, you can use WeatherCop to generate multisite
+synthetic weather data:
 
 ``` python
 import xarray as xr
+import varwg as vg
 from weathercop.multisite import Multisite, set_conf
-from weathercop.configs import get_dwd_vg_config
 
-# Load bundled DWD configuration
-vg_conf = get_dwd_vg_config()
-set_conf(vg_conf)
-xds = xr.open_dataset("~/data/opendata_dwd/multisite_testdata.nc")
-multisite = Multisite(xds, verbose=True)
-ensemble = multisite.simulate_ensemble(n_realizations=5, name="example")
-figs = multisite.plot_ensemble_meteogram_daily()
-multisite.close()
+# Configure VarWG (e.g., with your config module)
+import your_vg_conf
+set_conf(your_vg_conf)
+
+# Load multisite weather data as xarray Dataset
+# Expected dimensions: (time, station, variable)
+xds = xr.open_dataset("path/to/multisite_data.nc")
+
+# Initialize the multisite weather generator
+wc = Multisite(
+    xds,
+    verbose=True,
+)
+
+# Generate a single realization
+sim_result = wc.simulate()
+
+# Generate an ensemble of 20 realizations
+wc.simulate_ensemble(20)
+
+# Visualize results
+wc.plot_ensemble_stats()
+wc.plot_ensemble_meteogram_daily()
+wc.plot_ensemble_qq()
 ```
-
-**See [examples/quickstart.py](examples/quickstart.py) for a complete working example.**
-
-For detailed tutorial with customization examples, see [examples/notebook_tutorial.ipynb](examples/notebook_tutorial.ipynb). To download real DWD weather data in the format WeatherCop expects, use the [dwd_opendata](https://github.com/iskur/dwd_opendata) package.
 
 # Troubleshooting
 
@@ -151,16 +172,6 @@ Or install test dependencies and run:
 uv sync --group test
 uv run pytest
 ```
-
-## Memory-Efficient Testing
-
-For running the full test suite on systems with limited memory, automated memory optimizations are enabled during pytest:
-
-- Intermediate results are skipped by default during ensemble tests
-- Fixtures prevent duplicate dataset loading
-- Explicit garbage collection runs between tests
-
-See [`docs/TESTING_MEMORY.md`](docs/TESTING_MEMORY.md) for detailed information and manual memory profiling.
 
 # Key Features
 
