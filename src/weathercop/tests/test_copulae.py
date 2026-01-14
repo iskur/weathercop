@@ -360,8 +360,13 @@ def test_inv_cdf_given_v(copula_name, copula, eps, img_dir):
 def test_density(copula_name, frozen_cop, eps, img_dir):
     """Does the density integrate to 1?"""
     try:
+        # Extract scalar from numpy array fixture
+        eps_val = float(np.asarray(eps).flat[0])
+
         def density(x, y):
-            return frozen_cop.density(np.array([x]), np.array([y]))
+            # ufuncs return arrays; extract scalar for scipy.integrate
+            result = frozen_cop.density(np.array([x]), np.array([y]))
+            return float(np.asarray(result).flat[0])
 
         with warnings.catch_warnings():
             # Suppress scipy's internal deprecation warning about array-to-scalar
@@ -370,7 +375,7 @@ def test_density(copula_name, frozen_cop, eps, img_dir):
                                     message='.*Conversion of an array.*')
             one = integrate.nquad(
                 density,
-                ([eps, 1 - eps], [eps, 1 - eps]),
+                ([eps_val, 1 - eps_val], [eps_val, 1 - eps_val]),
                 opts={'epsabs': 1e-4, 'epsrel': 1e-4},
             )[0]
     except integrate.IntegrationWarning:
@@ -420,6 +425,74 @@ def test_fit(copula_name, copula, img_dir):
             plt.close(fig)
             plt.close(fig2)
             raise
+
+
+@pytest.mark.parametrize(
+    "copula_name,copula",
+    [
+        ("gaussian", cop.gaussian),
+        ("gumbel", cop.gumbel),
+        ("clayton", cop.clayton),
+        ("independence", cop.independence),
+    ],
+)
+def test_fitted_pickle(copula_name, copula):
+    """Test that Fitted instances pickle/unpickle correctly.
+
+    Regression test for issue where Fitted.__setstate__ used globals()
+    which could resolve to wrong objects when unpickling in different
+    contexts (e.g., installed package vs source).
+    """
+    import pickle
+
+    varwg.reseed(42)
+
+    # Generate sample data and create a Fitted instance
+    ranks_u = np.random.random(100)
+    ranks_v = np.random.random(100)
+    fitted = copula.generate_fitted(ranks_u, ranks_v)
+
+    # Store original copula reference
+    original_copula = fitted.copula
+
+    # Verify copula is an instance, not a class
+    assert not isinstance(original_copula, type), \
+        f"fitted.copula should be an instance, got {type(original_copula)}"
+
+    # Pickle and unpickle
+    pickled_data = pickle.dumps(fitted)
+    unpickled = pickle.loads(pickled_data)
+
+    # Verify copula was restored correctly
+    assert unpickled.copula is original_copula, \
+        f"Unpickled copula should be the same singleton instance"
+
+    # Verify copula is still an instance, not corrupted
+    assert not isinstance(unpickled.copula, type), \
+        f"unpickled.copula should be an instance, got {type(unpickled.copula)}"
+
+    # Verify copula has expected attributes
+    assert hasattr(unpickled.copula, "inv_cdf_given_u"), \
+        f"unpickled.copula missing inv_cdf_given_u method"
+    assert hasattr(unpickled.copula, "_inverse_conditional"), \
+        f"unpickled.copula missing _inverse_conditional method"
+
+    # Verify methods work correctly after unpickling
+    test_u = np.array([0.5])
+    test_q = np.array([0.5])
+    if not isinstance(copula, cop.Independence):
+        test_theta = fitted.theta[0][0]
+    else:
+        test_theta = 0.0
+
+    try:
+        result = unpickled.copula.inv_cdf_given_u(test_u, test_q, test_theta)
+        assert np.isfinite(result).all(), \
+            f"inv_cdf_given_u returned non-finite values after unpickling"
+    except AttributeError as e:
+        pytest.fail(
+            f"Method call failed after unpickling {copula_name}: {e}"
+        )
 
 
 # ============================================================================

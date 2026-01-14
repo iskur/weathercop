@@ -1,0 +1,13 @@
+# VARWG cache fixtures - these are large and can be regenerated
+# Commit only the README and this .gitignore
+
+# Cache files (station-specific)
+station_*/
+
+# Marker file
+vg_cache_ready
+
+# Keep these files
+!README.md
+!.gitignore
+!.gitkeep

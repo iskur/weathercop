@@ -4,13 +4,14 @@ import numpy as np
 import numpy.testing as npt
 import pytest
 
-# Mark entire module as memory-intensive
-pytestmark = pytest.mark.memory_intensive
 import varwg
 from matplotlib import pyplot as plt
 from scipy import stats
 
 from weathercop.multisite import nan_corrcoef
+
+# Mark entire module as memory-intensive
+pytestmark = pytest.mark.memory_intensive
 
 
 def test_phase_randomization_corr(multisite_simulation_result):

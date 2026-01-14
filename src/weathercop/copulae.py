@@ -1235,7 +1235,18 @@ class Fitted:
         return dict_
 
     def __setstate__(self, dict_):
-        dict_["copula"] = globals()[dict_["copula"]]
+        # Import copulae module explicitly to avoid globals() context issues
+        # that can occur when unpickling in different contexts (e.g., installed package)
+        import weathercop.copulae as copulae_module
+        copula_name = dict_["copula"]
+        try:
+            # Get the copula singleton instance from the module
+            dict_["copula"] = getattr(copulae_module, copula_name)
+        except AttributeError:
+            raise ValueError(
+                f"Cannot restore Fitted instance: copula '{copula_name}' "
+                f"not found in weathercop.copulae module"
+            )
         self.__dict__ = dict_
 
     def __getattr__(self, name):

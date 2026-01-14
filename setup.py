@@ -3,6 +3,7 @@ import sys
 import numpy as np
 from setuptools import setup, Extension
 from Cython.Build import cythonize
+from multiprocessing import cpu_count
 
 
 def cythonize_extensions(force=True):
@@ -51,7 +52,7 @@ def cythonize_extensions(force=True):
         auto_exts + core_exts,
         force=force,
         language_level="3",
-        nthreads=4,  # Parallelize compilation
+        nthreads=cpu_count(),  # Parallelize compilation
     )
 
 
