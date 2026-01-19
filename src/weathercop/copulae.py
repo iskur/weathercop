@@ -7,8 +7,9 @@ import sys
 
 import warnings
 import inspect
-from abc import ABCMeta, abstractproperty
+from abc import ABCMeta, abstractmethod
 from collections import OrderedDict
+from collections.abc import Iterable
 from contextlib import suppress
 from pathlib import Path
 
@@ -434,7 +435,7 @@ class MetaCop(ABCMeta):
         theta_bounds = cls_dict.get("theta_bounds", None)
         if None in (theta_start, theta_bounds):
             return
-        if isinstance(theta_start, abstractproperty):
+        if not isinstance(theta_start, Iterable):
             return
         for start, (lower, upper) in zip(theta_start, theta_bounds):
             assert (lower <= start) & (start <= upper)
@@ -762,12 +763,14 @@ class Copulae(metaclass=MetaCop):
     # helping cython do its thing
     helpers = None
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def theta_start(self):
         """Starting solution for parameter estimation."""
         pass
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def par_names(self):
         pass
 
@@ -1083,7 +1086,7 @@ class Copulae(metaclass=MetaCop):
             cax = ax.contour(uu, vv, cc, 40, vmin=0, vmax=1)
         if hasattr(self, "cop_expr"):
             title = (
-                sympy.printing.latex(self.cop_expr, mode="inline")
+                sympy.latex(self.cop_expr)
                 .replace("uu", "u")
                 .replace("vv", "v")
             )
@@ -1421,7 +1424,7 @@ class GumbelBarnett(Archimedean, No90, No270, No180):
     #               (1 - theta * ln(1 - vv))) *
     #              exp(-theta * ln(1 - uu) * ln(1 - vv)))
     x = sympy.symbols("x")
-    from sympy.functions.elementary.exponential import LambertW
+    from sympy import LambertW
 
     helpers = (("LambertW", LambertW(x), [x]),)
     known_fail = "inv_cdf_given_u", "inv_cdf_given_v"
@@ -1889,7 +1892,8 @@ class Gaussian(Copulae, NoRotations):
 
     @classmethod
     def dens_func(cls, uu, vv, theta):
-        uu, vv = np.atleast_1d(uu, vv)
+        uu = np.atleast_1d(uu)
+        vv = np.atleast_1d(vv)
         xx = spstats.norm.ppf(uu).reshape(uu.shape)  # noqa: F841
         yy = spstats.norm.ppf(vv).reshape(vv.shape)  # noqa: F841
         return evaluate(
@@ -1900,7 +1904,8 @@ class Gaussian(Copulae, NoRotations):
 
     @classmethod
     def copula_func(cls, uu, vv, theta):
-        uu, vv = np.atleast_1d(uu, vv)
+        uu = np.atleast_1d(uu)
+        vv = np.atleast_1d(vv)
         uu_normal = spstats.norm.ppf(uu)
         vv_normal = spstats.norm.ppf(vv)
         broadcast = np.ndim(uu) == 2
