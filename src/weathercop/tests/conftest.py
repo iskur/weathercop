@@ -169,7 +169,7 @@ def multisite_instance(test_dataset, vg_config, vg_cache_dir):
     except Exception as e:
         import warnings
 
-        warnings.warn(f"Error closing Multisite instance: {e}")
+        warnings.warn(f"Error closing Multisite instance: {e}", ResourceWarning)
     finally:
         del wc
         gc.collect()

@@ -1,5 +1,5 @@
 from functools import reduce, partial
-import collections
+from collections import defaultdict
 from multiprocessing import current_process
 from pathlib import Path
 import random
@@ -425,7 +425,7 @@ class MultisiteConditional(ms.Multisite):
             phase_randomize_vary_mean=False,
         )
         if error := self.conditions(sim_result.sim_sea, debug=verbose_before):
-            warnings.warn(f"Condition violated with {error=:.3f}")
+            warnings.warn(f"Condition violated with {error=:.3f}", UserWarning)
             # raise RuntimeError(f"Condition violated with {error=:.3f}")
         return sim_result
         # if return_rphases:
@@ -577,7 +577,7 @@ class Conditions:
 class Condition:
     variable_phases_ii = None
     varname = None
-    reals_cache = collections.defaultdict(lambda: dict())
+    reals_cache = defaultdict(lambda: dict())
 
     def __str__(self):
         return f"{type(self).__name__} {self._str}"
