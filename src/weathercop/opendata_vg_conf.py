@@ -2,7 +2,7 @@
 
 from __future__ import print_function
 from builtins import range
-import collections
+from collections import defaultdict
 import numpy as np
 from scipy import stats
 from varwg.time_series_analysis import distributions
@@ -215,7 +215,7 @@ long_var_names = {
     "wtemp_bregenzerach": "Water temperature of Bregenzer Ach",
     "wtemp_rhein": "Water temperature of Rhine",
 }
-units = collections.defaultdict(lambda: r"-")
+units = defaultdict(lambda: r"-")
 units.update(
     {
         "ILWR": "[$W / m ^ 2$]",
@@ -240,7 +240,7 @@ ylabels = [
     "%s %s" % (long_var_names[var_name], units[var_name])
     for var_name in long_var_names
 ]
-ygreek = collections.defaultdict(lambda: r"-")
+ygreek = defaultdict(lambda: r"-")
 ygreek.update(
     {
         "R": r"$R$",
@@ -295,7 +295,7 @@ conversions = []
 # -----------------------------------------------------------------------------#
 
 # if not specified differently, output will have 3 decimal places
-out_format = collections.defaultdict(lambda: "%.3f")
+out_format = defaultdict(lambda: "%.3f")
 out_format.update(
     {
         "theta": "%.3f",

@@ -115,7 +115,8 @@ def set_conf(conf_obj, **kwds):
     if varwg.conf is not conf_obj:
         warnings.warn(
             f"VarWG configuration may not be properly applied. "
-            f"Expected {conf_obj}, got {varwg.conf}"
+            f"Expected {conf_obj}, got {varwg.conf}",
+            UserWarning
         )
 
 
@@ -130,7 +131,7 @@ def pickle_filepath(xds, rain_method="simulation", warn=True):
     )
     ms_filepath = cop_conf.cache_dir / ms_filename
     if warn and not ms_filepath.exists():
-        warnings.warn(f"{ms_filepath} does not exist")
+        warnings.warn(f"{ms_filepath} does not exist", UserWarning)
     return ms_filepath
 
 
@@ -261,7 +262,7 @@ def _adjust_fft_sim(
         fft_sim[prim_i] += sc_pars.m_t[prim_i]
         T = fft_sim.shape[1]
         fft_sim[prim_i] += (
-            np.arange(T, dtype=float) / T * sc_pars.m_trend[prim_i]
+            np.arange(T, dtype=np.float64) / T * sc_pars.m_trend[prim_i]
         )
     return fft_sim
 
@@ -585,7 +586,7 @@ def _vg_ph(
             # get a baseline U
             T = qq.shape[1]
             trend = (
-                np.arange(T, dtype=float)
+                np.arange(T, dtype=np.float64)
                 / T
                 * sc_pars.m_trend[primary_var_sim_i]
             )
@@ -954,7 +955,7 @@ class Multisite:
             except Exception as e:
                 import warnings
 
-                warnings.warn(f"Failed to close {attr_name}: {e}")
+                warnings.warn(f"Failed to close {attr_name}: {e}", ResourceWarning)
 
     def __eq__(self, other):
         if not hasattr(other, "__getitem__"):
@@ -2438,7 +2439,7 @@ class Multisite:
                 # get a baseline U
                 T = qq.shape[1]
                 trend = (
-                    np.arange(T, dtype=float)
+                    np.arange(T, dtype=np.float64)
                     / T
                     * sc_pars.m_trend[primary_var_sim_i]
                 )
@@ -2599,7 +2600,7 @@ class Multisite:
         axs = np.ravel(axs)
         for stat_i, station_name in enumerate(self.station_names):
             ax = axs[stat_i]
-            all_corrs = np.empty((12, self.K - 1), dtype=float)
+            all_corrs = np.empty((12, self.K - 1), dtype=np.float64)
             ranks_obs = self.ranks.unstack().sel(station=self.station_names)
             months = ranks_obs.time.dt.month
             obs_ = ranks_obs.sel(station=station_name)
@@ -2610,7 +2611,7 @@ class Multisite:
                 ax.plot(corr, label=varname)
 
             ax.set_prop_cycle(None)
-            all_corrs = np.empty((12, self.K - 1), dtype=float)
+            all_corrs = np.empty((12, self.K - 1), dtype=np.float64)
             months = self.ranks_sim.time.dt.month
             obs_ = self.ranks_sim.sel(station=station_name)
             for month_i, group in obs_.groupby(months):

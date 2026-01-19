@@ -139,7 +139,7 @@ def test_cdf_given_u(copula_name, copula, eps, img_dir):
     except AssertionError:
         print(f"{copula_name}: zero={zero}, expected={eps}")
         print(f"{copula_name}: one={one}, expected={1 - eps}")
-        warnings.warn(copula_name.upper())
+        warnings.warn(copula_name.upper(), UserWarning)
         fig, axs = copula.plot_cop_dens()
         fig.suptitle(copula_name)
         fig.savefig(img_dir / f"cop_dens_{copula_name}")
