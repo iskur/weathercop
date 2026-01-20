@@ -1,8 +1,6 @@
 """Integration test verifying Quick Start example code works end-to-end."""
 
-import pytest
 import xarray as xr
-from collections import namedtuple
 from weathercop.example_data import get_example_dataset_path, get_dwd_config
 from weathercop.multisite import Multisite, set_conf
 
