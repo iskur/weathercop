@@ -83,18 +83,19 @@ python setup.py build_ext --inplace
 
 After installation, you can use WeatherCop to generate multisite synthetic weather data:
 
+The example uses WeatherCop's bundled example data and configuration. No setup needed—just import and run!
+
 #+begin_src python
 import xarray as xr
-import varwg as vg
+from weathercop.example_data import get_example_dataset_path, get_dwd_config
 from weathercop.multisite import Multisite, set_conf
 
-# Configure VarWG (e.g., with your config module)
-import your_vg_conf
-set_conf(your_vg_conf)
+# Configure VarWG with DWD settings
+set_conf(get_dwd_config())
 
-# Load multisite weather data as xarray Dataset
-# Expected dimensions: (time, station, variable)
-xds = xr.open_dataset("path/to/multisite_data.nc")
+# Load example multisite weather data as xarray Dataset
+# This dataset contains 3 stations with temperature, precipitation, and radiation
+xds = xr.open_dataset(get_example_dataset_path())
 
 # Initialize the multisite weather generator
 wc = Multisite(
