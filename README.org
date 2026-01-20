@@ -32,7 +32,7 @@ This separation of concerns enables realistic what-if scenarios: by conditioning
 
 * Installation
 
-** Using pip
+** From PyPi with pip
 
 The simplest way to install WeatherCop from PyPI:
 
@@ -42,7 +42,7 @@ pip install weathercop
 
 This installs the package with all dependencies (including VarWG from PyPI).
 
-** Using uv (recommended)
+** From source with uv
 
 WeatherCop uses [[https://docs.astral.sh/uv/][uv]] for dependency management. To install:
 
@@ -58,13 +58,13 @@ WeatherCop uses [[https://docs.astral.sh/uv/][uv]] for dependency management. To
    uv add weathercop
    #+end_src
 
-   Or to clone the repository for development:
-   #+begin_src bash
-   git clone https://github.com/iskur/weathercop
-   cd weathercop
-   uv sync
-   python setup.py build_ext --inplace
-   #+end_src
+Or to clone the repository for development:
+#+begin_src bash
+git clone https://github.com/iskur/weathercop
+cd weathercop
+uv sync
+python setup.py build_ext --inplace
+#+end_src
 
 ** Development installation
 

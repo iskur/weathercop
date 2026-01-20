@@ -42,7 +42,7 @@ realistic distributions and seasonal patterns.
 
 # Installation
 
-## Using pip
+## From PyPi with pip
 
 The simplest way to install WeatherCop from PyPI:
 
@@ -53,7 +53,7 @@ pip install weathercop
 This installs the package with all dependencies (including VarWG from
 PyPI).
 
-## Using uv (recommended)
+## From source with uv
 
 WeatherCop uses [uv](https://docs.astral.sh/uv/) for dependency
 management. To install:
@@ -72,14 +72,14 @@ management. To install:
     uv add weathercop
     ```
 
-    Or to clone the repository for development:
+Or to clone the repository for development:
 
-    ``` bash
-    git clone https://github.com/iskur/weathercop
-    cd weathercop
-    uv sync
-    python setup.py build_ext --inplace
-    ```
+``` bash
+git clone https://github.com/iskur/weathercop
+cd weathercop
+uv sync
+python setup.py build_ext --inplace
+```
 
 ## Development installation
 
