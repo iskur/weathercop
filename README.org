@@ -85,7 +85,7 @@ After installation, you can use WeatherCop to generate multisite synthetic weath
 
 The example uses WeatherCop's bundled example data and configuration. No setup needed—just import and run!
 
-#+begin_src python
+#+begin_src python :tangle examples/quick_start.py
 import xarray as xr
 from weathercop.example_data import get_example_dataset_path, get_dwd_config
 from weathercop.multisite import Multisite, set_conf
