@@ -1,6 +1,5 @@
 """Tests for the example_data module."""
 
-import pytest
 from pathlib import Path
 from weathercop import example_data
 

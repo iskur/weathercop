@@ -26,7 +26,6 @@ Example:
 """
 
 from pathlib import Path
-from typing import Union
 
 
 def get_example_dataset_path() -> Path:
