@@ -2,6 +2,7 @@
 
 import xarray as xr
 from pathlib import Path
+import matplotlib.pyplot as plt
 from weathercop.example_data import get_example_dataset_path, get_dwd_config
 from weathercop.multisite import Multisite, set_conf
 
@@ -59,3 +60,17 @@ def test_tangled_quick_start_example_executes():
         raise AssertionError(
             f"Quick Start example failed to execute: {e}"
         ) from e
+
+    # Save generated plots to documentation
+    plots_dir = quick_start_file.parent / "plots"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+
+    for plot_name in ("meteogram", "qq"):
+        fig_dict = namespace[f"fig_{plot_name}"]
+        for station_i, (fig, axs) in enumerate(fig_dict.values()):
+            fig.savefig(
+                plots_dir / f"ensemble_{plot_name}_{station_i}.png",
+                dpi=150,
+                bbox_inches="tight",
+            )
+            plt.close(fig)

@@ -128,10 +128,17 @@ sim_result = wc.simulate()
 wc.simulate_ensemble(20)
 
 # Visualize results
-wc.plot_ensemble_stats()
-wc.plot_ensemble_meteogram_daily()
-wc.plot_ensemble_qq()
+fig_meteogram = wc.plot_ensemble_meteogram_daily()
+fig_qq = wc.plot_ensemble_qq()
 ```
+
+![](./examples/plots/ensemble_meteogram_0.png)
+![](./examples/plots/ensemble_meteogram_1.png)
+![](./examples/plots/ensemble_meteogram_2.png)
+
+![](./examples/plots/ensemble_qq_0.png)
+![](./examples/plots/ensemble_qq_1.png)
+![](./examples/plots/ensemble_qq_2.png)
 
 # Troubleshooting
 
