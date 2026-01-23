@@ -113,7 +113,7 @@ def csim_py(args):
     P, cvine, zero, one, tt, stop_at = args
     if stop_at is None:
         stop_at = cvine.d
-    zero, one = np.atleast_1d(zero, one)
+    zero, one = np.atleast_1d(zero), np.atleast_1d(one)
     U = np.empty_like(P)
     if stop_at < cvine.d:
         U[stop_at + 1 :] = np.nan
@@ -737,7 +737,7 @@ class Vine:
 
     def _gen_A(self):
         """Generate the Vine array and transfrom it to natural order."""
-        A = -np.ones((self.d, self.d), dtype=int)
+        A = -np.ones((self.d, self.d), dtype=np.int_)
         for tree_i, tree in enumerate(self.trees[::-1]):
             row = self.d - tree_i - 1
             if row < self.d - 1:
@@ -1393,7 +1393,7 @@ class RVine(Vine):
         Ps = np.empty_like(ranks)
         Us = ranks
         Ps[0] = Us[0]
-        Q, V, Z = [np.empty_like(A, dtype=float) for _ in range(3)]
+        Q, V, Z = [np.empty_like(A, dtype=np.float64) for _ in range(3)]
         for t in tqdm(range(T), **tqdm_kwds):
             Q[:] = V[:] = Z[:] = zero
             # this should cause problems and alert me when we fail to

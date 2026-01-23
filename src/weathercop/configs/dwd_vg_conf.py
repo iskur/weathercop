@@ -11,7 +11,7 @@ Variables covered:
 - rh: Relative humidity (%)
 """
 
-import collections
+from collections import defaultdict
 
 from varwg.time_series_analysis import distributions
 from varwg.time_series_analysis import seasonal_distributions as sd
@@ -122,7 +122,7 @@ units = {
     "rh": "[%]",
 }
 
-ygreek = collections.defaultdict(lambda: r"-")
+ygreek = defaultdict(lambda: r"-")
 ygreek.update(
     {
         "R": r"$R$",
