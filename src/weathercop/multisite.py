@@ -2756,7 +2756,6 @@ class Multisite:
                     fig.delaxes(ax)
                 plt.draw()
             fig_axs[station_name] = fig, axs
-            # wplt.suptitle_prepend(fig, station_name)
         return fig_axs
 
     def plot_ensemble_exceedance_daily(
