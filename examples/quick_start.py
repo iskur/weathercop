@@ -1,13 +1,14 @@
 import xarray as xr
-from weathercop.example_data import get_example_dataset_path, get_dwd_config
+import varwg as vg
 from weathercop.multisite import Multisite, set_conf
 
-# Configure VarWG with DWD settings
-set_conf(get_dwd_config())
+# Configure VarWG (e.g., with your config module)
+import your_vg_conf
+set_conf(your_vg_conf)
 
-# Load example multisite weather data as xarray Dataset
-# This dataset contains 3 stations with temperature, precipitation, and radiation
-xds = xr.open_dataset(get_example_dataset_path())
+# Load multisite weather data as xarray Dataset
+# Expected dimensions: (time, station, variable)
+xds = xr.open_dataset("path/to/multisite_data.nc")
 
 # Initialize the multisite weather generator
 wc = Multisite(
@@ -22,6 +23,7 @@ sim_result = wc.simulate()
 wc.simulate_ensemble(20)
 
 # Visualize results
-fig_meteogram = wc.plot_ensemble_meteogram_daily()
-fig_qq = wc.plot_ensemble_qq()
+wc.plot_ensemble_stats()
+wc.plot_ensemble_meteogram_daily()
+wc.plot_ensemble_qq()
 

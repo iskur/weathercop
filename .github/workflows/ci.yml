@@ -52,6 +52,11 @@ jobs:
         source .venv/bin/activate
         python scripts/generate_ufuncs.py
 
+    - name: Generate quick start example from README
+      run: |
+        source .venv/bin/activate
+        pandoc README.org --lua-filter=scripts/tangle.lua -o examples/quick_start.py
+
     - name: Build package
       run: |
         source .venv/bin/activate

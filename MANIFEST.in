@@ -1,12 +1,9 @@
-include README.md
-include README.org
-include LICENSE
+include MANIFEST.in
 include setup.py
 include src/weathercop/*.py
 include src/weathercop/ufuncs/sympy_cache*
 recursive-include src/weathercop *.pyx
 recursive-include src/weathercop *.pyd
 recursive-include src/weathercop *.so
-recursive-include src/weathercop/tests/fixtures *.nc .gitignore .gitkeep
-recursive-include scripts *.lua
 recursive-include examples *.py
+recursive-include scripts *.lua
