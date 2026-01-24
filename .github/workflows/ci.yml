@@ -32,6 +32,11 @@ jobs:
     - name: Create uv virtualenv
       run: uv venv --clear  # clear needed for act
 
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y pandoc
+
     - name: Install build dependencies
       run: |
         source .venv/bin/activate
