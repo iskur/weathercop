@@ -3,12 +3,9 @@
 import os
 import pytest
 from pathlib import Path
-import netCDF4  # Import netCDF4 before xarray to avoid lazy loading warning
+import netCDF4  # noqa: F401 - imported before xarray to avoid lazy loading
 import xarray as xr
 import gc
-import shutil
-import tempfile
-import dill
 from weathercop.multisite import Multisite, set_conf
 from weathercop import cop_conf
 from weathercop.tests.memory_diagnostics import get_memory_logger
@@ -24,7 +21,8 @@ os.environ.setdefault("WEATHERCOP_SKIP_INTERMEDIATE_RESULTS", "1")
 # Disable parallel xarray loading during testing to reduce memory fragmentation
 os.environ.setdefault("WEATHERCOP_PARALLEL_LOADING", "0")
 
-# Enable memory diagnostics logging (can be disabled with WEATHERCOP_DISABLE_DIAGNOSTICS=1)
+# Enable memory diagnostics logging
+# (can be disabled with WEATHERCOP_DISABLE_DIAGNOSTICS=1)
 os.environ.setdefault("WEATHERCOP_DISABLE_DIAGNOSTICS", "0")
 
 # Custom log path for memory diagnostics (optional)
@@ -71,12 +69,12 @@ def vg_config():
 def configure_for_testing(vg_config):
     """Auto-configure for memory-efficient testing mode."""
     # Enable memory optimizations during test runs
-    cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING = True
-    cop_conf.AGGRESSIVE_CLEANUP = True
+    cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING = True  # type: ignore
+    cop_conf.AGGRESSIVE_CLEANUP = True  # type: ignore
     yield
     # Reset after tests
-    cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING = False
-    cop_conf.AGGRESSIVE_CLEANUP = False
+    cop_conf.SKIP_INTERMEDIATE_RESULTS_TESTING = False  # type: ignore
+    cop_conf.AGGRESSIVE_CLEANUP = False  # type: ignore
 
 
 @pytest.fixture(scope="session")
@@ -156,7 +154,7 @@ def multisite_instance(test_dataset, vg_config, vg_cache_dir):
         refit=False,
         refit_vine=False,
         reinitialize_vgs=reinit_vgs,
-        inifilling="vg",
+        infilling="vg",
         fit_kwds=dict(seasonal=True),
         vgs_cache_dir=cache_dir,
     )
@@ -169,7 +167,8 @@ def multisite_instance(test_dataset, vg_config, vg_cache_dir):
     except Exception as e:
         import warnings
 
-        warnings.warn(f"Error closing Multisite instance: {e}", ResourceWarning)
+        msg = f"Error closing Multisite instance: {e}"
+        warnings.warn(msg, ResourceWarning)
     finally:
         del wc
         gc.collect()
