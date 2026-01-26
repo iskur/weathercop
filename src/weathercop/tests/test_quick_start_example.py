@@ -49,6 +49,7 @@ def test_tangled_quick_start_example_executes():
         "get_dwd_config": get_dwd_config,
         "Multisite": Multisite,
         "set_conf": set_conf,
+        "plt": plt,
     }
 
     with open(quick_start_file) as f:
