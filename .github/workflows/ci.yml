@@ -61,7 +61,7 @@ jobs:
       run: |
         source .venv/bin/activate
         mkdir -p src/weathercop/examples
-        pandoc README.org --lua-filter=$(pwd)/scripts/tangle.lua -o src/weathercop/examples/quick_start.py
+        pandoc README.org --lua-filter=$(pwd)/scripts/tangle.lua -f org -t plain
 
     - name: Build package
       run: |

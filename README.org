@@ -83,7 +83,7 @@ python setup.py build_ext --inplace
 
 After installation, you can use WeatherCop to generate multisite synthetic weather data:
 
-#+begin_src python :tangle examples/quick_start.py
+#+begin_src python :tangle src/weathercop/examples/quick_start.py
 import xarray as xr
 import varwg as vg
 from weathercop.multisite import Multisite, set_conf
