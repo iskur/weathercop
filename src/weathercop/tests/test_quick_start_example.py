@@ -33,7 +33,7 @@ def test_tangled_quick_start_example_executes():
     """
     # Locate the tangled quick start script
     quick_start_file = (
-        Path(__file__).parent.parent.parent.parent / "examples" / "quick_start.py"
+        Path(__file__).parent.parent / "examples" / "quick_start.py"
     )
 
     if not quick_start_file.exists():

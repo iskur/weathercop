@@ -66,6 +66,7 @@ where = ["src"]
 weathercop = [
     "tests/fixtures/*.nc",
     "tests/fixtures/.gitignore",
+    "examples/*.py",
 ]
 
 [tool.pytest.ini_options]
