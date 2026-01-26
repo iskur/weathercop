@@ -60,7 +60,8 @@ jobs:
     - name: Generate quick start example from README
       run: |
         source .venv/bin/activate
-        pandoc README.org --lua-filter=scripts/tangle.lua -o examples/quick_start.py
+        mkdir -p examples
+        pandoc README.org --lua-filter=$(pwd)/scripts/tangle.lua -o examples/quick_start.py
 
     - name: Build package
       run: |
