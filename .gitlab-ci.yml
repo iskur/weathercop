@@ -1,0 +1,131 @@
+stages:
+  - test
+  - build
+  - publish
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+cache:
+  paths:
+    - .cache/pip
+    - .venv/
+
+.python_setup: &python_setup
+  image: ubuntu:22.04
+  before_script:
+    - apt-get update && apt-get install -y python3-venv python3-pip pandoc
+    - python3 -m venv .venv || python3 -m venv --clear .venv
+    - source .venv/bin/activate
+    - pip install --upgrade pip setuptools wheel
+    - pip install uv
+
+test-build:
+  <<: *python_setup
+  stage: test
+  tags:
+    - r9x
+  script:
+    # Install build dependencies
+    - source .venv/bin/activate
+    - uv pip install cython numpy setuptools build
+
+    # Install package dependencies for ufunc generation
+    - uv pip install scipy sympy networkx matplotlib varwg
+
+    # Build core Cython extensions in-place
+    - python setup.py build_ext --inplace
+
+    # Pre-generate Cython ufuncs
+    - python scripts/generate_ufuncs.py
+
+    # Generate quick start example from README
+    - mkdir -p src/weathercop/examples
+    - pandoc README.org --lua-filter=$(pwd)/scripts/tangle.lua -f org -t plain
+
+    # Build package
+    - uv build
+
+    # List built artifacts
+    - ls -lh dist/
+
+    # Install package with test dependencies
+    - uv pip install --group test
+    - uv pip install dist/*.whl
+
+    # Display system resources
+    - echo "=== System resources before tests ==="
+    - free -h
+    - df -h
+    - echo "==================================="
+
+    # Run CPU-intensive tests (sequential to prevent memory exhaustion)
+    - pytest --pyargs weathercop -n 1 -m "not memory_intensive" --durations=10 -v
+
+    # Run memory-intensive tests (sequential)
+    - pytest --pyargs weathercop -n 1 -m "memory_intensive" --durations=10 -v
+  artifacts:
+    paths:
+      - dist/
+    expire_in: 1 week
+  only:
+    - main
+    - merge_requests
+  except:
+    variables:
+      - $CI_COMMIT_MESSAGE =~ /\*\*\.md/
+      - $CI_COMMIT_MESSAGE =~ /docs\//
+
+build-wheels:
+  stage: build
+  tags:
+    - r9x
+  script:
+    - apt-get update && apt-get install -y python3-pip
+    - pip install cibuildwheel twine
+    - cibuildwheel --output-dir wheelhouse
+    - ls -lh wheelhouse/
+    - twine check wheelhouse/*.whl
+  artifacts:
+    paths:
+      - wheelhouse/
+    expire_in: 1 week
+  only:
+    - tags
+  allow_failure: true
+
+build-sdist:
+  <<: *python_setup
+  stage: build
+  tags:
+    - r9x
+  script:
+    - source .venv/bin/activate
+    - uv pip install --system cython numpy setuptools build
+    - uv build --sdist
+    - ls -lh dist/
+  artifacts:
+    paths:
+      - dist/*.tar.gz
+    expire_in: 1 week
+  only:
+    - tags
+
+publish:
+  image: ubuntu:22.04
+  stage: publish
+  tags:
+    - r9x
+  before_script:
+    - apt-get update && apt-get install -y python3-pip
+    - pip install twine
+  script:
+    - ls -lh dist/
+    - twine check dist/*.whl dist/*.tar.gz
+    - echo "Ready to publish to PyPI (skipping auto-publish for safety)"
+  artifacts:
+    paths:
+      - dist/
+  only:
+    - tags
+  allow_failure: true
