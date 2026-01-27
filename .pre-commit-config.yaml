@@ -7,3 +7,10 @@ repos:
         language: system
         pass_filenames: false
         files: ^README\.org$
+      - id: tangle-org
+        name: Tangle org-mode code blocks from README.org
+        entry: bash -c 'pandoc README.org --lua-filter=scripts/tangle.lua && git add examples/quick_start.py'
+        language: system
+        pass_filenames: false
+        files: ^README\.org$
+        stages: [commit]

@@ -5,3 +5,4 @@ include src/weathercop/ufuncs/sympy_cache*
 recursive-include src/weathercop *.pyx
 recursive-include src/weathercop *.pyd
 recursive-include src/weathercop *.so
+recursive-include scripts *.lua

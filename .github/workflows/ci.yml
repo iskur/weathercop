@@ -32,6 +32,11 @@ jobs:
     - name: Create uv virtualenv
       run: uv venv --clear  # clear needed for act
 
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y pandoc
+
     - name: Install build dependencies
       run: |
         source .venv/bin/activate
@@ -51,6 +56,12 @@ jobs:
       run: |
         source .venv/bin/activate
         python scripts/generate_ufuncs.py
+
+    - name: Generate quick start example from README
+      run: |
+        source .venv/bin/activate
+        mkdir -p src/weathercop/examples
+        pandoc README.org --lua-filter=$(pwd)/scripts/tangle.lua -f org -t plain
 
     - name: Build package
       run: |

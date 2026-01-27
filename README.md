@@ -72,14 +72,14 @@ management. To install:
     uv add weathercop
     ```
 
-    Or to clone the repository for development:
+Or to clone the repository for development:
 
-    ``` bash
-    git clone https://github.com/iskur/weathercop
-    cd weathercop
-    uv sync
-    python setup.py build_ext --inplace
-    ```
+``` bash
+git clone https://github.com/iskur/weathercop
+cd weathercop
+uv sync
+python setup.py build_ext --inplace
+```
 
 ## Development installation
 
@@ -100,18 +100,20 @@ compile. Pre-build them to avoid this delay.
 After installation, you can use WeatherCop to generate multisite
 synthetic weather data:
 
+The example uses WeatherCop's bundled example data and configuration. No
+setup needed—just import and run!
+
 ``` python
 import xarray as xr
-import varwg as vg
+from weathercop.example_data import get_example_dataset_path, get_dwd_config
 from weathercop.multisite import Multisite, set_conf
 
-# Configure VarWG (e.g., with your config module)
-import your_vg_conf
-set_conf(your_vg_conf)
+# Configure VarWG with DWD settings
+set_conf(get_dwd_config())
 
-# Load multisite weather data as xarray Dataset
-# Expected dimensions: (time, station, variable)
-xds = xr.open_dataset("path/to/multisite_data.nc")
+# Load example multisite weather data as xarray Dataset
+# This dataset contains 3 stations with temperature, precipitation, and radiation
+xds = xr.open_dataset(get_example_dataset_path())
 
 # Initialize the multisite weather generator
 wc = Multisite(
@@ -126,10 +128,17 @@ sim_result = wc.simulate()
 wc.simulate_ensemble(20)
 
 # Visualize results
-wc.plot_ensemble_stats()
-wc.plot_ensemble_meteogram_daily()
-wc.plot_ensemble_qq()
+fig_meteogram = wc.plot_ensemble_meteogram_daily()
+fig_qq = wc.plot_ensemble_qq()
 ```
+
+![](./examples/plots/ensemble_meteogram_0.png)
+![](./examples/plots/ensemble_meteogram_1.png)
+![](./examples/plots/ensemble_meteogram_2.png)
+
+![](./examples/plots/ensemble_qq_0.png)
+![](./examples/plots/ensemble_qq_1.png)
+![](./examples/plots/ensemble_qq_2.png)
 
 # Troubleshooting
 

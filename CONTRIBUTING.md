@@ -33,6 +33,24 @@ Thank you for your interest in contributing to WeatherCop! This document provide
    pytest
    ```
 
+### Testing CI Workflows Locally
+
+To test GitHub Actions workflows locally using [act](https://github.com/nektos/act):
+
+1. **Create a fine-grained personal access token** at https://github.com/settings/personal-access-tokens/new
+   - Repository access: All repositories
+   - Permissions: contents (read)
+
+2. **Set the environment variable:**
+   ```bash
+   export GITHUB_ACT_TOKEN="ghp_..."
+   ```
+
+3. **Run workflows:**
+   ```bash
+   act -j test-build
+   ```
+
 ## Development Workflow
 
 ### Making Changes
