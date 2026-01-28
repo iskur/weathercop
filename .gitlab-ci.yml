@@ -24,7 +24,7 @@ cache:
     - uv venv --python 3.13 .venv
     - source .venv/bin/activate
     # Upgrade pip and build tools
-    - pip install --upgrade pip setuptools wheel
+    - uv pip install --upgrade pip setuptools wheel
 
 test-build:
   <<: *python_setup
