@@ -86,12 +86,14 @@ build-wheels:
   stage: build
   tags:
     - r9x
+  before_script:
+    - apt-get update && apt-get install -y curl
+    - curl -LsSf https://astral.sh/uv/install.sh | sh
+    - export PATH="/root/.local/bin:$PATH"
   script:
-    - apt-get update && apt-get install -y python3-pip
-    - pip install cibuildwheel twine
-    - cibuildwheel --output-dir wheelhouse
+    - uv tool run cibuildwheel --output-dir wheelhouse
     - ls -lh wheelhouse/
-    - twine check wheelhouse/*.whl
+    - uv tool run twine check wheelhouse/*.whl
   artifacts:
     paths:
       - wheelhouse/
@@ -123,11 +125,12 @@ publish:
   tags:
     - r9x
   before_script:
-    - apt-get update && apt-get install -y python3-pip
-    - pip install twine
+    - apt-get update && apt-get install -y curl
+    - curl -LsSf https://astral.sh/uv/install.sh | sh
+    - export PATH="/root/.local/bin:$PATH"
   script:
     - ls -lh dist/
-    - twine check dist/*.whl dist/*.tar.gz
+    - uv tool run twine check dist/*.whl dist/*.tar.gz
     - echo "Ready to publish to PyPI (skipping auto-publish for safety)"
   artifacts:
     paths:
