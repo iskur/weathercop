@@ -146,3 +146,35 @@ If you see `RuntimeError: Found all-NaN transformed data for rh`:
 
 **Root cause**: Relative humidity data from DWD has unusual distribution characteristics that truncnorm cannot handle properly, resulting in NaN values during transformation. The empirical (KDE) distribution handles this correctly.
 - The tests are very slow. If you run the full test suite or "uv run tox", do so in the background.
+
+## CI/CD and Multi-Platform Testing Strategy
+
+### Current Setup
+- **GitHub Actions**: Multi-platform wheel building (`build-wheels.yml`) for Ubuntu, Windows, macOS (Intel + Apple Silicon)
+- **GitLab CI**: Linux testing and building on local r9x runner (5950X, 128GB RAM)
+- **Testing Gap**: Wheels are built for Windows/macOS but only tested on Linux
+
+### TODO: Multi-Platform Testing Routes
+Consider these options for improving multi-platform test coverage:
+
+1. **Split Responsibility (Recommended)**
+   - Keep GitHub Actions for multi-platform building (it's optimized for this)
+   - Enhance GitHub `ci.yml` to test on all platforms (ubuntu, windows, macos) using matrix strategy
+   - Use GitLab for heavy/daily Linux testing on r9x runner
+   - Trade-off: GitHub Actions has timeout limits, but better for platform variety
+
+2. **Linux-Only in GitLab**
+   - Configure `cibuildwheel` in GitLab to build manylinux wheels (PyPI standard)
+   - Accept that Windows/macOS builds happen in GitHub with limited testing there
+   - Best for: Maximizing use of local infrastructure
+
+3. **Full Migration to GitLab (Complex)**
+   - Docker-based building for multiple platforms (complex setup)
+   - qemu cross-compilation (very slow)
+   - Best for: Complete GitLab self-hosting without GitHub dependency
+
+### Pytest Parallelization Notes
+- Using `-n X` with pytest-xdist requires deterministic test collection across workers
+- Current safe levels: `-n 8` for CPU-intensive, `-n 2` for memory-intensive tests
+- Higher parallelization (`-n 12`) may trigger collection differences between workers
+- See pytest-xdist "Known limitations" in documentation for details
