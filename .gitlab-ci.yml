@@ -14,7 +14,7 @@ cache:
 .python_setup: &python_setup
   image: ubuntu:22.04
   before_script:
-    - apt-get update && apt-get install -y curl pandoc
+    - apt-get update && apt-get install -y curl pandoc build-essential
     # Install uv using the standalone installer (recommended in uv docs)
     - curl -LsSf https://astral.sh/uv/install.sh | sh
     - export PATH="/root/.local/bin:$PATH"
@@ -87,7 +87,7 @@ build-wheels:
   tags:
     - r9x
   before_script:
-    - apt-get update && apt-get install -y curl
+    - apt-get update && apt-get install -y curl build-essential
     - curl -LsSf https://astral.sh/uv/install.sh | sh
     - export PATH="/root/.local/bin:$PATH"
   script:
