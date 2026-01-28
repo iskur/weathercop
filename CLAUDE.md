@@ -154,24 +154,17 @@ If you see `RuntimeError: Found all-NaN transformed data for rh`:
 - **GitLab CI**: Linux testing and building on local r9x runner (5950X, 128GB RAM)
 - **Testing Gap**: Wheels are built for Windows/macOS but only tested on Linux
 
-### TODO: Multi-Platform Testing Routes
-Consider these options for improving multi-platform test coverage:
+### Testing Philosophy
+**Linux is the primary development and testing platform.** Windows and macOS wheel building happens on GitHub Actions, but testing on those platforms is not a priority at this time. Community contributions and issues from Windows/macOS users are welcome but not a blocker for releases.
 
-1. **Split Responsibility (Recommended)**
-   - Keep GitHub Actions for multi-platform building (it's optimized for this)
-   - Enhance GitHub `ci.yml` to test on all platforms (ubuntu, windows, macos) using matrix strategy
-   - Use GitLab for heavy/daily Linux testing on r9x runner
-   - Trade-off: GitHub Actions has timeout limits, but better for platform variety
+### Future: Reduced Test Suite for GitHub Actions
+When resources allow, consider implementing a lightweight smoke-test suite on GitHub Actions that can complete in <10 minutes:
+- Subset of critical tests (core vine functionality, basic weather generation)
+- Exclude slow integration tests and large fixture-based tests
+- Sufficient to catch obvious platform-specific breakage
+- Can be toggled with a GitHub Actions workflow variable for PRs vs. scheduled runs
 
-2. **Linux-Only in GitLab**
-   - Configure `cibuildwheel` in GitLab to build manylinux wheels (PyPI standard)
-   - Accept that Windows/macOS builds happen in GitHub with limited testing there
-   - Best for: Maximizing use of local infrastructure
-
-3. **Full Migration to GitLab (Complex)**
-   - Docker-based building for multiple platforms (complex setup)
-   - qemu cross-compilation (very slow)
-   - Best for: Complete GitLab self-hosting without GitHub dependency
+This balances thorough Linux testing (GitLab) with basic cross-platform coverage (GitHub) without hitting time limits.
 
 ### Pytest Parallelization Notes
 - Using `-n X` with pytest-xdist requires deterministic test collection across workers
