@@ -23,9 +23,6 @@ build-docker-image:
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
     - docker build -t $CI_REGISTRY_IMAGE/python-3.13:latest .
     - docker push $CI_REGISTRY_IMAGE/python-3.13:latest
-  only:
-    - main
-    - merge_requests
   rules:
     - if: '$CI_COMMIT_MESSAGE =~ /\[skip-image\]/'
       when: never
@@ -33,6 +30,7 @@ build-docker-image:
       changes:
         - Dockerfile
         - .gitlab-ci.yml
+    - if: '$CI_COMMIT_BRANCH == "main"'
     - when: manual
 
 .python_setup: &python_setup
