@@ -65,11 +65,11 @@ test-build:
     - df -h
     - echo "==================================="
 
-    # Run CPU-intensive tests (sequential to prevent memory exhaustion)
-    - pytest --pyargs weathercop -n 1 -m "not memory_intensive" --durations=10 -v
+    # Run CPU-intensive tests
+    - pytest --pyargs weathercop -n 12 -m "not memory_intensive" --durations=10 -v
 
-    # Run memory-intensive tests (sequential)
-    - pytest --pyargs weathercop -n 1 -m "memory_intensive" --durations=10 -v
+    # Run memory-intensive tests
+    - pytest --pyargs weathercop -n 2 -m "memory_intensive" --durations=10 -v
   only:
     - main
     - merge_requests
