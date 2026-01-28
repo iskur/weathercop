@@ -70,10 +70,6 @@ test-build:
 
     # Run memory-intensive tests (sequential)
     - pytest --pyargs weathercop -n 1 -m "memory_intensive" --durations=10 -v
-  artifacts:
-    paths:
-      - dist/
-    expire_in: 1 week
   only:
     - main
     - merge_requests
