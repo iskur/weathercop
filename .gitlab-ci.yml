@@ -14,7 +14,7 @@ cache:
 .python_setup: &python_setup
   image: ubuntu:22.04
   before_script:
-    - apt-get update && apt-get install -y curl pandoc build-essential
+    - apt-get update && apt-get install -y curl build-essential
     # Install uv using the standalone installer (recommended in uv docs)
     - curl -LsSf https://astral.sh/uv/install.sh | sh
     - export PATH="/root/.local/bin:$PATH"
@@ -46,6 +46,7 @@ test-build:
     - python scripts/generate_ufuncs.py
 
     # Generate quick start example from README
+    - apt-get install -y pandoc
     - mkdir -p src/weathercop/examples
     - pandoc README.org --lua-filter=$(pwd)/scripts/tangle.lua -f org -t plain
 
