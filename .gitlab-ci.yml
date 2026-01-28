@@ -1,4 +1,5 @@
 stages:
+  - build-image
   - test
   - build
   - publish
@@ -11,15 +12,33 @@ cache:
     - .cache/pip
     - .venv/
 
+build-docker-image:
+  stage: build-image
+  image: docker:latest
+  services:
+    - docker:dind
+  tags:
+    - r9x
+  script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+    - docker build -t $CI_REGISTRY_IMAGE/python-3.13:latest .
+    - docker push $CI_REGISTRY_IMAGE/python-3.13:latest
+  only:
+    - main
+    - merge_requests
+  rules:
+    - if: '$CI_COMMIT_MESSAGE =~ /\[skip-image\]/'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "merge_request"'
+      changes:
+        - Dockerfile
+        - .gitlab-ci.yml
+    - when: manual
+
 .python_setup: &python_setup
-  image: ubuntu:22.04
+  image: $CI_REGISTRY_IMAGE/python-3.13:latest
   before_script:
-    - apt-get update && apt-get install -y curl build-essential
-    # Install uv using the standalone installer (recommended in uv docs)
-    - curl -LsSf https://astral.sh/uv/install.sh | sh
     - export PATH="/root/.local/bin:$PATH"
-    # Install Python 3.13 using uv
-    - uv python install 3.13
     # Create virtual environment with Python 3.13
     - uv venv --python 3.13 .venv
     - source .venv/bin/activate
@@ -80,12 +99,11 @@ test-build:
       - $CI_COMMIT_MESSAGE =~ /docs\//
 
 build-wheels:
+  image: $CI_REGISTRY_IMAGE/python-3.13:latest
   stage: build
   tags:
     - r9x
   before_script:
-    - apt-get update && apt-get install -y curl build-essential
-    - curl -LsSf https://astral.sh/uv/install.sh | sh
     - export PATH="/root/.local/bin:$PATH"
   script:
     - uv tool run cibuildwheel --output-dir wheelhouse
@@ -117,13 +135,11 @@ build-sdist:
     - tags
 
 publish:
-  image: ubuntu:22.04
+  image: $CI_REGISTRY_IMAGE/python-3.13:latest
   stage: publish
   tags:
     - r9x
   before_script:
-    - apt-get update && apt-get install -y curl
-    - curl -LsSf https://astral.sh/uv/install.sh | sh
     - export PATH="/root/.local/bin:$PATH"
   script:
     - ls -lh dist/
