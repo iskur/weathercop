@@ -14,11 +14,17 @@ cache:
 .python_setup: &python_setup
   image: ubuntu:22.04
   before_script:
-    - apt-get update && apt-get install -y python3-venv python3-pip pandoc
-    - python3 -m venv .venv || python3 -m venv --clear .venv
+    - apt-get update && apt-get install -y curl pandoc
+    # Install uv using the standalone installer (recommended in uv docs)
+    - curl -LsSf https://astral.sh/uv/install.sh | sh
+    - export PATH="/root/.local/bin:$PATH"
+    # Install Python 3.13 using uv
+    - uv python install 3.13
+    # Create virtual environment with Python 3.13
+    - uv venv --python 3.13 .venv
     - source .venv/bin/activate
+    # Upgrade pip and build tools
     - pip install --upgrade pip setuptools wheel
-    - pip install uv
 
 test-build:
   <<: *python_setup
