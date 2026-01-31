@@ -36,7 +36,7 @@ build-docker-image:
   before_script:
     - export PATH="/root/.local/bin:$PATH"
     # Create virtual environment with Python 3.13
-    - uv venv --python 3.13 .venv
+    # - uv venv --python 3.13 .venv
     - source .venv/bin/activate
     # Upgrade pip and build tools
     - uv pip install --upgrade pip setuptools wheel
