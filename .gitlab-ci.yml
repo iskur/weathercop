@@ -7,11 +7,6 @@ stages:
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
 
-cache:
-  paths:
-    - .cache/pip
-    - .venv/
-
 build-docker-image:
   stage: build-image
   image: docker:latest
@@ -35,9 +30,6 @@ build-docker-image:
   image: $CI_REGISTRY_IMAGE/python-3.13:latest
   before_script:
     - export PATH="/root/.local/bin:$PATH"
-    # Create virtual environment with Python 3.13
-    # - uv venv --python 3.13 .venv
-    - source .venv/bin/activate
     # Upgrade pip and build tools
     - uv pip install --upgrade pip setuptools wheel
 
@@ -47,8 +39,6 @@ test-build:
   tags:
     - r9x
   script:
-    - source .venv/bin/activate
-    
     # Install package dependencies for ufunc generation
     - uv pip install sympy networkx varwg
 
@@ -116,7 +106,6 @@ build-sdist:
   tags:
     - r9x
   script:
-    - source .venv/bin/activate
     - uv pip install --system cython numpy setuptools build
     - uv build --sdist
     - ls -lh dist/
