@@ -22,4 +22,4 @@ ENV PATH="/root/.local/bin:$PATH"
 RUN uv python install 3.13
 
 # Install scientific python stack
-RUN uv pip install cython numpy setuptools build scipy sympy matplotlib
+RUN uv pip install cython numpy setuptools build scipy sympy matplotlib --system
