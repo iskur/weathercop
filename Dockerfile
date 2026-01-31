@@ -9,6 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     git \
     ca-certificates \
+    pandoc \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv (latest via official installer)
@@ -19,3 +20,6 @@ ENV PATH="/root/.local/bin:$PATH"
 
 # Install Python 3.13 using uv
 RUN uv python install 3.13
+
+# Install scientific python stack
+RUN uv pip install cython numpy setuptools build scipy sympy matplotlib

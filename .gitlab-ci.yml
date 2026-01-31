@@ -47,12 +47,10 @@ test-build:
   tags:
     - r9x
   script:
-    # Install build dependencies
     - source .venv/bin/activate
-    - uv pip install cython numpy setuptools build
-
+    
     # Install package dependencies for ufunc generation
-    - uv pip install scipy sympy networkx matplotlib varwg
+    - uv pip install sympy networkx varwg
 
     # Build core Cython extensions in-place
     - python setup.py build_ext --inplace
@@ -61,7 +59,6 @@ test-build:
     - python scripts/generate_ufuncs.py
 
     # Generate quick start example from README
-    # - apt-get install -y pandoc
     - mkdir -p src/weathercop/examples
     - pandoc README.org --lua-filter=$(pwd)/scripts/tangle.lua -f org -t plain
 
