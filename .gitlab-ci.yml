@@ -20,7 +20,7 @@ build-docker-image:
   tags:
     - r9x
   variables:
-    DOCKER_INSECURE_REGISTRY: "registry.cubox"
+    DOCKER_DAEMON_OPTIONS: "--insecure-registry registry.cubox"
   script:
     - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
     - docker build -t $CI_REGISTRY_IMAGE/python-3.13:latest .
