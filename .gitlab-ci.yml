@@ -29,7 +29,7 @@ build-docker-image:
 .python_setup: &python_setup
   image: $CI_REGISTRY_IMAGE/python-3.13:latest
   before_script:
-    - export PATH="/root/.local/bin:$PATH"
+    - export PATH="/root/.local/bin:/app/.venv/bin:$PATH"
     # Upgrade pip and build tools
     - uv pip install --upgrade pip setuptools wheel
 
@@ -87,7 +87,7 @@ build-wheels:
   tags:
     - r9x
   before_script:
-    - export PATH="/root/.local/bin:$PATH"
+    - export PATH="/root/.local/bin:/app/.venv/bin:$PATH"
   script:
     - uv tool run cibuildwheel --output-dir wheelhouse
     - ls -lh wheelhouse/
@@ -122,7 +122,7 @@ publish:
   tags:
     - r9x
   before_script:
-    - export PATH="/root/.local/bin:$PATH"
+    - export PATH="/root/.local/bin:/app/.venv/bin:$PATH"
   script:
     - ls -lh dist/
     - uv tool run twine check dist/*.whl dist/*.tar.gz
