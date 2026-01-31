@@ -20,7 +20,9 @@ ENV PATH="/root/.local/bin:$PATH"
 
 # Install Python 3.13 using uv
 RUN uv venv --python 3.13 .venv
-RUN source .venv/bin/activate
+
+# "activate" the venv
+ENV PATH=".venv/bin:$PATH"
 
 # Install scientific python stack
 RUN uv pip install cython numpy setuptools build scipy sympy matplotlib
