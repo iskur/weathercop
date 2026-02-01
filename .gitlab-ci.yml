@@ -1,0 +1,135 @@
+stages:
+  - build-image
+  - test
+  - build
+  - publish
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+build-docker-image:
+  stage: build-image
+  image: docker:latest
+  tags:
+    - r9x
+  script:
+    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
+    - docker build -t $CI_REGISTRY_IMAGE/python-3.13:latest .
+    - docker push $CI_REGISTRY_IMAGE/python-3.13:latest
+  rules:
+    - if: '$CI_COMMIT_MESSAGE =~ /\[skip-image\]/'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "merge_request"'
+      changes:
+        - Dockerfile
+        - .gitlab-ci.yml
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - when: manual
+
+.python_setup: &python_setup
+  image: $CI_REGISTRY_IMAGE/python-3.13:latest
+  before_script:
+    - export PATH="/root/.local/bin:/app/.venv/bin:$PATH"
+    # Upgrade pip and build tools
+    - uv pip install --upgrade pip setuptools wheel
+
+test-build:
+  <<: *python_setup
+  stage: test
+  tags:
+    - r9x
+  script:
+    # Install package dependencies for ufunc generation
+    - uv pip install sympy networkx varwg
+
+    # Build core Cython extensions in-place
+    - python setup.py build_ext --inplace
+
+    # Pre-generate Cython ufuncs
+    - python scripts/generate_ufuncs.py
+
+    # Generate quick start example from README
+    - mkdir -p src/weathercop/examples
+    - pandoc README.org --lua-filter=$(pwd)/scripts/tangle.lua -f org -t plain
+
+    # Build package
+    - uv build
+
+    # List built artifacts
+    - ls -lh dist/
+
+    # Install package with test dependencies
+    - uv pip install --group test
+    - uv pip install dist/*.whl
+
+    # Display system resources
+    - echo "=== System resources before tests ==="
+    - free -h
+    - df -h
+    - echo "==================================="
+
+    # Run CPU-intensive tests
+    - pytest --pyargs weathercop -n 10 -m "not memory_intensive" --durations=10 -v
+
+    # Run memory-intensive tests
+    - pytest --pyargs weathercop -n 2 -m "memory_intensive" --durations=10 -v
+  only:
+    - main
+    - merge_requests
+  except:
+    variables:
+      - $CI_COMMIT_MESSAGE =~ /\*\*\.md/
+      - $CI_COMMIT_MESSAGE =~ /docs\//
+
+build-wheels:
+  image: $CI_REGISTRY_IMAGE/python-3.13:latest
+  stage: build
+  tags:
+    - r9x
+  before_script:
+    - export PATH="/root/.local/bin:/app/.venv/bin:$PATH"
+  script:
+    - uv tool run cibuildwheel --output-dir wheelhouse
+    - ls -lh wheelhouse/
+    - uv tool run twine check wheelhouse/*.whl
+  artifacts:
+    paths:
+      - wheelhouse/
+    expire_in: 1 week
+  only:
+    - tags
+  allow_failure: true
+
+build-sdist:
+  <<: *python_setup
+  stage: build
+  tags:
+    - r9x
+  script:
+    - uv pip install --system cython numpy setuptools build
+    - uv build --sdist
+    - ls -lh dist/
+  artifacts:
+    paths:
+      - dist/*.tar.gz
+    expire_in: 1 week
+  only:
+    - tags
+
+publish:
+  image: $CI_REGISTRY_IMAGE/python-3.13:latest
+  stage: publish
+  tags:
+    - r9x
+  before_script:
+    - export PATH="/root/.local/bin:/app/.venv/bin:$PATH"
+  script:
+    - ls -lh dist/
+    - uv tool run twine check dist/*.whl dist/*.tar.gz
+    - echo "Ready to publish to PyPI (skipping auto-publish for safety)"
+  artifacts:
+    paths:
+      - dist/
+  only:
+    - tags
+  allow_failure: true

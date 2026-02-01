@@ -111,40 +111,56 @@ def ufuncify_cython(cls, name, uargs, expr, *args, verbose=True, **kwds):
         if verbose:
             print(exc)
             print(f"Compiling {expr}")
-        _filename_orig = autowrap.CodeWrapper._filename
-        _module_basename_orig = autowrap.CodeWrapper._module_basename
-        _module_counter_orig = autowrap.CodeWrapper._module_counter
-        # these attributes determine the file name of the generated code
-        autowrap.CodeWrapper._filename = f"{module_name}_code"
-        autowrap.CodeWrapper._module_basename = module_name
-        autowrap.CodeWrapper._module_counter = 0
+
+        # Use file-based locking to serialize ufunc compilation across processes.
+        # This prevents race conditions in pytest-xdist where multiple workers
+        # try to compile the same ufunc simultaneously, causing import failures.
         ufunc_dir = get_ufunc_dir()
-        with tools.chdir(ufunc_dir):
+        lock_file = Path(ufunc_dir) / f".{module_name}.lock"
+
+        with tools.acquire_file_lock(lock_file):
+            # Double-check that another process didn't already compile it
             try:
-                ufunc = autowrap.ufuncify(
-                    uargs,
-                    expr,
-                    tempdir=ufunc_dir,
-                    # flags=["-D_XOPEN_SOURCE"],  # for optims_c99
-                    verbose=verbose,
-                    *args,
-                    **kwds,
-                )
-            except AttributeError:
-                # seems like ufuncify is too fast in trying to import
-                # the newly generated module
-                ufunc = autowrap.ufuncify(
-                    uargs,
-                    expr,
-                    tempdir=ufunc_dir,
-                    # flags=["-D_XOPEN_SOURCE"],  # for optims_c99
-                    verbose=verbose,
-                    *args,
-                    **kwds,
-                )
-        autowrap.CodeWrapper._module_basename = _module_basename_orig
-        autowrap.CodeWrapper._module_counter = _module_counter_orig
-        autowrap.CodeWrapper._filename = _filename_orig
+                ufunc = importlib.import_module(
+                    f"weathercop.ufuncs.{module_name}_0"
+                ).autofunc_c
+                return ufunc
+            except (ImportError, AttributeError):
+                pass
+
+            _filename_orig = autowrap.CodeWrapper._filename
+            _module_basename_orig = autowrap.CodeWrapper._module_basename
+            _module_counter_orig = autowrap.CodeWrapper._module_counter
+            # these attributes determine the file name of the generated code
+            autowrap.CodeWrapper._filename = f"{module_name}_code"
+            autowrap.CodeWrapper._module_basename = module_name
+            autowrap.CodeWrapper._module_counter = 0
+            with tools.chdir(ufunc_dir):
+                try:
+                    ufunc = autowrap.ufuncify(
+                        uargs,
+                        expr,
+                        tempdir=ufunc_dir,
+                        # flags=["-D_XOPEN_SOURCE"],  # for optims_c99
+                        verbose=verbose,
+                        *args,
+                        **kwds,
+                    )
+                except AttributeError:
+                    # seems like ufuncify is too fast in trying to import
+                    # the newly generated module
+                    ufunc = autowrap.ufuncify(
+                        uargs,
+                        expr,
+                        tempdir=ufunc_dir,
+                        # flags=["-D_XOPEN_SOURCE"],  # for optims_c99
+                        verbose=verbose,
+                        *args,
+                        **kwds,
+                    )
+            autowrap.CodeWrapper._module_basename = _module_basename_orig
+            autowrap.CodeWrapper._module_counter = _module_counter_orig
+            autowrap.CodeWrapper._filename = _filename_orig
     return ufunc
 
 
@@ -2297,6 +2313,7 @@ all_cops = OrderedDict(
     for name, obj in sorted(dict(locals()).items())
     if isinstance(obj, Copulae)
 )
+
 # rotate all the cops!!
 turned_cops = OrderedDict()
 for cop_name, obj in all_cops.items():
