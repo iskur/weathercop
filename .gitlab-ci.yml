@@ -69,7 +69,7 @@ test-build:
     - echo "==================================="
 
     # Run CPU-intensive tests
-    - pytest --pyargs weathercop -n 6 -m "not memory_intensive" --durations=10 -v
+    - pytest --pyargs weathercop -n 10 -m "not memory_intensive" --durations=10 -v
 
     # Run memory-intensive tests
     - pytest --pyargs weathercop -n 2 -m "memory_intensive" --durations=10 -v
