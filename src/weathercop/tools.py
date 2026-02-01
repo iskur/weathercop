@@ -2,8 +2,10 @@ import contextlib
 import os
 import shelve
 import datetime
+import time
 from collections import UserDict
 from hashlib import md5
+from pathlib import Path
 import dill
 import numpy as np
 import pandas as pd
@@ -27,10 +29,11 @@ def shelve_open(filename, *args, **kwds):
 @contextlib.contextmanager
 def json_cache_open(filename):
     """
-    Context manager for JSON-based expression caching.
+    Context manager for JSON-based expression caching with file-based locking.
 
     Loads a JSON cache file on entry, yields the cache dict for read/write,
-    and saves back to disk on exit.
+    and saves back to disk on exit. Uses file-based locking to serialize access
+    across multiple processes, preventing read-modify-write race conditions.
 
     Args:
         filename: Path to JSON cache file. Directory is created if missing.
@@ -43,21 +46,42 @@ def json_cache_open(filename):
     if dirname and not os.path.exists(dirname):
         os.makedirs(dirname)
 
-    # Load existing cache or start empty
-    cache = {}
-    if os.path.exists(filename):
+    # Acquire lock via atomic file creation to prevent concurrent read-modify-write
+    lock_file = Path(filename).parent / f".{Path(filename).name}.lock"
+    timeout = 60  # Prevent deadlocks
+    start_time = time.time()
+    while True:
         try:
-            with open(filename, 'r') as f:
-                cache = json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError, UnicodeDecodeError):
-            # UnicodeDecodeError occurs when trying to read old binary shelve cache
-            cache = {}
+            with open(lock_file, 'x') as f:
+                f.write(str(os.getpid()))
+            break
+        except FileExistsError:
+            if time.time() - start_time > timeout:
+                raise RuntimeError(f"Timeout waiting for cache {filename} lock")
+            time.sleep(0.01)
 
-    yield cache
+    try:
+        # Load existing cache or start empty
+        cache = {}
+        if os.path.exists(filename):
+            try:
+                with open(filename, 'r') as f:
+                    cache = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError, UnicodeDecodeError):
+                # UnicodeDecodeError occurs when trying to read old binary shelve cache
+                cache = {}
 
-    # Save back to file with indentation for readability
-    with open(filename, 'w') as f:
-        json.dump(cache, f, indent=2)
+        yield cache
+
+        # Save back to file with indentation for readability
+        with open(filename, 'w') as f:
+            json.dump(cache, f, indent=2)
+    finally:
+        # Release lock
+        try:
+            lock_file.unlink()
+        except FileNotFoundError:
+            pass
 
 
 @contextlib.contextmanager
