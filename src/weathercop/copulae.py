@@ -112,31 +112,13 @@ def ufuncify_cython(cls, name, uargs, expr, *args, verbose=True, **kwds):
             print(exc)
             print(f"Compiling {expr}")
 
-        # Use a file-based lock to serialize ufunc compilation across processes.
+        # Use file-based locking to serialize ufunc compilation across processes.
         # This prevents race conditions in pytest-xdist where multiple workers
         # try to compile the same ufunc simultaneously, causing import failures.
         ufunc_dir = get_ufunc_dir()
         lock_file = Path(ufunc_dir) / f".{module_name}.lock"
 
-        # Acquire lock by creating the file (atomic on most filesystems)
-        import time
-        timeout = 60  # 60 second timeout to prevent deadlocks
-        start_time = time.time()
-        while True:
-            try:
-                # Try to create lock file exclusively
-                with open(lock_file, 'x') as f:
-                    f.write(str(os.getpid()))
-                break
-            except FileExistsError:
-                # Another process is compiling, wait
-                if time.time() - start_time > timeout:
-                    raise RuntimeError(
-                        f"Timeout waiting for ufunc {module_name} compilation"
-                    )
-                time.sleep(0.1)
-
-        try:
+        with tools.acquire_file_lock(lock_file):
             # Double-check that another process didn't already compile it
             try:
                 ufunc = importlib.import_module(
@@ -179,12 +161,6 @@ def ufuncify_cython(cls, name, uargs, expr, *args, verbose=True, **kwds):
             autowrap.CodeWrapper._module_basename = _module_basename_orig
             autowrap.CodeWrapper._module_counter = _module_counter_orig
             autowrap.CodeWrapper._filename = _filename_orig
-        finally:
-            # Release lock
-            try:
-                lock_file.unlink()
-            except FileNotFoundError:
-                pass
     return ufunc
 
 
