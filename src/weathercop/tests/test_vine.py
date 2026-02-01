@@ -17,13 +17,24 @@ from weathercop.vine import CVine
 
 
 @pytest.fixture(scope="class")
-def vine_test_data():
+def vine_test_data(worker_id):
     """Generate synthetic data for vine tests (class-scoped for speed).
 
     Creates covariance matrix, synthetic normal data, rank transformations,
     and metadata for vine copula testing.
+
+    Uses worker_id to ensure each pytest-xdist worker gets independent,
+    deterministic RNG state for reproducible statistical tests.
     """
-    varwg.reseed(0)
+    # Seed with worker-specific value: worker_id is "master" (sequential)
+    # or "gw0", "gw1", etc. (parallel)
+    if worker_id != "master":
+        worker_num = int(worker_id[2:])
+        varwg.reseed(worker_num)
+        np.random.seed(worker_num)  # Also seed numpy's RNG
+    else:
+        varwg.reseed(0)
+        np.random.seed(0)  # Also seed numpy's RNG
 
     cov = np.array(
         [
