@@ -78,7 +78,7 @@ def shelve_open(filename, *args, **kwds):
     """
     filename = str(filename)
     dirname = os.path.dirname(filename)
-    if not os.path.exists(dirname):
+    if dirname and not os.path.exists(dirname):
         os.makedirs(dirname)
 
     # Create lock file path: store alongside the shelve database
