@@ -115,14 +115,14 @@ fig_qq = wc.plot_ensemble_qq()
 #+end_src
 
 #+CAPTION: Daily meteogram visualization across multiple stations
-[[./examples/plots/ensemble_meteogram_0.png]]
-[[./examples/plots/ensemble_meteogram_1.png]]
-[[./examples/plots/ensemble_meteogram_2.png]]
+[[./src/weathercop/examples/plots/ensemble_meteogram_0.png]]
+[[./src/weathercop/examples/plots/ensemble_meteogram_1.png]]
+[[./src/weathercop/examples/plots/ensemble_meteogram_2.png]]
 
 #+CAPTION: Q-Q plot comparing simulated and empirical quantiles
-[[./examples/plots/ensemble_qq_0.png]]
-[[./examples/plots/ensemble_qq_1.png]]
-[[./examples/plots/ensemble_qq_2.png]]
+[[./src/weathercop/examples/plots/ensemble_qq_0.png]]
+[[./src/weathercop/examples/plots/ensemble_qq_1.png]]
+[[./src/weathercop/examples/plots/ensemble_qq_2.png]]
 
 * Troubleshooting
 

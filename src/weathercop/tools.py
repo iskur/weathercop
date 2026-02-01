@@ -2,8 +2,10 @@ import contextlib
 import os
 import shelve
 import datetime
+import time
 from collections import UserDict
 from hashlib import md5
+from pathlib import Path
 import dill
 import numpy as np
 import pandas as pd
@@ -11,6 +13,51 @@ import json
 
 shelve.Pickler = dill.Pickler
 shelve.Unpickler = dill.Unpickler
+
+
+@contextlib.contextmanager
+def acquire_file_lock(lock_file, timeout=60):
+    """
+    Acquire and release a file-based lock for cross-process synchronization.
+
+    Uses atomic file creation to serialize access to shared resources across
+    multiple processes (e.g., pytest-xdist workers). The lock is held for the
+    duration of the context manager.
+
+    Args:
+        lock_file: Path object or string for the lock file to create/remove
+        timeout: Maximum seconds to wait for lock acquisition (default: 60)
+
+    Yields:
+        None - lock is acquired when entering context, released on exit
+
+    Raises:
+        RuntimeError: If timeout exceeded while waiting for lock
+    """
+    lock_file = Path(lock_file)
+    start_time = time.time()
+
+    # Acquire lock via atomic file creation
+    while True:
+        try:
+            with open(lock_file, 'x') as f:
+                f.write(str(os.getpid()))
+            break
+        except FileExistsError:
+            if time.time() - start_time > timeout:
+                raise RuntimeError(
+                    f"Timeout ({timeout}s) waiting for lock {lock_file}"
+                )
+            time.sleep(0.01)
+
+    try:
+        yield
+    finally:
+        # Release lock
+        try:
+            lock_file.unlink()
+        except FileNotFoundError:
+            pass
 
 
 @contextlib.contextmanager
@@ -27,10 +74,11 @@ def shelve_open(filename, *args, **kwds):
 @contextlib.contextmanager
 def json_cache_open(filename):
     """
-    Context manager for JSON-based expression caching.
+    Context manager for JSON-based expression caching with file-based locking.
 
-    Loads a JSON cache file on entry, yields the cache dict for read/write,
-    and saves back to disk on exit.
+    Loads JSON cache file, yields the cache dict, and saves back to disk.
+    Only locks during actual file I/O (load/save), not during caller's usage,
+    to minimize contention in high-parallelization scenarios (pytest-xdist -n 16+).
 
     Args:
         filename: Path to JSON cache file. Directory is created if missing.
@@ -38,26 +86,31 @@ def json_cache_open(filename):
     Yields:
         dict: The cache dictionary. Keys are cache IDs, values are serialized expressions.
     """
-    filename = str(filename)
-    dirname = os.path.dirname(filename)
-    if dirname and not os.path.exists(dirname):
-        os.makedirs(dirname)
+    filename = Path(filename)
+    lock_file = filename.parent / f".{filename.name}.lock"
 
-    # Load existing cache or start empty
-    cache = {}
-    if os.path.exists(filename):
-        try:
-            with open(filename, 'r') as f:
-                cache = json.load(f)
-        except (json.JSONDecodeError, FileNotFoundError, UnicodeDecodeError):
-            # UnicodeDecodeError occurs when trying to read old binary shelve cache
-            cache = {}
+    # Create directory if needed
+    if filename.parent != Path('.'):
+        filename.parent.mkdir(parents=True, exist_ok=True)
 
+    # Lock and load cache
+    with acquire_file_lock(lock_file):
+        cache = {}
+        if filename.exists():
+            try:
+                with open(filename, 'r') as f:
+                    cache = json.load(f)
+            except (json.JSONDecodeError, FileNotFoundError, UnicodeDecodeError):
+                # UnicodeDecodeError occurs when trying to read old binary shelve cache
+                cache = {}
+
+    # Yield WITHOUT lock - caller can modify freely (no contention)
     yield cache
 
-    # Save back to file with indentation for readability
-    with open(filename, 'w') as f:
-        json.dump(cache, f, indent=2)
+    # Lock and save cache
+    with acquire_file_lock(lock_file):
+        with open(filename, 'w') as f:
+            json.dump(cache, f, indent=2, sort_keys=True)
 
 
 @contextlib.contextmanager
