@@ -33,6 +33,7 @@ class MockMultisite:
 
 
 @pytest.mark.slow
+@pytest.mark.memory_intensive
 def test_simulate_ensemble_with_memory_optimization(
     multisite_instance,
     tmp_path,
