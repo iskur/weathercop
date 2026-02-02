@@ -146,3 +146,28 @@ If you see `RuntimeError: Found all-NaN transformed data for rh`:
 
 **Root cause**: Relative humidity data from DWD has unusual distribution characteristics that truncnorm cannot handle properly, resulting in NaN values during transformation. The empirical (KDE) distribution handles this correctly.
 - The tests are very slow. If you run the full test suite or "uv run tox", do so in the background.
+
+## CI/CD and Multi-Platform Testing Strategy
+
+### Current Setup
+- **GitHub Actions**: Multi-platform wheel building (`build-wheels.yml`) for Ubuntu, Windows, macOS (Intel + Apple Silicon)
+- **GitLab CI**: Linux testing and building on local r9x runner (5950X, 128GB RAM)
+- **Testing Gap**: Wheels are built for Windows/macOS but only tested on Linux
+
+### Testing Philosophy
+**Linux is the primary development and testing platform.** Windows and macOS wheel building happens on GitHub Actions, but testing on those platforms is not a priority at this time. Community contributions and issues from Windows/macOS users are welcome but not a blocker for releases.
+
+### Future: Reduced Test Suite for GitHub Actions
+When resources allow, consider implementing a lightweight smoke-test suite on GitHub Actions that can complete in <10 minutes:
+- Subset of critical tests (core vine functionality, basic weather generation)
+- Exclude slow integration tests and large fixture-based tests
+- Sufficient to catch obvious platform-specific breakage
+- Can be toggled with a GitHub Actions workflow variable for PRs vs. scheduled runs
+
+This balances thorough Linux testing (GitLab) with basic cross-platform coverage (GitHub) without hitting time limits.
+
+### Pytest Parallelization Notes
+- Using `-n X` with pytest-xdist requires deterministic test collection across workers
+- Current safe levels: `-n 8` for CPU-intensive, `-n 2` for memory-intensive tests
+- Higher parallelization (`-n 12`) may trigger collection differences between workers
+- See pytest-xdist "Known limitations" in documentation for details

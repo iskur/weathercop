@@ -1,9 +1,8 @@
-import shelve
 import numpy as np
 import xarray as xr
 import pandas as pd
 
-from weathercop import multisite, cop_conf
+from weathercop import multisite, cop_conf, tools
 from varwg.time_series_analysis import (seasonal_distributions as sdists,
                                         seasonal_kde as skde,
                                         distributions as dists)
@@ -47,7 +46,7 @@ class MultisiteExternal(multisite.Multisite):
             for varname in self.varnames_ext:
                 key = f"{station_name}_{varname}"
                 data = data_ar.sel(variable=varname)
-                with shelve.open(str(shelve_filepath), "c") as sh:
+                with tools.shelve_open(str(shelve_filepath)) as sh:
                     if not refit and key in sh:
                         if self.verbose:
                             print(f"Recovering distribution of {key}")

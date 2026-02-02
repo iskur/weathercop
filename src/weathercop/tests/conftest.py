@@ -6,6 +6,7 @@ from pathlib import Path
 import netCDF4  # noqa: F401 - imported before xarray to avoid lazy loading
 import xarray as xr
 import gc
+import varwg
 from weathercop.multisite import Multisite, set_conf
 from weathercop import cop_conf
 from weathercop.tests.memory_diagnostics import get_memory_logger
@@ -63,6 +64,27 @@ def vg_config():
     """Initialize and return VG configuration (session-scoped)."""
     set_conf(vg_conf)
     return vg_conf
+
+
+@pytest.fixture(scope="session", autouse=True)
+def seed_varwg_per_worker(worker_id):
+    """Seed VARWG per pytest-xdist worker to ensure RNG independence.
+
+    In parallel test runs (pytest-xdist with -n X), each worker gets a
+    unique seed derived from its worker ID. This prevents statistical
+    correlation that can cause flaky statistical tests like test_cquantiles_hist.
+
+    In sequential runs, worker_id is "master" and we use the default seed.
+    """
+    # worker_id is "master" in sequential mode, "gw0", "gw1", etc. in parallel
+    if worker_id != "master":
+        # Extract numeric ID: "gw0" -> 0, "gw1" -> 1, etc.
+        worker_num = int(worker_id[2:])
+        varwg.reseed(worker_num)
+    else:
+        varwg.reseed(0)
+    yield
+    # No cleanup needed
 
 
 @pytest.fixture(scope="session", autouse=True)
