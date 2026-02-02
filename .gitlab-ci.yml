@@ -17,14 +17,9 @@ build-docker-image:
     - docker build -t $CI_REGISTRY_IMAGE/python-3.13:latest .
     - docker push $CI_REGISTRY_IMAGE/python-3.13:latest
   rules:
-    - if: '$CI_COMMIT_MESSAGE =~ /\[skip-image\]/'
-      when: never
-    - if: '$CI_PIPELINE_SOURCE == "merge_request"'
-      changes:
-        - Dockerfile
-        - .gitlab-ci.yml
-    - if: '$CI_COMMIT_BRANCH == "main"'
-    - when: manual
+  - changes:
+    - Dockerfile
+  - when: manual
 
 .python_setup: &python_setup
   image: $CI_REGISTRY_IMAGE/python-3.13:latest
