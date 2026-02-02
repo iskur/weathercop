@@ -62,13 +62,35 @@ def acquire_file_lock(lock_file, timeout=60):
 
 @contextlib.contextmanager
 def shelve_open(filename, *args, **kwds):
+    """
+    Context manager for shelve database access with file-based locking.
+
+    Prevents concurrent access from multiple processes (e.g., pytest-xdist workers)
+    from corrupting the SQLite WAL database. Uses atomic file creation for
+    cross-process synchronization, similar to json_cache_open().
+
+    Args:
+        filename: Path to shelve database file
+        *args, **kwds: Passed to shelve.open() (currently unused, reserved for future)
+
+    Yields:
+        shelve.Shelf: Open database object with exclusive access
+    """
     filename = str(filename)
     dirname = os.path.dirname(filename)
-    if not os.path.exists(dirname):
+    if dirname and not os.path.exists(dirname):
         os.makedirs(dirname)
-    sh = shelve.open(filename, "c")
-    yield sh
-    sh.close()
+
+    # Create lock file path: store alongside the shelve database
+    lock_file = Path(filename).parent / f".{Path(filename).name}.lock"
+
+    # Acquire lock before opening database
+    with acquire_file_lock(lock_file):
+        sh = shelve.open(filename, "c")
+        try:
+            yield sh
+        finally:
+            sh.close()
 
 
 @contextlib.contextmanager
