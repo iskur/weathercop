@@ -123,6 +123,8 @@ publish:
   before_script:
     - export PATH="/root/.local/bin:/app/.venv/bin:$PATH"
   script:
+    - mkdir -p dist
+    - mv wheelhouse/*.whl dist/ || true
     - ls -lh dist/
     - uv tool run twine check dist/*.whl dist/*.tar.gz
     - echo "Ready to publish to PyPI (skipping auto-publish for safety)"
