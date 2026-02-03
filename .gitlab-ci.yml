@@ -127,7 +127,7 @@ publish:
     - mv wheelhouse/*.whl dist/ || true
     - ls -lh dist/
     - uv tool run twine check dist/*.whl dist/*.tar.gz
-    - echo "Ready to publish to PyPI (skipping auto-publish for safety)"
+    - uv tool run twine upload dist/*.whl dist/*.tar.gz --username __token__ $PYPI_TOKEN
   artifacts:
     paths:
       - dist/
