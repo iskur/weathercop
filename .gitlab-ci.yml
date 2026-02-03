@@ -102,7 +102,7 @@ build-sdist:
   tags:
     - r9x
   script:
-    - uv pip install --system cython numpy setuptools build
+    - uv pip install cython numpy setuptools build
     - uv build --sdist
     - ls -lh dist/
   artifacts:
