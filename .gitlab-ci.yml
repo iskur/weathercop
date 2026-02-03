@@ -77,14 +77,15 @@ test-build:
       - $CI_COMMIT_MESSAGE =~ /docs\//
 
 build-wheels:
-  image: $CI_REGISTRY_IMAGE/python-3.13:latest
+  <<: *python_setup
   stage: build
   tags:
     - r9x
-  before_script:
-    - export PATH="/root/.local/bin:/app/.venv/bin:$PATH"
   script:
-    - uv tool run cibuildwheel --output-dir wheelhouse
+    - uv pip install cython numpy setuptools build
+    - uv build --wheel
+    - mkdir -p wheelhouse
+    - mv dist/*.whl wheelhouse/
     - ls -lh wheelhouse/
     - uv tool run twine check wheelhouse/*.whl
   artifacts:
