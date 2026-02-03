@@ -19,7 +19,8 @@ build-docker-image:
   rules:
   - changes:
     - Dockerfile
-  - when: manual
+    when: always
+  - when: never
 
 .python_setup: &python_setup
   image: $CI_REGISTRY_IMAGE/python-3.13:latest
