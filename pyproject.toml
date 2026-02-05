@@ -89,8 +89,9 @@ disable_error_code = ["import-untyped"]
 build = "cp313-*"
 skip = "pp* *-musllinux_*"
 
-# Skip testing during build to avoid installing heavy dependencies (cartopy->pyproj->proj)
-# Extensions are validated by successful compilation; smoke tests run in CI workflow
+# Testing is disabled by default to avoid heavy dependencies during local builds.
+# GitHub Actions overrides this with CIBW_TEST_SKIP to run smoke tests on Windows/macOS only.
+# GitLab CI runs full test suite separately, so GitHub skips Linux testing.
 test-skip = "*"
 
 # Platform-specific settings

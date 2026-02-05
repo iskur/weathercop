@@ -2,6 +2,7 @@ stages:
   - build-image
   - test
   - build
+  - trigger-github
   - publish
 
 variables:
@@ -88,6 +89,35 @@ build-wheels:
     - mkdir -p wheelhouse
     - mv dist/*.whl wheelhouse/
     - ls -lh wheelhouse/
+
+    # Verify .nc test data file is packaged in wheel
+    - |
+      python << 'EOF'
+      import zipfile
+      from pathlib import Path
+
+      wheels = list(Path('./wheelhouse').glob('*.whl'))
+      if not wheels:
+          print("✗ No wheels found in wheelhouse/")
+          exit(1)
+
+      for wheel in wheels:
+          with zipfile.ZipFile(wheel, 'r') as zf:
+              nc_files = [f for f in zf.namelist() if f.endswith('.nc')]
+              if not nc_files:
+                  print(f"✗ {wheel.name}: No .nc files found!")
+                  print("Files in wheel:")
+                  for f in sorted(zf.namelist()):
+                      if 'fixtures' in f or 'tests' in f:
+                          print(f"  - {f}")
+                  exit(1)
+              print(f"✓ {wheel.name}: Found {len(nc_files)} .nc file(s)")
+              for nc in nc_files:
+                  info = zf.getinfo(nc)
+                  size_mb = info.file_size / (1024 * 1024)
+                  print(f"  - {nc} ({size_mb:.2f} MB)")
+      EOF
+
     - uv tool run twine check wheelhouse/*.whl
   artifacts:
     paths:
@@ -115,9 +145,117 @@ build-sdist:
     - if: '$CI_COMMIT_TAG != null'
     - when: manual
 
+trigger-github-builds:
+  stage: trigger-github
+  image: python:3.13-slim
+  tags:
+    - r9x
+  script:
+    # Install requests for GitHub API interaction
+    - pip install requests
+
+    # Trigger GitHub Actions workflow and wait for completion
+    - |
+      python << 'EOF'
+      import requests
+      import time
+      import sys
+      import os
+
+      GITHUB_TOKEN = os.environ['GITHUB_TOKEN']
+      GITHUB_REPO = "iskur/weathercop"  # Update with your repo
+      WORKFLOW_ID = "build-wheels.yml"
+      REF = os.environ['CI_COMMIT_TAG']
+
+      headers = {
+          'Authorization': f'token {GITHUB_TOKEN}',
+          'Accept': 'application/vnd.github.v3+json',
+      }
+
+      # 1. Trigger workflow
+      print(f"Triggering GitHub workflow for ref: {REF}")
+      trigger_url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{WORKFLOW_ID}/dispatches"
+      trigger_payload = {
+          'ref': REF,
+          'inputs': {'ref': REF}
+      }
+      response = requests.post(trigger_url, json=trigger_payload, headers=headers)
+
+      if response.status_code != 204:
+          print(f"Failed to trigger workflow: {response.status_code}")
+          print(response.text)
+          sys.exit(1)
+
+      print("✓ Workflow triggered successfully")
+
+      # 2. Wait for workflow to start (give it 30 seconds)
+      time.sleep(30)
+
+      # 3. Find the workflow run
+      runs_url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{WORKFLOW_ID}/runs"
+      params = {'branch': REF, 'per_page': 1}
+      response = requests.get(runs_url, headers=headers, params=params)
+
+      if response.status_code != 200:
+          print(f"Failed to list workflow runs: {response.status_code}")
+          sys.exit(1)
+
+      runs = response.json()['workflow_runs']
+      if not runs:
+          print("No workflow runs found")
+          sys.exit(1)
+
+      run_id = runs[0]['id']
+      run_url = runs[0]['html_url']
+      print(f"Found workflow run: {run_url}")
+
+      # 4. Poll for completion (timeout after 60 minutes)
+      max_wait = 60 * 60  # 60 minutes
+      poll_interval = 30  # Check every 30 seconds
+      elapsed = 0
+
+      while elapsed < max_wait:
+          run_status_url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/runs/{run_id}"
+          response = requests.get(run_status_url, headers=headers)
+
+          if response.status_code != 200:
+              print(f"Failed to get run status: {response.status_code}")
+              sys.exit(1)
+
+          run_data = response.json()
+          status = run_data['status']
+          conclusion = run_data.get('conclusion')
+
+          print(f"[{elapsed}s] Status: {status}, Conclusion: {conclusion}")
+
+          if status == 'completed':
+              if conclusion == 'success':
+                  print("✓ GitHub workflow completed successfully")
+                  sys.exit(0)
+              else:
+                  print(f"✗ GitHub workflow failed with conclusion: {conclusion}")
+                  print(f"View details: {run_url}")
+                  sys.exit(1)
+
+          time.sleep(poll_interval)
+          elapsed += poll_interval
+
+      print(f"✗ Timeout: GitHub workflow did not complete within {max_wait}s")
+      print(f"View status: {run_url}")
+      sys.exit(1)
+      EOF
+
+  rules:
+    - if: '$CI_COMMIT_TAG != null'
+  allow_failure: false
+
 publish:
   image: $CI_REGISTRY_IMAGE/python-3.13:latest
   stage: publish
+  needs:
+    - build-wheels
+    - build-sdist
+    - trigger-github-builds
   tags:
     - r9x
   before_script:
@@ -127,7 +265,9 @@ publish:
     - mv wheelhouse/*.whl dist/ || true
     - ls -lh dist/
     - uv tool run twine check dist/*.whl dist/*.tar.gz
-    - uv tool run twine upload dist/*.whl dist/*.tar.gz --username __token__ $PYPI_TOKEN
+    # Use --skip-existing to allow coordinated publishing from multiple CI systems
+    # This enables GitLab to publish Linux wheels while GitHub publishes Windows/macOS wheels
+    - uv tool run twine upload dist/*.whl dist/*.tar.gz --username __token__ --password $PYPI_TOKEN --skip-existing
   artifacts:
     paths:
       - dist/
