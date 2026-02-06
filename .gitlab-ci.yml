@@ -26,10 +26,10 @@ test-build:
     - uv sync --group dev
 
     # Build core Cython extensions in-place
-    - python setup.py build_ext --inplace
+    - uv run python setup.py build_ext --inplace
 
     # Pre-generate Cython ufuncs
-    - python scripts/generate_ufuncs.py
+    - uv run python scripts/generate_ufuncs.py
 
     # Generate quick start example from README
     - mkdir -p src/weathercop/examples
