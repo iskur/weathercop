@@ -22,8 +22,8 @@ test-build:
   tags:
     - r9x
   script:
-    # Install package dependencies for ufunc generation
-    - uv pip install sympy networkx varwg
+    # Install all dependencies from lock file
+    - uv sync --group dev
 
     # Build core Cython extensions in-place
     - python setup.py build_ext --inplace
@@ -42,7 +42,7 @@ test-build:
     - ls -lh dist/
 
     # Install package with test dependencies
-    - uv pip install --group test
+    - uv sync --group test
     - uv pip install dist/*.whl
 
     # Display system resources
@@ -70,7 +70,7 @@ build-wheels:
   tags:
     - r9x
   script:
-    - uv pip install cython numpy setuptools build
+    - uv sync
     - uv build --wheel
     - mkdir -p wheelhouse
     - mv dist/*.whl wheelhouse/
@@ -120,7 +120,7 @@ build-sdist:
   tags:
     - r9x
   script:
-    - uv pip install cython numpy setuptools build
+    - uv sync
     - uv build --sdist
     - ls -lh dist/
   artifacts:
@@ -133,12 +133,14 @@ build-sdist:
 
 trigger-github-builds:
   stage: trigger-github
-  image: python:3.13-slim
+  image: $SHARED_IMAGE
   tags:
     - r9x
+  before_script:
+    - export PATH="/root/.local/bin:/app/.venv/bin:$PATH"
   script:
     # Install requests for GitHub API interaction
-    - pip install requests
+    - uv pip install requests
 
     # Trigger GitHub Actions workflow and wait for completion
     - |
@@ -241,7 +243,8 @@ publish:
   needs:
     - build-wheels
     - build-sdist
-    - trigger-github-builds
+    - optional: true
+      job: trigger-github-builds
   tags:
     - r9x
   before_script:
