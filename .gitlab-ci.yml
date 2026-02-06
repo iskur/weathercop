@@ -1,5 +1,4 @@
 stages:
-  - build-image
   - test
   - build
   - trigger-github
@@ -7,24 +6,11 @@ stages:
 
 variables:
   PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
-
-build-docker-image:
-  stage: build-image
-  image: docker:latest
-  tags:
-    - r9x
-  script:
-    - echo $CI_REGISTRY_PASSWORD | docker login -u $CI_REGISTRY_USER --password-stdin $CI_REGISTRY
-    - docker build -t $CI_REGISTRY_IMAGE/python-3.13:latest .
-    - docker push $CI_REGISTRY_IMAGE/python-3.13:latest
-  rules:
-  - changes:
-    - Dockerfile
-    when: always
-  - when: never
+  # Shared Docker image from weather-generation/docker-images
+  SHARED_IMAGE: "$CI_REGISTRY/weather-generation/docker-images/python-3.13:latest"
 
 .python_setup: &python_setup
-  image: $CI_REGISTRY_IMAGE/python-3.13:latest
+  image: $SHARED_IMAGE
   before_script:
     - export PATH="/root/.local/bin:/app/.venv/bin:$PATH"
     # Upgrade pip and build tools
