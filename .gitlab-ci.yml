@@ -136,6 +136,8 @@ trigger-github-builds:
   image: $SHARED_IMAGE
   tags:
     - r9x
+  variables:
+    GITHUB_TOKEN: $GITHUB_TOKEN
   before_script:
     - export PATH="/root/.local/bin:/app/.venv/bin:$PATH"
   script:
