@@ -25,7 +25,6 @@ cache:
 test-build:
   <<: *python_setup
   stage: test
-  pull_policy: if-not-present
   tags:
     - r9x
   script:
@@ -76,7 +75,6 @@ test-build:
 build-wheels:
   <<: *python_setup
   stage: build
-  pull_policy: if-not-present
   tags:
     - r9x
   script:
@@ -127,7 +125,6 @@ build-wheels:
 build-sdist:
   <<: *python_setup
   stage: build
-  pull_policy: if-not-present
   tags:
     - r9x
   script:
@@ -145,7 +142,6 @@ build-sdist:
 trigger-github-builds:
   stage: trigger-github
   image: $SHARED_IMAGE
-  pull_policy: if-not-present
   tags:
     - r9x
   before_script:
@@ -163,7 +159,6 @@ trigger-github-builds:
 
 publish:
   image: $SHARED_IMAGE
-  pull_policy: if-not-present
   stage: publish
   needs:
     - build-wheels
