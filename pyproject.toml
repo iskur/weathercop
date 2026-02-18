@@ -98,15 +98,15 @@ test-skip = "*"
 # Platform-specific settings
 [tool.cibuildwheel.linux]
 archs = ["x86_64"]
-before-build = "pip install cython numpy setuptools"
+before-build = "pip install cython numpy setuptools && python scripts/generate_ufuncs.py"
 
 [tool.cibuildwheel.windows]
 archs = ["AMD64"]
-before-build = "pip install cython numpy setuptools"
+before-build = "pip install cython numpy setuptools && python scripts/generate_ufuncs.py"
 
 [tool.cibuildwheel.macos]
 archs = ["x86_64", "arm64"]
-before-build = "pip install cython numpy setuptools"
+before-build = "pip install cython numpy setuptools && python scripts/generate_ufuncs.py"
 
 [tool.black]
 line-length = 79
