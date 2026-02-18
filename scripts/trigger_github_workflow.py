@@ -10,7 +10,8 @@ def main():
     GITHUB_TOKEN = os.environ['GITHUB_TOKEN']
     GITHUB_REPO = "iskur/weathercop"
     WORKFLOW_ID = "build-wheels.yml"
-    REF = os.environ['CI_COMMIT_TAG']
+    # Use CI_COMMIT_REF (always available for branches/tags) instead of CI_COMMIT_TAG (only for tags)
+    REF = os.environ['CI_COMMIT_REF']
 
     # === DEBUG: Component 1 - Environment ===
     print(f"[ENV] GITHUB_TOKEN present: {bool(GITHUB_TOKEN)}")
@@ -26,7 +27,7 @@ def main():
         print(f"[ENV] Token format looks valid")
     else:
         print(f"[ENV] WARNING: Token format does not match known GitHub token prefixes")
-    print(f"[ENV] CI_COMMIT_TAG: {REF}")
+    print(f"[ENV] CI_COMMIT_REF: {REF}")
 
     headers = {
         'Authorization': f'token {GITHUB_TOKEN}',
