@@ -56,13 +56,15 @@ test-build:
 
     # Run memory-intensive tests
     - pytest --pyargs weathercop -n 4 -m "memory_intensive" --durations=10 -v
-  only:
-    - main
-    - merge_requests
-  except:
-    variables:
-      - $CI_COMMIT_MESSAGE =~ /\*\*\.md/
-      - $CI_COMMIT_MESSAGE =~ /docs\//
+  rules:
+    - if: '$CI_COMMIT_MESSAGE =~ /\[skip-tests\]/'
+      when: never
+    - if: '$CI_COMMIT_MESSAGE =~ /\*\*\.md/'
+      when: never
+    - if: '$CI_COMMIT_MESSAGE =~ /docs\//'
+      when: never
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_MERGE_REQUEST_IID'
 
 build-wheels:
   <<: *python_setup
