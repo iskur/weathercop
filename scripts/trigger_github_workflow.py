@@ -17,11 +17,11 @@ def main():
         if key.startswith('CI_COMMIT'):
             print(f"  {key}: {os.environ[key][:50]}...")
 
-    # Use CI_COMMIT_REF (always available for branches/tags) instead of CI_COMMIT_TAG (only for tags)
-    # Fall back to CI_COMMIT_BRANCH if REF is not available
-    REF = os.environ.get('CI_COMMIT_REF') or os.environ.get('CI_COMMIT_BRANCH')
+    # Use CI_COMMIT_REF_NAME for the branch/tag name (always available in GitLab CI)
+    # Fall back to CI_COMMIT_TAG if available (for tag-only contexts)
+    REF = os.environ.get('CI_COMMIT_REF_NAME') or os.environ.get('CI_COMMIT_TAG')
     if not REF:
-        print("[ERROR] Neither CI_COMMIT_REF nor CI_COMMIT_BRANCH found!")
+        print("[ERROR] Neither CI_COMMIT_REF_NAME nor CI_COMMIT_TAG found!")
         print("[ERROR] Available CI_COMMIT_* variables:")
         for key in os.environ:
             if key.startswith('CI_COMMIT'):
