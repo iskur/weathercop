@@ -9,8 +9,15 @@ variables:
   # Shared Docker image from weather-generation/docker-images
   SHARED_IMAGE: "$CI_REGISTRY/weather-generation/docker-images/python-3.13:latest"
 
+cache:
+  paths:
+    - .venv/
+    - /root/.cache/uv/
+  key: $CI_COMMIT_REF_SLUG
+
 .python_setup: &python_setup
   image: $SHARED_IMAGE
+  pull_policy: if-not-present
   before_script:
     - export PATH="/root/.local/bin:/app/.venv/bin:$PATH"
     # Upgrade pip and build tools
@@ -136,6 +143,7 @@ build-sdist:
 trigger-github-builds:
   stage: trigger-github
   image: $SHARED_IMAGE
+  pull_policy: if-not-present
   tags:
     - r9x
   before_script:
@@ -153,6 +161,7 @@ trigger-github-builds:
 
 publish:
   image: $SHARED_IMAGE
+  pull_policy: if-not-present
   stage: publish
   needs:
     - build-wheels
