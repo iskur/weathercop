@@ -16,7 +16,16 @@ def main():
     print(f"[ENV] GITHUB_TOKEN present: {bool(GITHUB_TOKEN)}")
     print(f"[ENV] GITHUB_TOKEN length: {len(GITHUB_TOKEN)}")
     print(f"[ENV] GITHUB_TOKEN type: {type(GITHUB_TOKEN).__name__}")
-    print(f"[ENV] GITHUB_TOKEN starts with: {GITHUB_TOKEN[:20]}..." if len(GITHUB_TOKEN) > 20 else "")
+    # Check if token looks like a literal variable reference (not expanded)
+    if GITHUB_TOKEN.startswith('$') or GITHUB_TOKEN == 'GITHUB_TOKEN':
+        print(f"[ENV] WARNING: Token appears to be unexpanded: {GITHUB_TOKEN}")
+    else:
+        print(f"[ENV] Token appears to be expanded (does not start with $)")
+    # Check token format (classic tokens start with 'ghp_', fine-grained start with 'github_pat_')
+    if GITHUB_TOKEN.startswith(('ghp_', 'ghu_', 'ghs_', 'ghr_', 'github_pat_')):
+        print(f"[ENV] Token format looks valid")
+    else:
+        print(f"[ENV] WARNING: Token format does not match known GitHub token prefixes")
     print(f"[ENV] CI_COMMIT_TAG: {REF}")
 
     headers = {
