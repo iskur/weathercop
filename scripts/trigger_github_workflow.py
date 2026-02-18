@@ -10,8 +10,23 @@ def main():
     GITHUB_TOKEN = os.environ['GITHUB_TOKEN']
     GITHUB_REPO = "iskur/weathercop"
     WORKFLOW_ID = "build-wheels.yml"
+
+    # Debug: Check what CI variables are available
+    print("[DEBUG] Available CI variables:")
+    for key in sorted(os.environ.keys()):
+        if key.startswith('CI_COMMIT'):
+            print(f"  {key}: {os.environ[key][:50]}...")
+
     # Use CI_COMMIT_REF (always available for branches/tags) instead of CI_COMMIT_TAG (only for tags)
-    REF = os.environ['CI_COMMIT_REF']
+    # Fall back to CI_COMMIT_BRANCH if REF is not available
+    REF = os.environ.get('CI_COMMIT_REF') or os.environ.get('CI_COMMIT_BRANCH')
+    if not REF:
+        print("[ERROR] Neither CI_COMMIT_REF nor CI_COMMIT_BRANCH found!")
+        print("[ERROR] Available CI_COMMIT_* variables:")
+        for key in os.environ:
+            if key.startswith('CI_COMMIT'):
+                print(f"  {key}")
+        sys.exit(1)
 
     # === DEBUG: Component 1 - Environment ===
     print(f"[ENV] GITHUB_TOKEN present: {bool(GITHUB_TOKEN)}")
