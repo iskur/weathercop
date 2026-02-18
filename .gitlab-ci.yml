@@ -17,7 +17,6 @@ cache:
 
 .python_setup: &python_setup
   image: $SHARED_IMAGE
-  pull_policy: if-not-present
   before_script:
     - export PATH="/root/.local/bin:/app/.venv/bin:$PATH"
     # Upgrade pip and build tools
@@ -26,6 +25,7 @@ cache:
 test-build:
   <<: *python_setup
   stage: test
+  pull_policy: if-not-present
   tags:
     - r9x
   script:
@@ -76,6 +76,7 @@ test-build:
 build-wheels:
   <<: *python_setup
   stage: build
+  pull_policy: if-not-present
   tags:
     - r9x
   script:
@@ -126,6 +127,7 @@ build-wheels:
 build-sdist:
   <<: *python_setup
   stage: build
+  pull_policy: if-not-present
   tags:
     - r9x
   script:
