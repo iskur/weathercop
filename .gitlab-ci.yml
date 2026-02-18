@@ -138,6 +138,7 @@ trigger-github-builds:
     - r9x
   variables:
     GITHUB_TOKEN: $GITHUB_TOKEN
+    CI_COMMIT_TAG: $CI_COMMIT_TAG
   before_script:
     - export PATH="/root/.local/bin:/app/.venv/bin:$PATH"
   script:
