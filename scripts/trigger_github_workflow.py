@@ -68,8 +68,7 @@ def main():
     print(f"\n[WORKFLOW] Triggering GitHub workflow for ref: {REF}")
     trigger_url = f"https://api.github.com/repos/{GITHUB_REPO}/actions/workflows/{WORKFLOW_ID}/dispatches"
     trigger_payload = {
-        'ref': REF,
-        'inputs': {'ref': REF}
+        'ref': REF
     }
     print(f"[WORKFLOW] URL: {trigger_url}")
     print(f"[WORKFLOW] Payload: {trigger_payload}")
