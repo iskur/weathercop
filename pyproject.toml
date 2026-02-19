@@ -111,11 +111,11 @@ before-build = "pip install -e . '[.build]' && python setup.py build_ext --inpla
 
 [tool.cibuildwheel.windows]
 archs = ["AMD64"]
-before-build = "pip install -e . '[.build] && python setup.py build_ext --inplace && python scripts/generate_ufuncs.py"
+before-build = "pip install -e . '[.build]' && python setup.py build_ext --inplace && python scripts/generate_ufuncs.py"
 
 [tool.cibuildwheel.macos]
 archs = ["x86_64", "arm64"]
-before-build = "rm -rf src/weathercop/*.so && pip install -e .  '[.build] && python setup.py build_ext --inplace && python scripts/generate_ufuncs.py"
+before-build = "rm -rf src/weathercop/*.so && pip install -e .  '[.build]' && python setup.py build_ext --inplace && python scripts/generate_ufuncs.py"
 
 [tool.black]
 line-length = 79
