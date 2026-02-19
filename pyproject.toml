@@ -111,7 +111,7 @@ before-build = "pip install -e . && python setup.py build_ext --inplace && pytho
 
 [tool.cibuildwheel.macos]
 archs = ["x86_64", "arm64"]
-before-build = "pip install -e . && python setup.py build_ext --inplace && python scripts/generate_ufuncs.py"
+before-build = "rm -rf src/weathercop/*.so && pip install -e . && python setup.py build_ext --inplace && python scripts/generate_ufuncs.py"
 
 [tool.black]
 line-length = 79
