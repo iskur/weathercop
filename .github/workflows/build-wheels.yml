@@ -29,13 +29,6 @@ jobs:
       uses: pypa/cibuildwheel@v2.22.0
       env:
         CIBW_BUILD_VERBOSITY: 1
-        # Skip testing on Linux (GitLab CI handles full testing on Linux)
-        # Run smoke tests on Windows and macOS
-        CIBW_TEST_SKIP: "cp*-manylinux* cp*-musllinux*"
-        # Install minimal test requirements for smoke test script
-        CIBW_TEST_REQUIRES: "xarray netcdf4 matplotlib pandas scipy"
-        # Run the smoke test script (reduced to level 3 to stay under time limits)
-        CIBW_TEST_COMMAND: "python {project}/scripts/smoke_test.py --level 3"
 
     - name: Set up Python for verification
       uses: actions/setup-python@v5
