@@ -146,6 +146,9 @@ trigger-github-builds:
   before_script:
     - export PATH="/root/.local/bin:/app/.venv/bin:$PATH"
   script:
+    # Disable SSL verification for self-signed cert on home network GitLab
+    - git config --global http.sslVerify false
+
     # Fetch full history (CI uses shallow clone by default, which causes push issues)
     - git fetch --unshallow origin || true
 
