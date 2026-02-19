@@ -103,15 +103,15 @@ test-command = "python {project}/scripts/smoke_test.py --level 3"
 # Platform-specific settings
 [tool.cibuildwheel.linux]
 archs = ["x86_64"]
-before-build = "pip install -e . && python scripts/generate_ufuncs.py"
+before-build = "pip install -e . && python setup.py build_ext --inplace && python scripts/generate_ufuncs.py"
 
 [tool.cibuildwheel.windows]
 archs = ["AMD64"]
-before-build = "pip install -e . && python scripts/generate_ufuncs.py"
+before-build = "pip install -e . && python setup.py build_ext --inplace && python scripts/generate_ufuncs.py"
 
 [tool.cibuildwheel.macos]
 archs = ["x86_64", "arm64"]
-before-build = "pip install -e . && python scripts/generate_ufuncs.py"
+before-build = "pip install -e . && python setup.py build_ext --inplace && python scripts/generate_ufuncs.py"
 
 [tool.black]
 line-length = 79
