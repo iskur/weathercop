@@ -1,9 +1,6 @@
 name: Build Multi-Platform Wheels
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
   pull_request:
     paths:
