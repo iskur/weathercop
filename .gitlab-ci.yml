@@ -148,7 +148,7 @@ trigger-github-builds:
   script:
     # Push current code to GitHub (ensure it's up-to-date before triggering builds)
     - git remote add github https://x-access-token:${GITHUB_TOKEN}@github.com/iskur/weathercop.git || git remote set-url github https://x-access-token:${GITHUB_TOKEN}@github.com/iskur/weathercop.git
-    - git push github $CI_COMMIT_REF_NAME
+    - git push github HEAD:refs/heads/$CI_COMMIT_REF_NAME
 
     # Install requests for GitHub API interaction
     - uv pip install requests
