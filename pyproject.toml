@@ -94,8 +94,8 @@ skip = "pp* *-musllinux_*"
 # Run smoke tests on Windows and macOS only
 test-skip = "cp*-manylinux* cp*-musllinux*"
 
-# Minimal test requirements for smoke test script
-test-requires = "xarray netcdf4 matplotlib pandas scipy setuptools"
+# Install the project itself so smoke test can import weathercop and its dependencies
+test-requires = "{project}"
 
 # Run the smoke test script (reduced to level 3 to stay under time limits)
 test-command = "python {project}/scripts/smoke_test.py --level 3"
