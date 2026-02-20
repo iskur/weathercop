@@ -1,5 +1,6 @@
 from pathlib import Path
 import sys
+import os
 import numpy as np
 from setuptools import setup, Extension
 from Cython.Build import cythonize
@@ -48,10 +49,15 @@ def cythonize_extensions(force=True):
         ),
     ]
 
-    # Disable multiprocessing on macOS during setup.py execution to avoid
-    # "process before bootstrapping" errors. Only use 1 thread for build_ext
-    # phase; parallelization will happen naturally during wheel compilation.
-    nthreads = 1 if sys.platform == "darwin" else cpu_count()
+    # Disable multiprocessing during build_ext phase to avoid macOS spawn issues.
+    # Check for CYTHONIZE_NO_MP env var or detect build_ext in sys.argv.
+    # Even nthreads=1 creates a ProcessPoolExecutor on macOS that causes spawn errors.
+    no_multiprocessing = (
+        os.environ.get("CYTHONIZE_NO_MP") == "1"
+        or "build_ext" in sys.argv
+        or sys.platform == "darwin"
+    )
+    nthreads = 1 if no_multiprocessing else cpu_count()
 
     return cythonize(
         auto_exts + core_exts,
