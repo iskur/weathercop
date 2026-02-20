@@ -48,11 +48,16 @@ def cythonize_extensions(force=True):
         ),
     ]
 
+    # Disable multiprocessing on macOS during setup.py execution to avoid
+    # "process before bootstrapping" errors. Only use 1 thread for build_ext
+    # phase; parallelization will happen naturally during wheel compilation.
+    nthreads = 1 if sys.platform == "darwin" else cpu_count()
+
     return cythonize(
         auto_exts + core_exts,
         force=force,
         language_level="3",
-        nthreads=cpu_count(),  # Parallelize compilation
+        nthreads=nthreads,
     )
 
 
