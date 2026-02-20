@@ -107,15 +107,15 @@ test-command = "python {project}/scripts/smoke_test.py --level 3"
 # Platform-specific settings
 [tool.cibuildwheel.linux]
 archs = ["x86_64"]
-before-build = "pip install cython setuptools numpy matplotlib && python scripts/generate_ufuncs.py"
+before-build = "pip install cython setuptools numpy matplotlib networkx && python scripts/generate_ufuncs.py"
 
 [tool.cibuildwheel.windows]
 archs = ["AMD64"]
-before-build = "pip install cython setuptools numpy matplotlib && python scripts/generate_ufuncs.py"
+before-build = "pip install cython setuptools numpy matplotlib networkx && python scripts/generate_ufuncs.py"
 
 [tool.cibuildwheel.macos]
 archs = ["x86_64", "arm64"]
-before-build = "rm -rf src/weathercop/*.so && pip install cython setuptools numpy matplotlib && python scripts/generate_ufuncs.py"
+before-build = "rm -rf src/weathercop/*.so && pip install cython setuptools numpy matplotlib networkx && python scripts/generate_ufuncs.py"
 
 [tool.black]
 line-length = 79
