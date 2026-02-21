@@ -115,7 +115,7 @@ before-build = "pip install cython setuptools numpy sympy scipy numexpr varwg &&
  
 [tool.cibuildwheel.macos]
 archs = ["x86_64", "arm64"]
-before-build = "rm -rf src/weathercop/*.so && pip install cython setuptools numpy sympy scipy numexpr varwg && python scripts/generate_ufuncs.py"
+before-build = "rm -rf src/weathercop/ufuncs && pip install cython setuptools numpy sympy scipy numexpr varwg && python scripts/generate_ufuncs.py"
 
 [tool.black]
 line-length = 79
