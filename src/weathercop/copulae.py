@@ -283,7 +283,16 @@ def newton_py(
 if conf.PROFILE:
     newton = newton_py
 else:
-    from weathercop.cinv_cdf import newton
+    # Lazy import of Cython newton to avoid circular dependency during build
+    # The generate_ufuncs.py script imports copulae before cinv_cdf is compiled
+    _newton_cython = None
+
+    def newton(*args, **kwargs):
+        global _newton_cython
+        if _newton_cython is None:
+            from weathercop.cinv_cdf import newton as _newton_func
+            _newton_cython = _newton_func
+        return _newton_cython(*args, **kwargs)
 
 
 def mark_failed(key):
