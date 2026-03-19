@@ -15,8 +15,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [windows-latest, macos-15, macos-latest]
-        # macos-15 is x86_64 (Intel), macos-latest is arm64 (Apple Silicon)
+        os: [windows-latest, macos-15]
+        # macos-15 and macos-latest are both arm64 (Apple Silicon)
+        # x86_64 wheels are cross-compiled via cibuildwheel archs config
         # linux is built on private gitlab
 
     steps:

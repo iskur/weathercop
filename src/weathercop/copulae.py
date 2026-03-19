@@ -158,6 +158,24 @@ def ufuncify_cython(cls, name, uargs, expr, *args, verbose=True, **kwds):
                         *args,
                         **kwds,
                     )
+                except ImportError as exc:
+                    # Cross-compilation: .so compiled for target arch
+                    # can't be imported by host Python (e.g. x86_64 .so
+                    # on arm64 macOS). The .pyx and .c source files are
+                    # already generated, which is all we need for the
+                    # build. Fall back to numpy backend for this session.
+                    if verbose:
+                        print(
+                            f"Cross-compilation detected for "
+                            f"{module_name}: {exc}"
+                        )
+                    ufunc = autowrap.ufuncify(
+                        uargs,
+                        expr,
+                        tempdir=ufunc_dir,
+                        verbose=verbose,
+                        backend="numpy",
+                    )
             autowrap.CodeWrapper._module_basename = _module_basename_orig
             autowrap.CodeWrapper._module_counter = _module_counter_orig
             autowrap.CodeWrapper._filename = _filename_orig
