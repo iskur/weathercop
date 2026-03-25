@@ -135,50 +135,72 @@ def ufuncify_cython(cls, name, uargs, expr, *args, verbose=True, **kwds):
             autowrap.CodeWrapper._filename = f"{module_name}_code"
             autowrap.CodeWrapper._module_basename = module_name
             autowrap.CodeWrapper._module_counter = 0
-            with tools.chdir(ufunc_dir):
-                try:
-                    ufunc = autowrap.ufuncify(
-                        uargs,
-                        expr,
-                        tempdir=ufunc_dir,
-                        # flags=["-D_XOPEN_SOURCE"],  # for optims_c99
-                        verbose=verbose,
-                        *args,
-                        **kwds,
-                    )
-                except AttributeError:
-                    # seems like ufuncify is too fast in trying to import
-                    # the newly generated module
-                    ufunc = autowrap.ufuncify(
-                        uargs,
-                        expr,
-                        tempdir=ufunc_dir,
-                        # flags=["-D_XOPEN_SOURCE"],  # for optims_c99
-                        verbose=verbose,
-                        *args,
-                        **kwds,
-                    )
-                except ImportError as exc:
-                    # Cross-compilation: .so compiled for target arch
-                    # can't be imported by host Python (e.g. x86_64 .so
-                    # on arm64 macOS). The .pyx and .c source files are
-                    # already generated, which is all we need for the
-                    # build. Fall back to numpy backend for this session.
-                    if verbose:
-                        print(
-                            f"Cross-compilation detected for "
-                            f"{module_name}: {exc}"
+            try:
+                with tools.chdir(ufunc_dir):
+                    try:
+                        ufunc = autowrap.ufuncify(
+                            uargs,
+                            expr,
+                            tempdir=ufunc_dir,
+                            # flags=["-D_XOPEN_SOURCE"],  # for optims_c99
+                            verbose=verbose,
+                            *args,
+                            **kwds,
                         )
-                    ufunc = autowrap.ufuncify(
-                        uargs,
-                        expr,
-                        tempdir=ufunc_dir,
-                        verbose=verbose,
-                        backend="numpy",
-                    )
-            autowrap.CodeWrapper._module_basename = _module_basename_orig
-            autowrap.CodeWrapper._module_counter = _module_counter_orig
-            autowrap.CodeWrapper._filename = _filename_orig
+                    except AttributeError:
+                        # seems like ufuncify is too fast in trying to import
+                        # the newly generated module
+                        ufunc = autowrap.ufuncify(
+                            uargs,
+                            expr,
+                            tempdir=ufunc_dir,
+                            # flags=["-D_XOPEN_SOURCE"],  # for optims_c99
+                            verbose=verbose,
+                            *args,
+                            **kwds,
+                        )
+                    except ImportError as exc:
+                        # Only suppress ImportErrors that are caused by a
+                        # binary architecture mismatch (cross-compilation).
+                        # Any other ImportError (bad symbol, missing dep,
+                        # wrong path) should propagate so it isn't silently
+                        # swallowed with a misleading placeholder.
+                        exc_str = str(exc)
+                        is_arch_mismatch = (
+                            "incompatible architecture" in exc_str  # macOS
+                            or "wrong ELF class" in exc_str  # Linux
+                        )
+                        if not is_arch_mismatch:
+                            raise
+
+                        # Cross-compilation: the .so was compiled for the
+                        # target arch (e.g. x86_64) but the running Python
+                        # is a different arch (e.g. arm64 universal2).
+                        # The .pyx and .c source files are already on disk —
+                        # that is all generate_ufuncs.py needs; setup.py
+                        # will recompile them natively via cibuildwheel.
+                        # Return a placeholder so metaclass initialisation
+                        # succeeds and all copulas' sources get generated.
+                        if verbose:
+                            print(
+                                f"Cross-compilation detected for "
+                                f"{module_name}: {exc}\n"
+                                f"Source files generated; native compilation "
+                                f"will be performed by setup.py."
+                            )
+
+                        def ufunc(*args, **kwargs):
+                            raise RuntimeError(
+                                f"Ufunc {module_name!r} was not compiled for "
+                                f"this platform. This placeholder is only "
+                                f"present in cross-compilation environments "
+                                f"during wheel building."
+                            )
+
+            finally:
+                autowrap.CodeWrapper._module_basename = _module_basename_orig
+                autowrap.CodeWrapper._module_counter = _module_counter_orig
+                autowrap.CodeWrapper._filename = _filename_orig
     return ufunc
 
 

@@ -115,7 +115,7 @@ before-build = "pip install cython setuptools numpy sympy scipy numexpr varwg &&
  
 [tool.cibuildwheel.macos]
 archs = ["x86_64", "arm64"]
-before-build = "find . -type f -name '*.so' -delete && pip install cython setuptools numpy sympy scipy numexpr varwg && python scripts/generate_ufuncs.py"
+before-build = "find . -type f -name '*.so' -delete && pip install cython setuptools numpy sympy scipy numexpr varwg && python scripts/generate_ufuncs.py && find . -type f -name '*.so' -delete"
 
 [tool.black]
 line-length = 79
