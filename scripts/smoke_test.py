@@ -164,7 +164,7 @@ def test_level_3_core_functionality():
         sample = np.array(clayton.sample(100, 2.0))
         if sample.shape != (2, 100):
             raise ValueError(f"Unexpected sample shape: {sample.shape}")
-        print(f"OK (sampled {sample.shape[0]} pairs)")
+        print(f"OK (sampled {sample.shape[1]} pairs)")
 
         # Load and slice test data (2 stations, 2 years = 730 days)
         print("Loading example dataset...", end=" ", flush=True)
