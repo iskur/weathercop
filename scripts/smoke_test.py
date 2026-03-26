@@ -53,13 +53,13 @@ def test_level_1_imports():
     start_time = time.time()
 
     modules = [
-        'weathercop.copulae',
-        'weathercop.vine',
-        'weathercop.multisite',
-        'weathercop.seasonal_cop',
-        'weathercop.example_data',
-        'weathercop.configs',
-        'weathercop.cop_conf',
+        "weathercop.copulae",
+        "weathercop.vine",
+        "weathercop.multisite",
+        "weathercop.seasonal_cop",
+        "weathercop.example_data",
+        "weathercop.configs",
+        "weathercop.cop_conf",
     ]
 
     try:
@@ -76,6 +76,7 @@ def test_level_1_imports():
         elapsed = time.time() - start_time
         print_error(f"Level 1 failed after {elapsed:.1f}s: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -111,9 +112,11 @@ def test_level_2_data_file():
 
         # Verify expected structure
         print("Verifying dataset structure...", end=" ", flush=True)
-        required_dims = {'time', 'station'}
+        required_dims = {"time", "station"}
         if not required_dims.issubset(set(xds.dims)):
-            raise ValueError(f"Missing required dimensions. Found: {set(xds.dims)}")
+            raise ValueError(
+                f"Missing required dimensions. Found: {set(xds.dims)}"
+            )
         print(f"OK (dims: {list(xds.dims.keys())})")
 
         xds.close()
@@ -126,6 +129,7 @@ def test_level_2_data_file():
         elapsed = time.time() - start_time
         print_error(f"Level 2 failed after {elapsed:.1f}s: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -142,7 +146,10 @@ def test_level_3_core_functionality():
     try:
         import xarray as xr
         import numpy as np
-        from weathercop.example_data import get_example_dataset_path, get_dwd_config
+        from weathercop.example_data import (
+            get_example_dataset_path,
+            get_dwd_config,
+        )
         from weathercop.multisite import Multisite, set_conf
         from weathercop import copulae
 
@@ -154,8 +161,8 @@ def test_level_3_core_functionality():
         # Test copula creation and sampling (validates ufuncs)
         print("Testing copula sampling...", end=" ", flush=True)
         clayton = copulae.clayton
-        sample = clayton.sample(100, 2.0)
-        if sample.shape != (100, 2):
+        sample = np.array(clayton.sample(100, 2.0))
+        if sample.shape != (2, 100):
             raise ValueError(f"Unexpected sample shape: {sample.shape}")
         print(f"OK (sampled {sample.shape[0]} pairs)")
 
@@ -164,11 +171,16 @@ def test_level_3_core_functionality():
         xds = xr.open_dataset(get_example_dataset_path())
         n_stations = min(2, len(xds.station))
         n_days = min(730, len(xds.time))  # 2 years
-        xds_small = xds.isel(station=slice(0, n_stations), time=slice(0, n_days))
+        xds_small = xds.isel(
+            station=slice(0, n_stations), time=slice(0, n_days)
+        )
         print(f"OK (sliced to {n_stations} stations, {n_days} days)")
 
         # Initialize MultiSite (heavy operation - vine construction)
-        print("Initializing MultiSite (this may take several minutes)...", flush=True)
+        print(
+            "Initializing MultiSite (this may take several minutes)...",
+            flush=True,
+        )
         init_start = time.time()
         wc = Multisite(
             xds_small,
@@ -193,7 +205,7 @@ def test_level_3_core_functionality():
         print("Verifying simulation output...", end=" ", flush=True)
         if sim_result is None:
             raise ValueError("Simulation returned None")
-        if not hasattr(sim_result, 'dims'):
+        if not hasattr(sim_result, "dims"):
             raise ValueError("Simulation result is not an xarray object")
         print(f"OK (dims: {list(sim_result.dims.keys())})")
 
@@ -209,6 +221,7 @@ def test_level_3_core_functionality():
         elapsed = time.time() - start_time
         print_error(f"Level 3 failed after {elapsed:.1f}s: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -224,7 +237,10 @@ def test_level_4_quick_start():
 
     try:
         import xarray as xr
-        from weathercop.example_data import get_example_dataset_path, get_dwd_config
+        from weathercop.example_data import (
+            get_example_dataset_path,
+            get_dwd_config,
+        )
         from weathercop.multisite import Multisite, set_conf
 
         # Configure VARWG
@@ -238,7 +254,9 @@ def test_level_4_quick_start():
         xds = xr.open_dataset(dataset_path)
         # Use small slice for faster execution
         xds_small = xds.isel(station=slice(0, 2), time=slice(0, 730))
-        print(f"OK ({len(xds_small.station)} stations, {len(xds_small.time)} days)")
+        print(
+            f"OK ({len(xds_small.station)} stations, {len(xds_small.time)} days)"
+        )
 
         # Initialize weather generator
         print("Initializing weather generator...", flush=True)
@@ -264,7 +282,7 @@ def test_level_4_quick_start():
         print("Validating output...", end=" ", flush=True)
         if synthetic is None:
             raise ValueError("Simulation returned None")
-        if 'time' not in synthetic.dims:
+        if "time" not in synthetic.dims:
             raise ValueError("Missing 'time' dimension in output")
         print(f"OK ({len(synthetic.time)} time steps)")
 
@@ -280,6 +298,7 @@ def test_level_4_quick_start():
         elapsed = time.time() - start_time
         print_error(f"Level 4 failed after {elapsed:.1f}s: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 
@@ -289,14 +308,14 @@ def main():
     parser = argparse.ArgumentParser(
         description="WeatherCop installation smoke tests",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=__doc__
+        epilog=__doc__,
     )
     parser.add_argument(
-        '--level',
+        "--level",
         type=int,
         choices=[1, 2, 3, 4],
         default=4,
-        help='Maximum test level to run (default: 4 - run all tests)'
+        help="Maximum test level to run (default: 4 - run all tests)",
     )
 
     args = parser.parse_args()
@@ -313,7 +332,7 @@ def main():
     ]
 
     results = []
-    for i, test_func in enumerate(test_functions[:args.level], 1):
+    for i, test_func in enumerate(test_functions[: args.level], 1):
         success = test_func()
         results.append(success)
         if not success:
@@ -338,5 +357,5 @@ def main():
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())
