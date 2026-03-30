@@ -166,13 +166,20 @@ def test_level_3_core_functionality():
             raise ValueError(f"Unexpected sample shape: {sample.shape}")
         print(f"OK (sampled {sample.shape[1]} pairs)")
 
-        # Load and slice test data (2 stations, 2 years = 730 days)
+        # Load and slice test data (2 stations, 2 years)
         print("Loading example dataset...", end=" ", flush=True)
         xds = xr.open_dataset(get_example_dataset_path())
         n_stations = min(2, len(xds.station))
-        n_days = min(730, len(xds.time))  # 2 years
+        # Compute steps needed for 5 years, accounting for sub-daily resolution.
+        # Fewer than ~4 years can leave some DOY windows with no wet days for
+        # Kumaraswamy fitting, causing an empty-sample-points error in VARWG.
+        time_step_days = float(
+            (xds.time.values[1] - xds.time.values[0]) / np.timedelta64(1, "D")
+        )
+        n_steps = min(int(1825 / time_step_days), len(xds.time))
+        n_days = int(n_steps * time_step_days)
         xds_small = xds.isel(
-            station=slice(0, n_stations), time=slice(0, n_days)
+            station=slice(0, n_stations), time=slice(0, n_steps)
         )
         print(f"OK (sliced to {n_stations} stations, {n_days} days)")
 
@@ -201,13 +208,14 @@ def test_level_3_core_functionality():
         sim_elapsed = time.time() - sim_start
         print(f"OK ({sim_elapsed:.1f}s)")
 
-        # Verify simulation output
+        # Verify simulation output (simulate() returns a SimResult namedtuple)
         print("Verifying simulation output...", end=" ", flush=True)
         if sim_result is None:
             raise ValueError("Simulation returned None")
-        if not hasattr(sim_result, "dims"):
-            raise ValueError("Simulation result is not an xarray object")
-        print(f"OK (dims: {list(sim_result.dims.keys())})")
+        sim_xr = sim_result.sim_sea
+        if not hasattr(sim_xr, "dims"):
+            raise ValueError("sim_result.sim_sea is not an xarray object")
+        print(f"OK (dims: {list(sim_xr.dims)})")
 
         # Cleanup
         wc.close()
@@ -252,10 +260,16 @@ def test_level_4_quick_start():
         print("Loading example dataset...", end=" ", flush=True)
         dataset_path = get_example_dataset_path()
         xds = xr.open_dataset(dataset_path)
-        # Use small slice for faster execution
-        xds_small = xds.isel(station=slice(0, 2), time=slice(0, 730))
+        # Compute steps needed for 2 years, accounting for sub-daily resolution
+        import numpy as np
+        time_step_days = float(
+            (xds.time.values[1] - xds.time.values[0]) / np.timedelta64(1, "D")
+        )
+        n_steps = min(int(1825 / time_step_days), len(xds.time))
+        xds_small = xds.isel(station=slice(0, 2), time=slice(0, n_steps))
+        n_days = int(n_steps * time_step_days)
         print(
-            f"OK ({len(xds_small.station)} stations, {len(xds_small.time)} days)"
+            f"OK ({len(xds_small.station)} stations, {n_days} days)"
         )
 
         # Initialize weather generator
@@ -278,13 +292,14 @@ def test_level_4_quick_start():
         sim_elapsed = time.time() - sim_start
         print_success(f"Synthetic weather generated in {sim_elapsed:.1f}s")
 
-        # Basic validation
+        # Basic validation (simulate() returns a SimResult namedtuple)
         print("Validating output...", end=" ", flush=True)
         if synthetic is None:
             raise ValueError("Simulation returned None")
-        if "time" not in synthetic.dims:
+        sim_xr = synthetic.sim_sea
+        if "time" not in sim_xr.dims:
             raise ValueError("Missing 'time' dimension in output")
-        print(f"OK ({len(synthetic.time)} time steps)")
+        print(f"OK ({len(sim_xr.time)} time steps)")
 
         # Cleanup
         wc.close()
