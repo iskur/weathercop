@@ -105,14 +105,17 @@ test-command = "python {project}/scripts/smoke_test.py --level 3"
 [tool.cibuildwheel.linux]
 archs = ["x86_64"]
 before-build = "pip install cython setuptools numpy sympy scipy numexpr varwg && python scripts/generate_ufuncs.py"
+before-test = "pip install setuptools cython"
 
 [tool.cibuildwheel.windows]
 archs = ["AMD64"]
 before-build = "pip install cython setuptools numpy sympy scipy numexpr varwg && python scripts/generate_ufuncs.py"
+before-test = "pip install setuptools cython"
  
 [tool.cibuildwheel.macos]
 archs = ["x86_64", "arm64"]
 before-build = "find . -type f -name '*.so' -delete && pip install cython setuptools numpy sympy scipy numexpr varwg && python scripts/generate_ufuncs.py && find . -type f -name '*.so' -delete"
+before-test = "pip install setuptools cython"
 
 [tool.black]
 line-length = 79
