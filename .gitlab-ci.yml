@@ -1,0 +1,201 @@
+stages:
+  - test
+  - build
+  - publish
+
+variables:
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+  # Shared Docker image from weather-generation/docker-images
+  SHARED_IMAGE: "$CI_REGISTRY/weather-generation/docker-images/python-3.13:latest"
+
+cache:
+  paths:
+    - .venv/
+    - /root/.cache/uv/
+  key: $CI_COMMIT_REF_SLUG
+
+.python_setup: &python_setup
+  image: $SHARED_IMAGE
+  before_script:
+    - export PATH="/root/.local/bin:/app/.venv/bin:$PATH"
+    # Upgrade pip and build tools
+    - uv pip install --upgrade pip setuptools wheel
+
+test-build:
+  <<: *python_setup
+  stage: test
+  tags:
+    - r9x
+  script:
+    # Install all dependencies from lock file
+    - uv sync --group dev
+
+    # Build core Cython extensions in-place
+    - uv run python setup.py build_ext --inplace
+
+    # Pre-generate Cython ufuncs
+    - uv run python scripts/generate_ufuncs.py
+
+    # Generate quick start example from README
+    - mkdir -p src/weathercop/examples
+    - pandoc README.org --lua-filter=$(pwd)/scripts/tangle.lua -f org -t plain
+
+    # Build package
+    - uv build
+
+    # List built artifacts
+    - ls -lh dist/
+
+    # Install package with test dependencies
+    - uv sync --group test
+    - uv pip install dist/*.whl
+
+    # Smoke test the installed wheel (levels 1-3: imports, data files, copula sampling)
+    # Catches packaging problems (missing .so/.nc, broken imports) before the full
+    # test suite and before triggering the GitHub wheel builds.
+    - python scripts/smoke_test.py --level 3
+
+    # Display system resources
+    - echo "=== System resources before tests ==="
+    - free -h
+    - df -h
+    - echo "==================================="
+
+    # Run CPU-intensive tests
+    - pytest --pyargs weathercop -n 10 -m "not memory_intensive" --durations=10 -v
+
+    # Run memory-intensive tests
+    - pytest --pyargs weathercop -n 4 -m "memory_intensive" --durations=10 -v
+  rules:
+    - if: '$CI_COMMIT_MESSAGE =~ /\[skip-tests\]/'
+      when: never
+    - if: '$CI_COMMIT_MESSAGE =~ /\*\*\.md/'
+      when: never
+    - if: '$CI_COMMIT_MESSAGE =~ /docs\//'
+      when: never
+    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_MERGE_REQUEST_IID'
+
+build-wheels:
+  <<: *python_setup
+  stage: build
+  tags:
+    - r9x
+  script:
+    - uv sync
+    - uv build --wheel
+    - mkdir -p wheelhouse
+    - mv dist/*.whl wheelhouse/
+    - ls -lh wheelhouse/
+
+    # Verify .nc test data file is packaged in wheel
+    - |
+      python << 'EOF'
+      import zipfile
+      from pathlib import Path
+
+      wheels = list(Path('./wheelhouse').glob('*.whl'))
+      if not wheels:
+          print("✗ No wheels found in wheelhouse/")
+          exit(1)
+
+      for wheel in wheels:
+          with zipfile.ZipFile(wheel, 'r') as zf:
+              nc_files = [f for f in zf.namelist() if f.endswith('.nc')]
+              if not nc_files:
+                  print(f"✗ {wheel.name}: No .nc files found!")
+                  print("Files in wheel:")
+                  for f in sorted(zf.namelist()):
+                      if 'fixtures' in f or 'tests' in f:
+                          print(f"  - {f}")
+                  exit(1)
+              print(f"✓ {wheel.name}: Found {len(nc_files)} .nc file(s)")
+              for nc in nc_files:
+                  info = zf.getinfo(nc)
+                  size_mb = info.file_size / (1024 * 1024)
+                  print(f"  - {nc} ({size_mb:.2f} MB)")
+      EOF
+
+    - uv tool run twine check wheelhouse/*.whl
+  artifacts:
+    paths:
+      - wheelhouse/
+    expire_in: 1 week
+  rules:
+    - if: '$CI_COMMIT_TAG != null'
+    - when: manual
+  allow_failure: true
+
+build-sdist:
+  <<: *python_setup
+  stage: build
+  tags:
+    - r9x
+  script:
+    - uv sync
+    - uv build --sdist
+    - ls -lh dist/
+  artifacts:
+    paths:
+      - dist/*.tar.gz
+    expire_in: 1 week
+  rules:
+    - if: '$CI_COMMIT_TAG != null'
+    - when: manual
+
+trigger-github-builds:
+  stage: build
+  image: $SHARED_IMAGE
+  tags:
+    - r9x
+  before_script:
+    - export PATH="/root/.local/bin:/app/.venv/bin:$PATH"
+  script:
+    # Disable SSL verification for self-signed cert on home network GitLab
+    - git config --global http.sslVerify false
+
+    # Fetch full history (CI uses shallow clone by default, which causes push issues)
+    - git fetch --unshallow origin || true
+
+    # Push current code to GitHub (ensure it's up-to-date before triggering builds)
+    # GitLab is authoritative source, so use --force to sync even if GitHub is ahead
+    - git remote add github https://x-access-token:${GITHUB_TOKEN}@github.com/iskur/weathercop.git || git remote set-url github https://x-access-token:${GITHUB_TOKEN}@github.com/iskur/weathercop.git
+    - git push --force github HEAD:refs/heads/$CI_COMMIT_REF_NAME
+
+    # Install requests for GitHub API interaction
+    - uv pip install requests
+    # Trigger GitHub Actions workflow and wait for completion
+    - uv run scripts/trigger_github_workflow.py
+
+  rules:
+    - if: '$CI_COMMIT_TAG != null'
+    - when: manual
+  allow_failure: false
+
+publish:
+  image: $SHARED_IMAGE
+  stage: publish
+  needs:
+    - build-wheels
+    - build-sdist
+    - optional: true
+      job: trigger-github-builds
+  tags:
+    - r9x
+  before_script:
+    - export PATH="/root/.local/bin:/app/.venv/bin:$PATH"
+  script:
+    - mkdir -p dist
+    - mv wheelhouse/*.whl dist/ || true
+    - ls -lh dist/
+    - uv tool run twine check dist/*.whl dist/*.tar.gz
+    # Use --skip-existing to allow coordinated publishing from multiple CI systems
+    # This enables GitLab to publish Linux wheels while GitHub publishes Windows/macOS wheels
+    - uv tool run twine upload dist/*.whl dist/*.tar.gz --username __token__ --password $PYPI_TOKEN --skip-existing
+  artifacts:
+    paths:
+      - dist/
+  rules:
+    - if: '$CI_COMMIT_TAG != null'
+    - when: manual
+  allow_failure: true

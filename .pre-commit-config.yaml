@@ -13,4 +13,4 @@ repos:
         language: system
         pass_filenames: false
         files: ^README\.org$
-        stages: [commit]
+        stages: [pre-commit]

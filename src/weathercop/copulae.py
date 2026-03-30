@@ -111,40 +111,96 @@ def ufuncify_cython(cls, name, uargs, expr, *args, verbose=True, **kwds):
         if verbose:
             print(exc)
             print(f"Compiling {expr}")
-        _filename_orig = autowrap.CodeWrapper._filename
-        _module_basename_orig = autowrap.CodeWrapper._module_basename
-        _module_counter_orig = autowrap.CodeWrapper._module_counter
-        # these attributes determine the file name of the generated code
-        autowrap.CodeWrapper._filename = f"{module_name}_code"
-        autowrap.CodeWrapper._module_basename = module_name
-        autowrap.CodeWrapper._module_counter = 0
+
+        # Use file-based locking to serialize ufunc compilation across processes.
+        # This prevents race conditions in pytest-xdist where multiple workers
+        # try to compile the same ufunc simultaneously, causing import failures.
         ufunc_dir = get_ufunc_dir()
-        with tools.chdir(ufunc_dir):
+        lock_file = Path(ufunc_dir) / f".{module_name}.lock"
+
+        with tools.acquire_file_lock(lock_file):
+            # Double-check that another process didn't already compile it
             try:
-                ufunc = autowrap.ufuncify(
-                    uargs,
-                    expr,
-                    tempdir=ufunc_dir,
-                    # flags=["-D_XOPEN_SOURCE"],  # for optims_c99
-                    verbose=verbose,
-                    *args,
-                    **kwds,
-                )
-            except AttributeError:
-                # seems like ufuncify is too fast in trying to import
-                # the newly generated module
-                ufunc = autowrap.ufuncify(
-                    uargs,
-                    expr,
-                    tempdir=ufunc_dir,
-                    # flags=["-D_XOPEN_SOURCE"],  # for optims_c99
-                    verbose=verbose,
-                    *args,
-                    **kwds,
-                )
-        autowrap.CodeWrapper._module_basename = _module_basename_orig
-        autowrap.CodeWrapper._module_counter = _module_counter_orig
-        autowrap.CodeWrapper._filename = _filename_orig
+                ufunc = importlib.import_module(
+                    f"weathercop.ufuncs.{module_name}_0"
+                ).autofunc_c
+                return ufunc
+            except (ImportError, AttributeError):
+                pass
+
+            _filename_orig = autowrap.CodeWrapper._filename
+            _module_basename_orig = autowrap.CodeWrapper._module_basename
+            _module_counter_orig = autowrap.CodeWrapper._module_counter
+            # these attributes determine the file name of the generated code
+            autowrap.CodeWrapper._filename = f"{module_name}_code"
+            autowrap.CodeWrapper._module_basename = module_name
+            autowrap.CodeWrapper._module_counter = 0
+            try:
+                with tools.chdir(ufunc_dir):
+                    try:
+                        ufunc = autowrap.ufuncify(
+                            uargs,
+                            expr,
+                            tempdir=ufunc_dir,
+                            # flags=["-D_XOPEN_SOURCE"],  # for optims_c99
+                            verbose=verbose,
+                            *args,
+                            **kwds,
+                        )
+                    except AttributeError:
+                        # seems like ufuncify is too fast in trying to import
+                        # the newly generated module
+                        ufunc = autowrap.ufuncify(
+                            uargs,
+                            expr,
+                            tempdir=ufunc_dir,
+                            # flags=["-D_XOPEN_SOURCE"],  # for optims_c99
+                            verbose=verbose,
+                            *args,
+                            **kwds,
+                        )
+                    except ImportError as exc:
+                        # Only suppress ImportErrors that are caused by a
+                        # binary architecture mismatch (cross-compilation).
+                        # Any other ImportError (bad symbol, missing dep,
+                        # wrong path) should propagate so it isn't silently
+                        # swallowed with a misleading placeholder.
+                        exc_str = str(exc)
+                        is_arch_mismatch = (
+                            "incompatible architecture" in exc_str  # macOS
+                            or "wrong ELF class" in exc_str  # Linux
+                        )
+                        if not is_arch_mismatch:
+                            raise
+
+                        # Cross-compilation: the .so was compiled for the
+                        # target arch (e.g. x86_64) but the running Python
+                        # is a different arch (e.g. arm64 universal2).
+                        # The .pyx and .c source files are already on disk —
+                        # that is all generate_ufuncs.py needs; setup.py
+                        # will recompile them natively via cibuildwheel.
+                        # Return a placeholder so metaclass initialisation
+                        # succeeds and all copulas' sources get generated.
+                        if verbose:
+                            print(
+                                f"Cross-compilation detected for "
+                                f"{module_name}: {exc}\n"
+                                f"Source files generated; native compilation "
+                                f"will be performed by setup.py."
+                            )
+
+                        def ufunc(*args, **kwargs):
+                            raise RuntimeError(
+                                f"Ufunc {module_name!r} was not compiled for "
+                                f"this platform. This placeholder is only "
+                                f"present in cross-compilation environments "
+                                f"during wheel building."
+                            )
+
+            finally:
+                autowrap.CodeWrapper._module_basename = _module_basename_orig
+                autowrap.CodeWrapper._module_counter = _module_counter_orig
+                autowrap.CodeWrapper._filename = _filename_orig
     return ufunc
 
 
@@ -267,7 +323,16 @@ def newton_py(
 if conf.PROFILE:
     newton = newton_py
 else:
-    from weathercop.cinv_cdf import newton
+    # Lazy import of Cython newton to avoid circular dependency during build
+    # The generate_ufuncs.py script imports copulae before cinv_cdf is compiled
+    _newton_cython = None
+
+    def newton(*args, **kwargs):
+        global _newton_cython
+        if _newton_cython is None:
+            from weathercop.cinv_cdf import newton as _newton_func
+            _newton_cython = _newton_func
+        return _newton_cython(*args, **kwargs)
 
 
 def mark_failed(key):
@@ -2297,6 +2362,7 @@ all_cops = OrderedDict(
     for name, obj in sorted(dict(locals()).items())
     if isinstance(obj, Copulae)
 )
+
 # rotate all the cops!!
 turned_cops = OrderedDict()
 for cop_name, obj in all_cops.items():

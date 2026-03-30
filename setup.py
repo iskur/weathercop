@@ -1,5 +1,6 @@
 from pathlib import Path
 import sys
+import os
 import numpy as np
 from setuptools import setup, Extension
 from Cython.Build import cythonize
@@ -48,11 +49,15 @@ def cythonize_extensions(force=True):
         ),
     ]
 
+    # On macOS, disable multiprocessing to avoid spawn issues during setup.py import.
+    # ProcessPoolExecutor creation triggers spawn errors even with nthreads=1.
+    nthreads = 1 if sys.platform == "darwin" else cpu_count()
+
     return cythonize(
         auto_exts + core_exts,
         force=force,
         language_level="3",
-        nthreads=cpu_count(),  # Parallelize compilation
+        nthreads=nthreads,
     )
 
 

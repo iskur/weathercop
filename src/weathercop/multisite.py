@@ -699,7 +699,7 @@ class Multisite:
         primary_var="theta",
         discretization="D",
         verbose=False,
-        infilling=None,
+        infilling="vg",
         refit_vine=False,
         station_vines=False,
         asymmetry=False,

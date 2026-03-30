@@ -1,9 +1,6 @@
 name: Build Multi-Platform Wheels
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
   pull_request:
     paths:
@@ -18,8 +15,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-15, macos-latest]
-        # macos-15 is x86_64 (Intel), macos-latest is arm64 (Apple Silicon)
+        os: [windows-latest, macos-15]
+        # macos-15 and macos-latest are both arm64 (Apple Silicon)
+        # x86_64 wheels are cross-compiled via cibuildwheel archs config
+        # linux is built on private gitlab
 
     steps:
     - uses: actions/checkout@v4
@@ -40,6 +39,35 @@ jobs:
         python -m pip install twine
         ls -lh ./wheelhouse/*.whl
         python -m twine check ./wheelhouse/*.whl
+
+    - name: Verify test data is packaged in wheel
+      shell: bash
+      run: |
+        python << 'EOF'
+        import zipfile
+        from pathlib import Path
+
+        wheels = list(Path('./wheelhouse').glob('*.whl'))
+        if not wheels:
+            print("✗ No wheels found in wheelhouse/")
+            exit(1)
+
+        for wheel in wheels:
+            with zipfile.ZipFile(wheel, 'r') as zf:
+                nc_files = [f for f in zf.namelist() if f.endswith('.nc')]
+                if not nc_files:
+                    print(f"✗ {wheel.name}: No .nc files found!")
+                    print("Files in wheel:")
+                    for f in sorted(zf.namelist()):
+                        if 'fixtures' in f or 'tests' in f:
+                            print(f"  - {f}")
+                    exit(1)
+                print(f"✓ {wheel.name}: Found {len(nc_files)} .nc file(s)")
+                for nc in nc_files:
+                    info = zf.getinfo(nc)
+                    size_mb = info.file_size / (1024 * 1024)
+                    print(f"  - {nc} ({size_mb:.2f} MB)")
+        EOF
 
     - name: Upload wheels as artifacts
       uses: actions/upload-artifact@v4
@@ -118,7 +146,14 @@ jobs:
                     if bad_file:
                         print(f"✗ {wheel.name}: BAD FILE {bad_file}")
                         exit(1)
-                    print(f"✓ {wheel.name}: ZIP structure valid ({len(zf.namelist())} files)")
+
+                    # Verify .nc test data is included
+                    nc_files = [f for f in zf.namelist() if f.endswith('.nc')]
+                    if not nc_files:
+                        print(f"✗ {wheel.name}: No .nc test data files found!")
+                        exit(1)
+
+                    print(f"✓ {wheel.name}: ZIP structure valid ({len(zf.namelist())} files, {len(nc_files)} .nc files)")
             except Exception as e:
                 print(f"✗ {wheel.name}: {e}")
                 exit(1)
