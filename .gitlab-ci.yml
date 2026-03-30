@@ -64,6 +64,11 @@ test-build:
     # Run CPU-intensive tests
     - pytest --pyargs weathercop -n 10 -m "not memory_intensive" --durations=10 -v
 
+    # Pre-generate VARWG cache for memory-intensive tests.
+    # Without this, each test worker fits VG models fresh, giving non-deterministic
+    # model parameters that make statistical tests like test_sim_mean_increase flaky.
+    - uv run python scripts/generate_test_vg_cache.py
+
     # Run memory-intensive tests
     - pytest --pyargs weathercop -n 4 -m "memory_intensive" --durations=10 -v
   rules:
