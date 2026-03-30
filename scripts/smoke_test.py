@@ -184,7 +184,7 @@ def test_level_3_core_functionality():
         init_start = time.time()
         wc = Multisite(
             xds_small,
-            verbose=False,
+            verbose=True,
             refit=True,
             refit_vine=True,
             reinitialize_vgs=True,  # No cache available in clean install
