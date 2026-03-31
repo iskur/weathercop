@@ -35,12 +35,12 @@ def print_header(text):
 
 def print_success(text):
     """Print a success message."""
-    print(f"✓ {text}")
+    print(f"ok {text}")
 
 
 def print_error(text):
     """Print an error message."""
-    print(f"✗ {text}", file=sys.stderr)
+    print(f"not ok {text}", file=sys.stderr)
 
 
 def test_level_1_imports():
@@ -262,15 +262,14 @@ def test_level_4_quick_start():
         xds = xr.open_dataset(dataset_path)
         # Compute steps needed for 2 years, accounting for sub-daily resolution
         import numpy as np
+
         time_step_days = float(
             (xds.time.values[1] - xds.time.values[0]) / np.timedelta64(1, "D")
         )
         n_steps = min(int(1825 / time_step_days), len(xds.time))
         xds_small = xds.isel(station=slice(0, 2), time=slice(0, n_steps))
         n_days = int(n_steps * time_step_days)
-        print(
-            f"OK ({len(xds_small.station)} stations, {n_days} days)"
-        )
+        print(f"OK ({len(xds_small.station)} stations, {n_days} days)")
 
         # Initialize weather generator
         print("Initializing weather generator...", flush=True)
